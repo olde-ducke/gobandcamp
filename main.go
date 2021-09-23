@@ -5,6 +5,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/jpeg"
+	"image/png"
 	"io"
 	"log"
 	"net/http"
@@ -14,8 +17,10 @@ import (
 	"time"
 
 	"github.com/faiface/beep"
+	"github.com/faiface/beep/effects"
 	"github.com/faiface/beep/mp3"
 	"github.com/faiface/beep/speaker"
+	"github.com/qeesung/image2ascii/convert"
 )
 
 // TODO: struct names and fields are complete mess
@@ -54,7 +59,7 @@ type Property struct {
 }
 
 type Queue struct {
-	streamers []beep.Streamer
+	streamers []beep.StreamSeeker
 }
 
 type Player struct {
@@ -62,19 +67,41 @@ type Player struct {
 	LatestMessage string
 	Status        string
 	AlbumList     Album // not a list at the moment
+	CurrentPos    string
+	AlbumArt      image.Image
+
+	Timer  <-chan time.Time
+	Format beep.Format
 }
 
-var player Player
+var player = Player{CurrentTrack: -1}
 
-func (q *Queue) Add(streamers ...beep.Streamer) {
+func (q *Queue) Add(streamers ...beep.StreamSeeker) {
 	q.streamers = append(q.streamers, streamers...)
+}
+
+func (q *Queue) ChangePosition(pos int) {
+	if len(q.streamers) != 0 {
+		newPos := q.streamers[0].Position()
+		newPos += pos
+		if newPos < 0 {
+			newPos = 0
+		}
+		if newPos >= q.streamers[0].Len() {
+			newPos = q.streamers[0].Len() - 1
+		}
+		if err := q.streamers[0].Seek(newPos); err != nil {
+			log.Println(err)
+		}
+	}
 }
 
 func (q *Queue) Stream(samples [][2]float64) (n int, ok bool) {
 	filled := 0
-	if player.CurrentTrack == 0 {
-		player.printMetadata(player.CurrentTrack)
+	if player.CurrentTrack < 0 {
 		player.CurrentTrack++
+		player.printMetadata()
+		player.Timer = time.Tick(time.Second)
 	}
 	for filled < len(samples) {
 		if len(q.streamers) == 0 {
@@ -87,8 +114,9 @@ func (q *Queue) Stream(samples [][2]float64) (n int, ok bool) {
 		n, ok := q.streamers[0].Stream(samples[filled:])
 		if !ok {
 			q.streamers = q.streamers[1:]
-			player.printMetadata(player.CurrentTrack)
 			player.CurrentTrack++
+			player.printMetadata()
+			log.Println(len(q.streamers), cap(q.streamers))
 		}
 		filled += n
 	}
@@ -129,6 +157,7 @@ func main() {
 	}
 	player.LatestMessage = fmt.Sprint(input, " ", response.Status)
 	response.Body.Close()
+
 	reader := bytes.NewBuffer(body)
 
 	var jsonstring string
@@ -153,10 +182,37 @@ func main() {
 		log.Fatal(err)
 	}
 
+	request, err = http.NewRequest("GET", player.AlbumList.Image, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	request.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/93.0.4577.82 Safari/537.36")
+	response, err = http.DefaultClient.Do(request)
+	if err != nil {
+		log.Println(err, "trying http://")
+	}
+	request, err = http.NewRequest("GET", strings.Replace(player.AlbumList.Image, "https://", "http://", 1), nil)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	response, err = http.DefaultClient.Do(request)
+
+	switch response.Header.Get("Content-Type") {
+	case "image/jpeg":
+		player.AlbumArt, err = jpeg.Decode(response.Body)
+	case "image/png":
+		player.AlbumArt, err = png.Decode(response.Body)
+	}
+	// TODO: add default case
+
 	sr := beep.SampleRate(44100)
 	speaker.Init(sr, sr.N(time.Second/10))
 	var queue Queue
-	speaker.Play(&queue)
+
+	ctrl := beep.Ctrl{Streamer: &queue, Paused: false}
+	volume := &effects.Volume{Streamer: &ctrl, Base: 2}
+
+	speaker.Play(volume)
 
 	for _, item := range player.AlbumList.Tracks.ItemListElement {
 		for _, value := range item.TrackInfo.AdditionalProperty {
@@ -168,7 +224,6 @@ func main() {
 				if err != nil {
 					log.Fatal(err)
 				}
-				// lets pretend that we are chrome on NT
 				request.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/93.0.4577.82 Safari/537.36")
 				response, err = http.DefaultClient.Do(request)
 				if err != nil {
@@ -181,19 +236,67 @@ func main() {
 					response.Status)
 
 				streamer, format, err := mp3.Decode(response.Body)
+				player.Format = format
 				if err != nil {
 					player.LatestMessage = fmt.Sprint(err)
 					continue
 				}
 
-				resampled := beep.Resample(4, format.SampleRate, sr, streamer)
 				speaker.Lock()
-				queue.Add(resampled)
+				queue.Add(streamer)
 				speaker.Unlock()
 			}
 		}
 	}
-	select {}
+
+	state := make(chan bool)
+
+loop:
+	for {
+		select {
+		case <-player.Timer:
+			speaker.Lock()
+			player.CurrentPos = fmt.Sprint(time.Now().Clock())
+			player.printMetadata()
+			speaker.Unlock()
+		case <-state:
+			log.Println("test")
+			break
+		}
+
+		var a string
+		fmt.Scanln(&a)
+
+		switch a {
+		case "m":
+			speaker.Lock()
+			volume.Silent = !volume.Silent
+			speaker.Unlock()
+		case "s":
+			speaker.Lock()
+			volume.Volume -= 0.5
+			speaker.Unlock()
+		case "w":
+			speaker.Lock()
+			volume.Volume += 0.5
+			speaker.Unlock()
+		case "a":
+			speaker.Lock()
+			queue.ChangePosition(0 - player.Format.SampleRate.N(time.Second))
+			speaker.Unlock()
+		case "d":
+			speaker.Lock()
+			queue.ChangePosition(player.Format.SampleRate.N(time.Second))
+			speaker.Unlock()
+		case "p":
+			speaker.Lock()
+			ctrl.Paused = !ctrl.Paused
+			speaker.Unlock()
+		case "q":
+			clearScreen()
+			break loop
+		}
+	}
 }
 
 // clears screen, for now only unix will work
@@ -203,11 +306,13 @@ func clearScreen() {
 	cmd.Run()
 }
 
-func (player *Player) printMetadata(n int) {
+func (player *Player) printMetadata() {
 	clearScreen()
-	if player.AlbumList.Tracks.NumberOfItems == n {
+
+	if player.AlbumList.Tracks.NumberOfItems == player.CurrentTrack {
 		player.LatestMessage = "last track finished playing"
 		player.Status = "Stopped:"
+		// might fail on index -1
 		player.CurrentTrack = player.AlbumList.Tracks.NumberOfItems - 1
 	} else {
 		player.Status = "Playing:"
@@ -225,5 +330,7 @@ func (player *Player) printMetadata(n int) {
 			fmt.Println("Media Link: ", value.Value.(string))
 		}
 	}
+	fmt.Println(convert.NewImageConverter().Image2ASCIIString(player.AlbumArt, &convert.DefaultOptions))
+	fmt.Println(player.CurrentPos)
 	fmt.Println(player.LatestMessage)
 }
