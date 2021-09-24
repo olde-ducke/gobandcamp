@@ -69,12 +69,29 @@ type Player struct {
 	AlbumList     Album // not a list at the moment
 	CurrentPos    string
 	AlbumArt      image.Image
+	Repeat        bool
+	Random        bool
+	RepeatOne     bool
 
 	Timer  <-chan time.Time
 	Format beep.Format
 }
 
-var player = Player{CurrentTrack: -1}
+// response.Body doesn't implement Seek() method
+// beep isn't bothered by this, but trying to
+// call Seek() will fail since Len() will always return 0
+// by using bytes.Reader and implementing empty Close() method
+// we get io.ReadSeekCloser, which satisfies requirements of beep streamers
+// (needs ReadCloser) and implements Seek() method
+type Cached struct {
+	*bytes.Reader
+}
+
+func (c Cached) Close() error {
+	return nil
+}
+
+var player Player
 
 func (q *Queue) Add(streamers ...beep.StreamSeeker) {
 	q.streamers = append(q.streamers, streamers...)
@@ -98,25 +115,23 @@ func (q *Queue) ChangePosition(pos int) {
 
 func (q *Queue) Stream(samples [][2]float64) (n int, ok bool) {
 	filled := 0
-	if player.CurrentTrack < 0 {
-		player.CurrentTrack++
-		player.printMetadata()
-		player.Timer = time.Tick(time.Second)
-	}
 	for filled < len(samples) {
 		if len(q.streamers) == 0 {
+			player.Status = "Stopped:"
 			for i := range samples[filled:] {
 				samples[i][0] = 0
 				samples[i][1] = 0
 			}
 			break
+		} else {
+			player.Status = "Playing:"
 		}
 		n, ok := q.streamers[0].Stream(samples[filled:])
 		if !ok {
-			q.streamers = q.streamers[1:]
-			player.CurrentTrack++
+			// player.CurrentTrack = (player.CurrentTrack + 1) % player.AlbumList.Tracks.NumberOfItems
+			// go q.FeedNewStream()
 			player.printMetadata()
-			log.Println(len(q.streamers), cap(q.streamers))
+			q.streamers = q.streamers[1:]
 		}
 		filled += n
 	}
@@ -125,6 +140,69 @@ func (q *Queue) Stream(samples [][2]float64) (n int, ok bool) {
 
 func (q *Queue) Err() error {
 	return nil
+}
+
+// returns current position of current track
+func (q *Queue) Position() int {
+	if len(q.streamers) == 0 {
+		return 0
+	}
+	return q.streamers[0].Position()
+}
+
+func (q *Queue) SkipForward() {
+	q.streamers = q.streamers[1:]
+	player.CurrentTrack = (player.CurrentTrack + 1) % player.AlbumList.Tracks.NumberOfItems
+	go q.FeedNewStream()
+}
+
+func (q *Queue) SkipBackward() {
+	q.streamers = q.streamers[1:]
+	player.CurrentTrack = (player.AlbumList.Tracks.NumberOfItems + player.CurrentTrack - 1) % player.AlbumList.Tracks.NumberOfItems
+	go q.FeedNewStream()
+}
+
+func (q *Queue) Next()
+
+func (q *Queue) FeedNewStream() {
+	item := player.AlbumList.Tracks.ItemListElement[player.CurrentTrack]
+	for _, value := range item.TrackInfo.AdditionalProperty {
+		// Hardcoded JSON field name
+		if value.Name == "file_mp3-128" {
+
+			// TODO: not all tracks are streamable on service, pretty sure there was "streamable" field in JSON
+			// new request to media server
+			request, err := http.NewRequest("GET", value.Value.(string), nil)
+			if err != nil {
+				log.Fatal(err)
+			}
+			request.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/93.0.4577.82 Safari/537.36")
+			response, err := http.DefaultClient.Do(request)
+			if err != nil {
+				log.Fatal(err)
+			}
+			if response.StatusCode > 299 {
+				log.Fatalf("Request failed with status code: %d\n", response.StatusCode)
+			}
+			player.LatestMessage = fmt.Sprint(player.AlbumList.ByArtist["name"], " - ", item.TrackInfo.Name, ".mp3 ",
+				response.Status)
+
+			body, _ := io.ReadAll(response.Body)
+			buffer := &Cached{bytes.NewReader(body)}
+			defer response.Body.Close()
+
+			streamer, format, err := mp3.Decode(buffer)
+			// TODO: not used, should do
+			player.Format = format
+			if err != nil {
+				player.LatestMessage = fmt.Sprint(err)
+			}
+
+			speaker.Lock()
+			q.Add(streamer)
+			speaker.Unlock()
+		}
+	}
 }
 
 func main() {
@@ -144,9 +222,10 @@ func main() {
 	}
 
 	request.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/93.0.4577.82 Safari/537.36")
-	// set mobile view, weights a bit less than desktop version
+	// set mobile view, html weights a bit less than desktop version
 	request.Header.Set("Cookie", "mvp=p")
 
+	// make request for html page
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
 		log.Fatal(err)
@@ -175,7 +254,6 @@ func main() {
 		}
 	}
 
-	// var album Album
 	// TODO: track and album pages are different
 	err = json.Unmarshal([]byte(jsonstring), &player.AlbumList)
 	if err != nil {
@@ -213,42 +291,10 @@ func main() {
 	volume := &effects.Volume{Streamer: &ctrl, Base: 2}
 
 	speaker.Play(volume)
-
-	for _, item := range player.AlbumList.Tracks.ItemListElement {
-		for _, value := range item.TrackInfo.AdditionalProperty {
-			if value.Name == "file_mp3-128" {
-
-				// TODO: not all tracks are streamable on service, pretty sure there was "streamable" field in JSON
-				// new request to media server
-				request, err = http.NewRequest("GET", value.Value.(string), nil)
-				if err != nil {
-					log.Fatal(err)
-				}
-				request.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/93.0.4577.82 Safari/537.36")
-				response, err = http.DefaultClient.Do(request)
-				if err != nil {
-					log.Fatal(err)
-				}
-				if response.StatusCode > 299 {
-					log.Fatalf("Request failed with status code: %d\n", response.StatusCode)
-				}
-				player.LatestMessage = fmt.Sprint(player.AlbumList.ByArtist["name"], " - ", item.TrackInfo.Name, ".mp3 ",
-					response.Status)
-
-				streamer, format, err := mp3.Decode(response.Body)
-				player.Format = format
-				if err != nil {
-					player.LatestMessage = fmt.Sprint(err)
-					continue
-				}
-
-				speaker.Lock()
-				queue.Add(streamer)
-				speaker.Unlock()
-			}
-		}
-	}
-
+	player.Status = "Playing:"
+	// start playing first track in album
+	go queue.FeedNewStream()
+	player.Timer = time.Tick(time.Second)
 	state := make(chan bool)
 
 loop:
@@ -256,18 +302,23 @@ loop:
 		select {
 		case <-player.Timer:
 			speaker.Lock()
-			player.CurrentPos = fmt.Sprint(time.Now().Clock())
-			player.printMetadata()
+			if player.Format.SampleRate == 0 {
+				player.LatestMessage = "Error: division by zero"
+			} else {
+				player.CurrentPos = fmt.Sprint(player.Format.SampleRate.D(queue.Position()).Round(time.Second))
+			}
+			go player.printMetadata()
 			speaker.Unlock()
 		case <-state:
-			log.Println("test")
-			break
+			player.LatestMessage = "test"
 		}
 
-		var a string
-		fmt.Scanln(&a)
+		input, err = stdinReader.ReadString('\n')
+		if err != nil {
+			player.LatestMessage = err.Error()
+		}
 
-		switch a {
+		switch strings.Trim(input, "\n") {
 		case "m":
 			speaker.Lock()
 			volume.Silent = !volume.Silent
@@ -282,15 +333,24 @@ loop:
 			speaker.Unlock()
 		case "a":
 			speaker.Lock()
-			queue.ChangePosition(0 - player.Format.SampleRate.N(time.Second))
+			queue.ChangePosition(0 - player.Format.SampleRate.N(time.Second*2))
 			speaker.Unlock()
 		case "d":
 			speaker.Lock()
-			queue.ChangePosition(player.Format.SampleRate.N(time.Second))
+			queue.ChangePosition(player.Format.SampleRate.N(time.Second * 2))
 			speaker.Unlock()
 		case "p":
 			speaker.Lock()
+			player.Status = "Pause:"
 			ctrl.Paused = !ctrl.Paused
+			speaker.Unlock()
+		case "f":
+			speaker.Lock()
+			queue.SkipForward()
+			speaker.Unlock()
+		case "b":
+			speaker.Lock()
+			queue.SkipBackward()
 			speaker.Unlock()
 		case "q":
 			clearScreen()
@@ -299,9 +359,9 @@ loop:
 	}
 }
 
-// clears screen, for now only unix will work
+// clears screen, for now only unix will work, delete later in favor of more robust terminal drawing
 func clearScreen() {
-	cmd := exec.Command("clear") //Linux example, its tested
+	cmd := exec.Command("clear")
 	cmd.Stdout = os.Stdout
 	cmd.Run()
 }
@@ -309,28 +369,48 @@ func clearScreen() {
 func (player *Player) printMetadata() {
 	clearScreen()
 
-	if player.AlbumList.Tracks.NumberOfItems == player.CurrentTrack {
-		player.LatestMessage = "last track finished playing"
-		player.Status = "Stopped:"
-		// might fail on index -1
-		player.CurrentTrack = player.AlbumList.Tracks.NumberOfItems - 1
-	} else {
-		player.Status = "Playing:"
-	}
 	item := player.AlbumList.Tracks.ItemListElement[player.CurrentTrack]
-	fmt.Println(player.Status)
-	fmt.Printf("%d/%d %s %s \n", item.Position, player.AlbumList.Tracks.NumberOfItems, item.TrackInfo.Duration, item.TrackInfo.Name)
-	fmt.Printf("Artist: %s\nAlbum: %s\nRelease Date: %s\nAlbum art: %s\n", player.AlbumList.ByArtist["name"], player.AlbumList.Name, player.AlbumList.DatePublished, player.AlbumList.Image)
-	fmt.Printf("Lyrics:\n%s\n", item.TrackInfo.RecordingOf.Lyrics["text"])
+	//fmt.Printf("Lyrics:\n%s\n", item.TrackInfo.RecordingOf.Lyrics["text"])
+	var seconds float64
 	for _, value := range item.TrackInfo.AdditionalProperty {
 		if value.Name == "duration_secs" {
-			fmt.Println("Duration in seconds: ", value.Value)
-		}
-		if value.Name == "file_mp3-128" {
-			fmt.Println("Media Link: ", value.Value.(string))
+			seconds = value.Value.(float64)
 		}
 	}
-	fmt.Println(convert.NewImageConverter().Image2ASCIIString(player.AlbumArt, &convert.DefaultOptions))
-	fmt.Println(player.CurrentPos)
-	fmt.Println(player.LatestMessage)
+	out := strings.Split(convert.NewImageConverter().Image2ASCIIString(player.AlbumArt, &convert.DefaultOptions), "\n")
+
+	var sbuilder strings.Builder
+	fmt.Fprintf(&sbuilder, "%s   %s", out[2], player.Status)
+	out[1] = sbuilder.String()
+	sbuilder.Reset()
+
+	fmt.Fprintf(&sbuilder, "%s   %d/%d %s", out[3], item.Position,
+		player.AlbumList.Tracks.NumberOfItems, item.TrackInfo.Name)
+	out[2] = sbuilder.String()
+	sbuilder.Reset()
+
+	fmt.Fprintf(&sbuilder, "%s   Artist: %s", out[4], player.AlbumList.ByArtist["name"])
+	out[3] = sbuilder.String()
+	sbuilder.Reset()
+
+	fmt.Fprintf(&sbuilder, "%s   Album: %s", out[5], player.AlbumList.Name)
+	out[4] = sbuilder.String()
+	sbuilder.Reset()
+
+	fmt.Fprintf(&sbuilder, "%s   Release Date: %s", out[6], player.AlbumList.DatePublished[:11])
+	out[5] = sbuilder.String()
+	sbuilder.Reset()
+
+	fmt.Fprintf(&sbuilder, "%s   %s/%s", out[8], player.CurrentPos,
+		time.Duration(seconds*float64(time.Second)).Round(time.Second))
+	out[7] = sbuilder.String()
+	sbuilder.Reset()
+
+	fmt.Fprintf(&sbuilder, "%s   %s", out[len(out)-3], player.LatestMessage)
+	out[len(out)-3] = sbuilder.String()
+	sbuilder.Reset()
+
+	for _, str := range out {
+		fmt.Println(str)
+	}
 }
