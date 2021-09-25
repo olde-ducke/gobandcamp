@@ -62,6 +62,20 @@ type Queue struct {
 	streamers []beep.StreamSeeker
 }
 
+// TODO: not implemented yet, queue overcomplicates things and not really needed anyway
+type Mode int
+
+const (
+	Normal Mode = iota
+	Repeat
+	RepeatOne
+	Random
+)
+
+func (mode Mode) String() string {
+	return [4]string{"Normal", "Repeat", "Repeat One", "Random"}[mode]
+}
+
 type Player struct {
 	CurrentTrack  int
 	LatestMessage string
@@ -69,9 +83,7 @@ type Player struct {
 	AlbumList     Album // not a list at the moment
 	CurrentPos    string
 	AlbumArt      image.Image
-	Repeat        bool
-	Random        bool
-	RepeatOne     bool
+	PlaybackMode  Mode
 
 	Timer  <-chan time.Time
 	Format beep.Format
@@ -83,11 +95,11 @@ type Player struct {
 // by using bytes.Reader and implementing empty Close() method
 // we get io.ReadSeekCloser, which satisfies requirements of beep streamers
 // (needs ReadCloser) and implements Seek() method
-type Cached struct {
+type cachedBytes struct {
 	*bytes.Reader
 }
 
-func (c Cached) Close() error {
+func (c cachedBytes) Close() error {
 	return nil
 }
 
@@ -128,10 +140,7 @@ func (q *Queue) Stream(samples [][2]float64) (n int, ok bool) {
 		}
 		n, ok := q.streamers[0].Stream(samples[filled:])
 		if !ok {
-			// player.CurrentTrack = (player.CurrentTrack + 1) % player.AlbumList.Tracks.NumberOfItems
-			// go q.FeedNewStream()
-			player.printMetadata()
-			q.streamers = q.streamers[1:]
+			q.skip(true)
 		}
 		filled += n
 	}
@@ -150,24 +159,22 @@ func (q *Queue) Position() int {
 	return q.streamers[0].Position()
 }
 
-func (q *Queue) SkipForward() {
-	q.streamers = q.streamers[1:]
-	player.CurrentTrack = (player.CurrentTrack + 1) % player.AlbumList.Tracks.NumberOfItems
-	go q.FeedNewStream()
+func (q *Queue) skip(forward bool) {
+	if len(q.streamers) != 0 {
+		if forward {
+			player.CurrentTrack = (player.CurrentTrack + 1) % player.AlbumList.Tracks.NumberOfItems
+		} else {
+			player.CurrentTrack = (player.AlbumList.Tracks.NumberOfItems + player.CurrentTrack - 1) % player.AlbumList.Tracks.NumberOfItems
+		}
+		go q.FeedNewStream()
+		q.streamers = q.streamers[1:]
+	}
 }
-
-func (q *Queue) SkipBackward() {
-	q.streamers = q.streamers[1:]
-	player.CurrentTrack = (player.AlbumList.Tracks.NumberOfItems + player.CurrentTrack - 1) % player.AlbumList.Tracks.NumberOfItems
-	go q.FeedNewStream()
-}
-
-func (q *Queue) Next()
 
 func (q *Queue) FeedNewStream() {
 	item := player.AlbumList.Tracks.ItemListElement[player.CurrentTrack]
 	for _, value := range item.TrackInfo.AdditionalProperty {
-		// Hardcoded JSON field name
+		// hardcoded JSON field name
 		if value.Name == "file_mp3-128" {
 
 			// TODO: not all tracks are streamable on service, pretty sure there was "streamable" field in JSON
@@ -188,7 +195,7 @@ func (q *Queue) FeedNewStream() {
 				response.Status)
 
 			body, _ := io.ReadAll(response.Body)
-			buffer := &Cached{bytes.NewReader(body)}
+			buffer := &cachedBytes{bytes.NewReader(body)}
 			defer response.Body.Close()
 
 			streamer, format, err := mp3.Decode(buffer)
@@ -254,7 +261,8 @@ func main() {
 		}
 	}
 
-	// TODO: track and album pages are different
+	// TODO: track and album pages are different, for now only album pages supported
+	// track pages will crash
 	err = json.Unmarshal([]byte(jsonstring), &player.AlbumList)
 	if err != nil {
 		log.Fatal(err)
@@ -275,25 +283,32 @@ func main() {
 	}
 	response, err = http.DefaultClient.Do(request)
 
+	// TODO: add default case that generates white image
+	// is there anything other than jpeg?
 	switch response.Header.Get("Content-Type") {
 	case "image/jpeg":
 		player.AlbumArt, err = jpeg.Decode(response.Body)
 	case "image/png":
 		player.AlbumArt, err = png.Decode(response.Body)
 	}
-	// TODO: add default case
 
+	// default playback settings
 	sr := beep.SampleRate(44100)
 	speaker.Init(sr, sr.N(time.Second/10))
 	var queue Queue
 
+	// beep streamers, ctrl starts/pauses stream, volume controls audio effects
+	// TODO: add resampler
 	ctrl := beep.Ctrl{Streamer: &queue, Paused: false}
 	volume := &effects.Volume{Streamer: &ctrl, Base: 2}
-
+	// start playback, initially plays nothing while track is being requested
+	// TODO: behaves weird after coming from suspend
+	// TODO: takes device to itself, doesn't allow any other programs to use it,
+	// and can't use it, if it is being used
 	speaker.Play(volume)
-	player.Status = "Playing:"
-	// start playing first track in album
+	// get first stream, default value for current track is 0
 	go queue.FeedNewStream()
+	// start timer
 	player.Timer = time.Tick(time.Second)
 	state := make(chan bool)
 
@@ -319,40 +334,44 @@ loop:
 		}
 
 		switch strings.Trim(input, "\n") {
-		case "m":
+		case "m", "M":
 			speaker.Lock()
 			volume.Silent = !volume.Silent
 			speaker.Unlock()
-		case "s":
+		//TODO: set volume limits
+		case "s", "S":
 			speaker.Lock()
 			volume.Volume -= 0.5
 			speaker.Unlock()
-		case "w":
+		case "w", "W":
 			speaker.Lock()
 			volume.Volume += 0.5
 			speaker.Unlock()
-		case "a":
+		case "a", "A":
 			speaker.Lock()
 			queue.ChangePosition(0 - player.Format.SampleRate.N(time.Second*2))
 			speaker.Unlock()
-		case "d":
+		case "d", "D":
 			speaker.Lock()
 			queue.ChangePosition(player.Format.SampleRate.N(time.Second * 2))
 			speaker.Unlock()
-		case "p":
+		case "p", "P":
 			speaker.Lock()
 			player.Status = "Pause:"
 			ctrl.Paused = !ctrl.Paused
 			speaker.Unlock()
-		case "f":
+		case "f", "F":
 			speaker.Lock()
-			queue.SkipForward()
+			queue.skip(true)
 			speaker.Unlock()
-		case "b":
+		case "b", "B":
 			speaker.Lock()
-			queue.SkipBackward()
+			queue.skip(false)
 			speaker.Unlock()
-		case "q":
+		case "r", "R":
+			player.PlaybackMode = (player.PlaybackMode + 1) % 4
+		case "q", "Q":
+			speaker.Lock()
 			clearScreen()
 			break loop
 		}
@@ -366,6 +385,7 @@ func clearScreen() {
 	cmd.Run()
 }
 
+// FIXME: crashing on out of bounds when terminal font is large
 func (player *Player) printMetadata() {
 	clearScreen()
 
@@ -377,40 +397,52 @@ func (player *Player) printMetadata() {
 			seconds = value.Value.(float64)
 		}
 	}
-	out := strings.Split(convert.NewImageConverter().Image2ASCIIString(player.AlbumArt, &convert.DefaultOptions), "\n")
+	art := strings.Split(convert.NewImageConverter().Image2ASCIIString(player.AlbumArt,
+		&convert.DefaultOptions), "\n")
+
+	out := make([]string, 12)
 
 	var sbuilder strings.Builder
-	fmt.Fprintf(&sbuilder, "%s   %s", out[2], player.Status)
-	out[1] = sbuilder.String()
-	sbuilder.Reset()
+	out[1] = player.Status
 
-	fmt.Fprintf(&sbuilder, "%s   %d/%d %s", out[3], item.Position,
+	fmt.Fprintf(&sbuilder, "%d/%d %s", item.Position,
 		player.AlbumList.Tracks.NumberOfItems, item.TrackInfo.Name)
 	out[2] = sbuilder.String()
 	sbuilder.Reset()
 
-	fmt.Fprintf(&sbuilder, "%s   Artist: %s", out[4], player.AlbumList.ByArtist["name"])
+	fmt.Fprintf(&sbuilder, "Artist: %s", player.AlbumList.ByArtist["name"])
 	out[3] = sbuilder.String()
 	sbuilder.Reset()
 
-	fmt.Fprintf(&sbuilder, "%s   Album: %s", out[5], player.AlbumList.Name)
+	fmt.Fprintf(&sbuilder, "Album: %s", player.AlbumList.Name)
 	out[4] = sbuilder.String()
 	sbuilder.Reset()
 
-	fmt.Fprintf(&sbuilder, "%s   Release Date: %s", out[6], player.AlbumList.DatePublished[:11])
+	fmt.Fprintf(&sbuilder, "Release Date: %s", player.AlbumList.DatePublished[:11])
 	out[5] = sbuilder.String()
 	sbuilder.Reset()
 
-	fmt.Fprintf(&sbuilder, "%s   %s/%s", out[8], player.CurrentPos,
+	fmt.Fprintf(&sbuilder, "Mode: %s", player.PlaybackMode.String())
+	out[6] = sbuilder.String()
+	sbuilder.Reset()
+
+	fmt.Fprintf(&sbuilder, "%s/%s", player.CurrentPos,
 		time.Duration(seconds*float64(time.Second)).Round(time.Second))
-	out[7] = sbuilder.String()
+	out[9] = sbuilder.String()
 	sbuilder.Reset()
 
-	fmt.Fprintf(&sbuilder, "%s   %s", out[len(out)-3], player.LatestMessage)
-	out[len(out)-3] = sbuilder.String()
-	sbuilder.Reset()
-
-	for _, str := range out {
-		fmt.Println(str)
+	if len(art) > 8 {
+		out[len(out)-2] = player.LatestMessage
 	}
+
+	for i := range art {
+		if i < len(out) {
+			fmt.Fprintf(&sbuilder, "   %s   %s", art[i], out[i])
+			fmt.Println(sbuilder.String())
+			sbuilder.Reset()
+		} else {
+			fmt.Println(art[i])
+		}
+	}
+
 }
