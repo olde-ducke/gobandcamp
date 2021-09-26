@@ -4,8 +4,9 @@
  Very WIP, will likely crash. Clears terminal window to display metadata
 
  At the start waits for user to input valid bandcamp album link, parses info from page, plays full album.
- After playback starts, displays parsed metadata and album cover as ASCII art, then waits for user to input one of the following comands: 
+ After playback starts, displays parsed metadata and album cover as ASCII art.
 
+Controls disabled
 	M - mute
 	S - lower volume
     W - raise volume
@@ -14,6 +15,5 @@
 	P - play/pause
 	F - next track
     B - previous track
-    R - change playback mode (not implemented)
+    R - change playback mode
     Q - quit
-    Any other string will just update info on screen
