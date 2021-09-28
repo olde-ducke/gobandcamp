@@ -16,11 +16,13 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/faiface/beep"
 	"github.com/faiface/beep/effects"
 	"github.com/faiface/beep/mp3"
 	"github.com/faiface/beep/speaker"
+	"github.com/gdamore/tcell"
 	"github.com/qeesung/image2ascii/convert"
 )
 
@@ -75,8 +77,8 @@ func (mode playbackMode) String() string {
 type playerStatus int
 
 const (
-	playing playerStatus = iota
-	stopped
+	stopped playerStatus = iota
+	playing
 	paused
 )
 
@@ -92,16 +94,19 @@ type mediaStream struct {
 	volume     *effects.Volume
 }
 
-func (stream *mediaStream) changePosition(pos int) {
-	newPos := stream.streamer.Position()
+func (player *playback) changePosition(pos int) {
+	if player.Status != playing {
+		return
+	}
+	newPos := player.Stream.streamer.Position()
 	newPos += pos
 	if newPos < 0 {
 		newPos = 0
 	}
-	if newPos >= stream.streamer.Len() {
-		newPos = stream.streamer.Len() - 1
+	if newPos >= player.Stream.streamer.Len() {
+		newPos = player.Stream.streamer.Len() - 1
 	}
-	if err := stream.streamer.Seek(newPos); err != nil {
+	if err := player.Stream.streamer.Seek(newPos); err != nil {
 		log.Println(err)
 	}
 }
@@ -112,6 +117,8 @@ func newStream(sampleRate beep.SampleRate, streamer beep.StreamSeekCloser) *medi
 	volume := &effects.Volume{Streamer: resampler, Base: 2}
 	return &mediaStream{sampleRate, streamer, ctrl, resampler, volume}
 }
+
+var cachedResponses map[int][]byte
 
 type playback struct {
 	CurrentTrack  int
@@ -124,49 +131,23 @@ type playback struct {
 	Stream        *mediaStream
 	Format        beep.Format
 
-	timer <-chan time.Time
-	next  chan bool
+	timer       <-chan time.Time
+	next        chan bool
+	trackNumber chan int
 }
 
-func (player *playback) skip(forward bool) {
-	if player.PlaybackMode == random {
-		player.nextTrack()
+func (player *playback) getNewTrack() {
+	trackNumber := player.CurrentTrack
+	item := player.AlbumList.Tracks.ItemListElement[trackNumber]
+	filename := fmt.Sprint(player.AlbumList.ByArtist["name"], " - ", item.TrackInfo.Name, ".mp3")
+
+	if cachedResponses[trackNumber] != nil {
+		player.LatestMessage = fmt.Sprint(filename, " - Cached")
+		player.trackNumber <- trackNumber
 		return
 	}
-	if forward {
-		player.CurrentTrack = (player.CurrentTrack + 1) % player.AlbumList.Tracks.NumberOfItems
-	} else {
-		player.CurrentTrack = (player.AlbumList.Tracks.NumberOfItems + player.CurrentTrack - 1) % player.AlbumList.Tracks.NumberOfItems
-	}
-	go player.startNewStream()
-}
 
-func (player *playback) nextTrack() {
-	switch player.PlaybackMode {
-	case random:
-		rand.Seed(time.Now().UnixNano())
-		player.CurrentTrack = rand.Intn(player.AlbumList.Tracks.NumberOfItems)
-		go player.startNewStream()
-	case repeatOne:
-		go player.startNewStream()
-	case repeat:
-		player.skip(true)
-	case normal:
-		if player.CurrentTrack == player.AlbumList.Tracks.NumberOfItems-1 {
-			player.Status = stopped
-			return
-		}
-		player.skip(true)
-	}
-}
-
-func (player *playback) startNewStream() {
-	speaker.Clear()
-	player.CurrentPos = "0s"
-	player.Status = stopped
-
-	item := player.AlbumList.Tracks.ItemListElement[player.CurrentTrack]
-	player.LatestMessage = fmt.Sprint(player.AlbumList.ByArtist["name"], " - ", item.TrackInfo.Name, ".mp3 - fetching...")
+	player.LatestMessage = fmt.Sprint(filename, " - Fetching...")
 	for _, value := range item.TrackInfo.AdditionalProperty {
 		// hardcoded JSON field name
 		if value.Name == "file_mp3-128" {
@@ -185,33 +166,125 @@ func (player *playback) startNewStream() {
 			if response.StatusCode > 299 {
 				log.Fatalf("Request failed with status code: %d\n", response.StatusCode)
 			}
-			player.LatestMessage = fmt.Sprint(player.AlbumList.ByArtist["name"], " - ", item.TrackInfo.Name, ".mp3 - ",
-				response.Status, " Downloading...")
+			player.LatestMessage = fmt.Sprint(filename, " - ", response.Status, " Downloading...")
 
-			body, err := io.ReadAll(response.Body)
+			cachedResponses[trackNumber], err = io.ReadAll(response.Body)
 			if err != nil {
 				player.LatestMessage = err.Error()
 				return
 			}
-			buffer := &cachedBytes{bytes.NewReader(body)}
 			defer response.Body.Close()
-			player.LatestMessage = "Done"
-
-			streamer, format, err := mp3.Decode(buffer)
-			if err != nil {
-				player.LatestMessage = fmt.Sprint(err)
-			}
-
-			speaker.Lock()
-			player.Format = format
-			player.Stream = newStream(format.SampleRate, streamer)
-			player.Status = playing
-			speaker.Unlock()
-			speaker.Play(beep.Seq(player.Stream.volume, beep.Callback(func() {
-				player.next <- true
-			})))
+			player.LatestMessage = fmt.Sprint(filename, " - Done")
 		}
 	}
+	player.trackNumber <- trackNumber
+}
+
+func (player *playback) handle(event tcell.Event) (changed, quit bool) {
+	switch event := event.(type) {
+	case *tcell.EventKey:
+		if event.Key() == tcell.KeyESC {
+			return false, true
+		}
+
+		if event.Key() != tcell.KeyRune {
+			return false, false
+		}
+
+		switch unicode.ToLower(event.Rune()) {
+		case ' ':
+			if player.Status == playing {
+				player.Status = paused
+			} else {
+				player.Status = playing
+			}
+			speaker.Lock()
+			player.Stream.ctrl.Paused = !player.Stream.ctrl.Paused
+			speaker.Unlock()
+			return false, false
+		case 'a':
+			speaker.Lock()
+			player.changePosition(0 - player.Format.SampleRate.N(time.Second*2))
+			speaker.Unlock()
+			return true, false
+
+		case 'd':
+			speaker.Lock()
+			player.changePosition(player.Format.SampleRate.N(time.Second * 2))
+			speaker.Unlock()
+			return true, false
+
+		case 's':
+			speaker.Lock()
+			player.Stream.volume.Volume -= 0.5
+			speaker.Unlock()
+			return true, false
+
+		case 'w':
+			speaker.Lock()
+			player.Stream.volume.Volume += 0.5
+			speaker.Unlock()
+			return true, false
+
+		case 'm':
+			speaker.Lock()
+			player.Stream.volume.Silent = !player.Stream.volume.Silent
+			speaker.Unlock()
+			return true, false
+
+		case 'r':
+			player.PlaybackMode = (player.PlaybackMode + 1) % 4
+			return true, false
+
+		case 'b':
+			player.skip(false)
+			return true, false
+
+		case 'f':
+			player.skip(true)
+			return true, false
+		}
+	}
+	return false, false
+}
+
+func (player *playback) skip(forward bool) {
+	if player.PlaybackMode == random {
+		player.nextTrack()
+		return
+	}
+	player.stop()
+	if forward {
+		player.CurrentTrack = (player.CurrentTrack + 1) % player.AlbumList.Tracks.NumberOfItems
+	} else {
+		player.CurrentTrack = (player.AlbumList.Tracks.NumberOfItems + player.CurrentTrack - 1) % player.AlbumList.Tracks.NumberOfItems
+	}
+	go player.getNewTrack()
+}
+
+func (player *playback) nextTrack() {
+	player.stop()
+	switch player.PlaybackMode {
+	case random:
+		rand.Seed(time.Now().UnixNano())
+		player.CurrentTrack = rand.Intn(player.AlbumList.Tracks.NumberOfItems)
+		go player.getNewTrack()
+	case repeatOne:
+		go player.getNewTrack()
+	case repeat:
+		player.skip(true)
+	case normal:
+		if player.CurrentTrack == player.AlbumList.Tracks.NumberOfItems-1 {
+			player.Status = stopped
+			return
+		}
+		player.skip(true)
+	}
+}
+
+func (player *playback) stop() {
+	speaker.Clear()
+	player.Status = stopped
 }
 
 // response.Body doesn't implement Seek() method
@@ -230,6 +303,7 @@ func (c cachedBytes) Close() error {
 
 func main() {
 	var player playback
+	cachedResponses = make(map[int][]byte)
 
 	stdinReader := bufio.NewReader(os.Stdin)
 	fmt.Print("Enter bandcamp album link: ")
@@ -281,7 +355,7 @@ func main() {
 	}
 
 	// TODO: track and album pages are different, for now only album pages supported
-	// track pages will crash
+	// track pages will likely crash
 	err = json.Unmarshal([]byte(jsonstring), &player.AlbumList)
 	if err != nil {
 		log.Fatal(err)
@@ -317,11 +391,22 @@ func main() {
 
 	// get first stream, default value for current track is 0
 	// start timer and set channel for sending end of track signal
+	screen, err := tcell.NewScreen()
+	err = screen.Init()
+	screen.Show()
 	player.timer = time.Tick(time.Second)
 	player.next = make(chan bool)
-	go player.startNewStream()
+	player.trackNumber = make(chan int)
+	events := make(chan tcell.Event)
+	go func() {
+		for {
+			events <- screen.PollEvent()
+		}
+	}()
 
-loop:
+	go player.getNewTrack()
+
+eventLoop:
 	for {
 		select {
 		case <-player.timer:
@@ -333,51 +418,35 @@ loop:
 			player.printMetadata()
 		case <-player.next:
 			player.nextTrack()
-		}
-
-		switch strings.Trim(input, "\n") {
-		case "m", "M":
-			speaker.Lock()
-			player.Stream.volume.Silent = !player.Stream.volume.Silent
-			speaker.Unlock()
-		//TODO: set volume limits
-		case "s", "S":
-			speaker.Lock()
-			player.Stream.volume.Volume -= 0.5
-			speaker.Unlock()
-		case "w", "W":
-			speaker.Lock()
-			player.Stream.volume.Volume += 0.5
-			speaker.Unlock()
-		case "a", "A":
-			speaker.Lock()
-			player.Stream.changePosition(0 - player.Format.SampleRate.N(time.Second*2))
-			speaker.Unlock()
-		case "d", "D":
-			speaker.Lock()
-			player.Stream.changePosition(player.Format.SampleRate.N(time.Second * 2))
-			speaker.Unlock()
-		case "p", "P":
-			if player.Status == playing {
-				player.Status = paused
-			} else {
+		case trackNumber := <-player.trackNumber:
+			if trackNumber == player.CurrentTrack && player.Status != playing {
+				streamer, format, err := mp3.Decode(&cachedBytes{bytes.
+					NewReader(cachedResponses[trackNumber])})
+				if err != nil {
+					player.LatestMessage = fmt.Sprint(err)
+				}
+				player.Format = format
+				player.Stream = newStream(format.SampleRate, streamer)
 				player.Status = playing
+				speaker.Play(beep.Seq(player.Stream.volume, beep.Callback(func() {
+					player.next <- true
+				})))
 			}
-			speaker.Lock()
-			player.Stream.ctrl.Paused = !player.Stream.ctrl.Paused
-			speaker.Unlock()
-		case "f", "F":
-			player.skip(true)
-		case "b", "B":
-			player.skip(false)
-		case "r", "R":
-			player.PlaybackMode = (player.PlaybackMode + 1) % 4
-		case "q", "Q":
-			speaker.Clear()
-			clearScreen()
-			break loop
+		case event := <-events:
+			changed, quit := player.handle(event)
+			if quit {
+				screen, err = tcell.NewTerminfoScreen()
+				if err != nil {
+					fmt.Println(err)
+				}
+				break eventLoop
+			}
+			if changed {
+				player.printMetadata()
+			}
 		}
 	}
+	os.Exit(0)
 }
 
 func init() {
