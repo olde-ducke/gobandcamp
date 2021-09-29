@@ -1,10 +1,11 @@
  # gobandcamp
 
- Barebones terminal player for bandcamp, uses [Beep](https://github.com/faiface/beep/) package to play actual sound.
- Very WIP, will likely crash. Clears terminal window to display metadata
+ Barebones terminal player for bandcamp, uses [Beep](https://github.com/faiface/beep/) package to play actual sound, [tcell](https://github.com/gdamore/tcell) to display metadata and handle controls, and [image2ascii](https://github.com/qeesung/image2ascii) to convert album cover to colored ASCII-art.
+ 
+ WIP, will likely crash.
+ Only album pages (e.g. artistname.bandcamp.com) are supported.
 
- At the start waits for user to input valid bandcamp album link, parses info from page, plays full album.
- After playback starts, displays parsed metadata and album cover as ASCII art. Controls:
+ Controls:
 
 	Space - play/pause
 	  M	  - mute

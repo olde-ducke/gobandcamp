@@ -9,11 +9,9 @@ import (
 	"image/jpeg"
 	"image/png"
 	"io"
-	"log"
 	"math/rand"
 	"net/http"
 	"os"
-	"os/exec"
 	"strings"
 	"time"
 	"unicode"
@@ -74,16 +72,16 @@ func (mode playbackMode) String() string {
 	return [4]string{"Normal", "Repeat", "Repeat One", "Random"}[mode]
 }
 
-type playerStatus int
+type playbackStatus int
 
 const (
-	stopped playerStatus = iota
+	stopped playbackStatus = iota
 	playing
 	paused
 )
 
-func (status playerStatus) String() string {
-	return [3]string{"Playing:", "Playback Stopped:", "Pause:"}[status]
+func (status playbackStatus) String() string {
+	return [3]string{"Stopped:", "Playing:", "Pause:"}[status]
 }
 
 type mediaStream struct {
@@ -107,29 +105,33 @@ func (player *playback) changePosition(pos int) {
 		newPos = player.Stream.streamer.Len() - 1
 	}
 	if err := player.Stream.streamer.Seek(newPos); err != nil {
-		log.Println(err)
+		player.LatestMessage = err.Error()
 	}
 }
 
-func newStream(sampleRate beep.SampleRate, streamer beep.StreamSeekCloser) *mediaStream {
+func (player *playback) newStream(sampleRate beep.SampleRate, streamer beep.StreamSeekCloser) *mediaStream {
 	ctrl := &beep.Ctrl{Streamer: streamer}
 	resampler := beep.Resample(4, 44100, sampleRate, ctrl)
-	volume := &effects.Volume{Streamer: resampler, Base: 2}
+	volume := &effects.Volume{Streamer: resampler, Base: 2, Volume: float64(player.volume), Silent: player.muted}
 	return &mediaStream{sampleRate, streamer, ctrl, resampler, volume}
 }
 
 var cachedResponses map[int][]byte
 
 type playback struct {
-	CurrentTrack  int
-	LatestMessage string
-	Status        playerStatus
-	AlbumList     Album // not a list at the moment
-	CurrentPos    string
-	AlbumArt      image.Image
+	CurrentTrack int
+	Status       playbackStatus
+	AlbumList    Album // not a list at the moment
+	AlbumArt     image.Image
+	Stream       *mediaStream
+	Format       beep.Format
+
 	PlaybackMode  playbackMode
-	Stream        *mediaStream
-	Format        beep.Format
+	CurrentPos    string
+	LatestMessage string
+	volume        float64
+	muted         bool
+	xOffset       int
 
 	timer       <-chan time.Time
 	next        chan bool
@@ -156,15 +158,16 @@ func (player *playback) getNewTrack() {
 			// new request to media server
 			request, err := http.NewRequest("GET", value.Value.(string), nil)
 			if err != nil {
-				log.Fatal(err)
+				reportError(err)
 			}
 			request.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/93.0.4577.82 Safari/537.36")
 			response, err := http.DefaultClient.Do(request)
 			if err != nil {
-				log.Fatal(err)
+				reportError(err)
 			}
 			if response.StatusCode > 299 {
-				log.Fatalf("Request failed with status code: %d\n", response.StatusCode)
+				fmt.Printf("Request failed with status code: %d\n", response.StatusCode)
+				os.Exit(1)
 			}
 			player.LatestMessage = fmt.Sprint(filename, " - ", response.Status, " Downloading...")
 
@@ -178,6 +181,10 @@ func (player *playback) getNewTrack() {
 		}
 	}
 	player.trackNumber <- trackNumber
+}
+
+func (player *playback) getCurrentTrackPosition() string {
+	return fmt.Sprint(player.Format.SampleRate.D(player.Stream.streamer.Position()).Round(time.Second))
 }
 
 func (player *playback) handle(event tcell.Event) (changed, quit bool) {
@@ -201,34 +208,53 @@ func (player *playback) handle(event tcell.Event) (changed, quit bool) {
 			speaker.Lock()
 			player.Stream.ctrl.Paused = !player.Stream.ctrl.Paused
 			speaker.Unlock()
-			return false, false
+			return true, false
 		case 'a':
 			speaker.Lock()
 			player.changePosition(0 - player.Format.SampleRate.N(time.Second*2))
+			player.CurrentPos = player.getCurrentTrackPosition()
 			speaker.Unlock()
 			return true, false
 
 		case 'd':
 			speaker.Lock()
 			player.changePosition(player.Format.SampleRate.N(time.Second * 2))
+			player.CurrentPos = player.getCurrentTrackPosition()
 			speaker.Unlock()
 			return true, false
 
 		case 's':
+			if player.volume < -9.6 {
+				return false, false
+			}
+			player.volume -= 0.5
 			speaker.Lock()
-			player.Stream.volume.Volume -= 0.5
+			if !player.muted && player.volume < -9.6 {
+				player.muted = true
+				player.Stream.volume.Silent = player.muted
+			}
+			player.Stream.volume.Volume = player.volume
 			speaker.Unlock()
 			return true, false
 
 		case 'w':
+			if player.volume > -0.4 {
+				return false, false
+			}
+			player.volume += 0.5
 			speaker.Lock()
-			player.Stream.volume.Volume += 0.5
+			if player.muted {
+				player.muted = false
+				player.Stream.volume.Silent = player.muted
+			}
+			player.Stream.volume.Volume = player.volume
 			speaker.Unlock()
 			return true, false
 
 		case 'm':
+			player.muted = !player.muted
 			speaker.Lock()
-			player.Stream.volume.Silent = !player.Stream.volume.Silent
+			player.Stream.volume.Silent = player.muted
 			speaker.Unlock()
 			return true, false
 
@@ -293,12 +319,113 @@ func (player *playback) stop() {
 // by using bytes.Reader and implementing empty Close() method
 // we get io.ReadSeekCloser, which satisfies requirements of beep streamers
 // (needs ReadCloser) and implements Seek() method
-type cachedBytes struct {
+type bytesRSC struct {
 	*bytes.Reader
 }
 
-func (c cachedBytes) Close() error {
+func (c bytesRSC) Close() error {
 	return nil
+}
+
+func (player *playback) reDrawMetaData(screen tcell.Screen, x, y int, style tcell.Style) {
+	screen.Fill(' ', style)
+
+	// draw album art
+	art := convert.NewImageConverter().Image2CharPixelMatrix(player.AlbumArt, &convert.DefaultOptions)
+	xReset := x
+	for _, pixelY := range art {
+		for _, pixelX := range pixelY {
+			screen.SetContent(x, y, rune(pixelX.Char), nil, style.Foreground(tcell.NewRGBColor(int32(pixelX.R), int32(pixelX.G), int32(pixelX.B))))
+			x++
+		}
+		x = xReset
+		y++
+	}
+
+	player.xOffset = len(art[0]) + 6
+	player.updateTextData(screen, style)
+	screen.Sync()
+}
+
+func (player *playback) updateTextData(screen tcell.Screen, style tcell.Style) {
+	var sbuilder strings.Builder
+	item := player.AlbumList.Tracks.ItemListElement[player.CurrentTrack]
+	clearString(screen, player.xOffset, 1, style)
+	drawString(screen, player.xOffset, 1, player.Status.String(), style)
+
+	fmt.Fprintf(&sbuilder, "%d/%d - %s", item.Position,
+		player.AlbumList.Tracks.NumberOfItems, item.TrackInfo.Name)
+	clearString(screen, player.xOffset, 2, style)
+	drawString(screen, player.xOffset, 2, sbuilder.String(), style)
+	sbuilder.Reset()
+
+	fmt.Fprintf(&sbuilder, "Artist: %s", player.AlbumList.ByArtist["name"])
+	clearString(screen, player.xOffset, 3, style)
+	drawString(screen, player.xOffset, 3, sbuilder.String(), style)
+	sbuilder.Reset()
+
+	fmt.Fprintf(&sbuilder, "Album: %s", player.AlbumList.Name)
+	clearString(screen, player.xOffset, 4, style)
+	drawString(screen, player.xOffset, 4, sbuilder.String(), style)
+	sbuilder.Reset()
+
+	fmt.Fprintf(&sbuilder, "Release Date: %s", player.AlbumList.DatePublished[:11])
+	clearString(screen, player.xOffset, 5, style)
+	drawString(screen, player.xOffset, 5, sbuilder.String(), style)
+	sbuilder.Reset()
+
+	fmt.Fprintf(&sbuilder, "Mode: %s", player.PlaybackMode.String())
+	clearString(screen, player.xOffset, 6, style)
+	drawString(screen, player.xOffset, 6, sbuilder.String(), style)
+	sbuilder.Reset()
+
+	if player.muted {
+		fmt.Fprintf(&sbuilder, "Volume: Mute")
+	} else {
+		fmt.Fprintf(&sbuilder, "Volume: %.0f", (100 + player.volume*10))
+	}
+	clearString(screen, player.xOffset, 7, style)
+	drawString(screen, player.xOffset, 7, sbuilder.String(), style)
+	sbuilder.Reset()
+
+	var seconds float64
+	for _, value := range item.TrackInfo.AdditionalProperty {
+		if value.Name == "duration_secs" {
+			seconds = value.Value.(float64)
+		}
+	}
+
+	fmt.Fprintf(&sbuilder, "%s/%s", player.CurrentPos,
+		time.Duration(seconds*float64(time.Second)).Round(time.Second))
+	clearString(screen, player.xOffset, 9, style)
+	drawString(screen, player.xOffset, 9, sbuilder.String(), style)
+	sbuilder.Reset()
+
+	clearString(screen, player.xOffset, 11, style)
+	drawString(screen, player.xOffset, 11, player.LatestMessage, style)
+
+	screen.Show()
+}
+
+func drawString(screen tcell.Screen, x, y int, str string, style tcell.Style) {
+	for _, r := range str {
+		screen.SetContent(x, y, r, nil, style)
+		x++
+	}
+}
+
+func clearString(screen tcell.Screen, x, y int, style tcell.Style) {
+	width, _ := screen.Size()
+	for i := x; i < width; i++ {
+		screen.SetContent(i, y, ' ', nil, style)
+	}
+}
+
+func reportError(err error) {
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
 }
 
 func main() {
@@ -309,7 +436,7 @@ func main() {
 	fmt.Print("Enter bandcamp album link: ")
 	input, err := stdinReader.ReadString('\n')
 	if err != nil {
-		log.Fatal(err)
+		reportError(err)
 	}
 	input = strings.Trim(input, "\n")
 
@@ -318,7 +445,7 @@ func main() {
 	request, err := http.NewRequest("GET", input, nil)
 	if err != nil {
 		// TODO: instead of simply crashing on every step, it would be nice to ask for a proper link/explain problem
-		log.Fatal(err)
+		reportError(err)
 	}
 
 	request.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/93.0.4577.82 Safari/537.36")
@@ -328,11 +455,12 @@ func main() {
 	// make request for html page
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
-		log.Fatal(err)
+		reportError(err)
 	}
 	body, err := io.ReadAll(response.Body)
 	if response.StatusCode > 299 {
-		log.Fatalf("Request failed with status code: %d\n", response.StatusCode)
+		fmt.Printf("Request failed with status code: %d\n", response.StatusCode)
+		os.Exit(1)
 	}
 	player.LatestMessage = fmt.Sprint(input, " ", response.Status)
 	response.Body.Close()
@@ -343,12 +471,12 @@ func main() {
 	for {
 		jsonstring, err = reader.ReadString('\n')
 		if err != nil {
-			log.Fatal(err)
+			reportError(err)
 		}
 		if strings.Contains(jsonstring, "application/ld+json") {
 			jsonstring, err = reader.ReadString('\n')
 			if err != nil {
-				log.Fatal(err)
+				reportError(err)
 			}
 			break
 		}
@@ -358,23 +486,27 @@ func main() {
 	// track pages will likely crash
 	err = json.Unmarshal([]byte(jsonstring), &player.AlbumList)
 	if err != nil {
-		log.Fatal(err)
+		reportError(err)
 	}
 
 	request, err = http.NewRequest("GET", player.AlbumList.Image, nil)
 	if err != nil {
-		log.Fatal(err)
+		reportError(err)
 	}
 	request.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/93.0.4577.82 Safari/537.36")
 	response, err = http.DefaultClient.Do(request)
 	if err != nil {
-		log.Println(err, "trying http://")
+		fmt.Println(err, "trying http://")
 	}
 	request, err = http.NewRequest("GET", strings.Replace(player.AlbumList.Image, "https://", "http://", 1), nil)
 	if err != nil {
-		log.Fatalln(err)
+		reportError(err)
 	}
+	request.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/93.0.4577.82 Safari/537.36")
 	response, err = http.DefaultClient.Do(request)
+	if err != nil {
+		reportError(err)
+	}
 
 	// TODO: add default case that generates white image
 	// is there anything other than jpeg?
@@ -389,11 +521,16 @@ func main() {
 	// FIXME: device does not initialize after suspend
 	// FIXME: takes device to itself, doesn't allow any other program to use it, and can't use it, if device is already being used
 
-	// get first stream, default value for current track is 0
-	// start timer and set channel for sending end of track signal
 	screen, err := tcell.NewScreen()
+	reportError(err)
 	err = screen.Init()
+	reportError(err)
+	mainStyle := tcell.StyleDefault.
+		Background(tcell.NewHexColor(0x2B2B2B))
+	screen.Fill(' ', mainStyle)
 	screen.Show()
+
+	// start timer and set channel for sending end of track, completed download and keyboard events signals
 	player.timer = time.Tick(time.Second)
 	player.next = make(chan bool)
 	player.trackNumber = make(chan int)
@@ -403,127 +540,60 @@ func main() {
 			events <- screen.PollEvent()
 		}
 	}()
-
+	// get first stream, default value for current track is 0
 	go player.getNewTrack()
+	player.reDrawMetaData(screen, 3, 0, mainStyle)
 
-eventLoop:
 	for {
 		select {
 		case <-player.timer:
 			if player.Format.SampleRate != 0 {
 				speaker.Lock()
-				player.CurrentPos = fmt.Sprint(player.Format.SampleRate.D(player.Stream.streamer.Position()).Round(time.Second))
+				player.CurrentPos = player.getCurrentTrackPosition()
 				speaker.Unlock()
 			}
-			player.printMetadata()
+			player.updateTextData(screen, mainStyle)
 		case <-player.next:
 			player.nextTrack()
+			player.updateTextData(screen, mainStyle)
 		case trackNumber := <-player.trackNumber:
 			if trackNumber == player.CurrentTrack && player.Status != playing {
-				streamer, format, err := mp3.Decode(&cachedBytes{bytes.
+				streamer, format, err := mp3.Decode(&bytesRSC{bytes.
 					NewReader(cachedResponses[trackNumber])})
 				if err != nil {
 					player.LatestMessage = fmt.Sprint(err)
 				}
 				player.Format = format
-				player.Stream = newStream(format.SampleRate, streamer)
+				player.Stream = player.newStream(format.SampleRate, streamer)
 				player.Status = playing
 				speaker.Play(beep.Seq(player.Stream.volume, beep.Callback(func() {
 					player.next <- true
 				})))
 			}
 		case event := <-events:
-			changed, quit := player.handle(event)
-			if quit {
-				screen, err = tcell.NewTerminfoScreen()
-				if err != nil {
-					fmt.Println(err)
+			switch event.(type) {
+			case *tcell.EventResize:
+				player.reDrawMetaData(screen, 3, 0, mainStyle)
+			case *tcell.EventKey:
+				if player.Stream == nil {
+					player.LatestMessage = "First track is not ready yet"
+					continue
 				}
-				break eventLoop
-			}
-			if changed {
-				player.printMetadata()
+				changed, quit := player.handle(event)
+				if quit {
+					screen.Fini()
+					fmt.Println(player.Stream.volume.Volume)
+					os.Exit(0)
+				}
+				if changed {
+					player.updateTextData(screen, mainStyle)
+				}
 			}
 		}
 	}
-	os.Exit(0)
 }
 
 func init() {
 	sr := beep.SampleRate(44100)
 	speaker.Init(sr, sr.N(time.Second/10))
-}
-
-func clearScreen() {
-	cmd := exec.Command("clear")
-	cmd.Stdout = os.Stdout
-	cmd.Run()
-}
-
-func (player *playback) printMetadata() {
-	clearScreen()
-
-	item := player.AlbumList.Tracks.ItemListElement[player.CurrentTrack]
-	//fmt.Printf("Lyrics:\n%s\n", item.TrackInfo.RecordingOf.Lyrics["text"])
-	var seconds float64
-	for _, value := range item.TrackInfo.AdditionalProperty {
-		if value.Name == "duration_secs" {
-			seconds = value.Value.(float64)
-		}
-	}
-	art := strings.Split(convert.NewImageConverter().Image2ASCIIString(player.AlbumArt,
-		&convert.DefaultOptions), "\n")
-
-	out := make([]string, 12)
-
-	var sbuilder strings.Builder
-	out[1] = player.Status.String()
-
-	fmt.Fprintf(&sbuilder, "%d/%d %s", item.Position,
-		player.AlbumList.Tracks.NumberOfItems, item.TrackInfo.Name)
-	out[2] = sbuilder.String()
-	sbuilder.Reset()
-
-	fmt.Fprintf(&sbuilder, "Artist: %s", player.AlbumList.ByArtist["name"])
-	out[3] = sbuilder.String()
-	sbuilder.Reset()
-
-	fmt.Fprintf(&sbuilder, "Album: %s", player.AlbumList.Name)
-	out[4] = sbuilder.String()
-	sbuilder.Reset()
-
-	fmt.Fprintf(&sbuilder, "Release Date: %s", player.AlbumList.DatePublished[:11])
-	out[5] = sbuilder.String()
-	sbuilder.Reset()
-
-	fmt.Fprintf(&sbuilder, "Mode: %s", player.PlaybackMode.String())
-	out[6] = sbuilder.String()
-	sbuilder.Reset()
-
-	fmt.Fprintf(&sbuilder, "%s/%s", player.CurrentPos,
-		time.Duration(seconds*float64(time.Second)).Round(time.Second))
-	out[9] = sbuilder.String()
-	sbuilder.Reset()
-
-	if len(art) > 8 {
-		out[len(out)-2] = player.LatestMessage
-	}
-
-	for i := range art {
-		if i < len(out) {
-			fmt.Fprintf(&sbuilder, "   %s   %s", art[i], out[i])
-			fmt.Println(sbuilder.String())
-			sbuilder.Reset()
-		} else {
-			fmt.Fprintf(&sbuilder, "   %s", art[i])
-			fmt.Println(sbuilder.String())
-			sbuilder.Reset()
-			if i == len(art)-1 {
-				fmt.Fprintf(&sbuilder, "   %s", art[i])
-				fmt.Print(sbuilder.String())
-				sbuilder.Reset()
-			}
-		}
-	}
-
 }
