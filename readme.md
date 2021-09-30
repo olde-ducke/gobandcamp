@@ -16,4 +16,5 @@
 	  F	  - next track
       B	  - previous track
       R	  - change playback mode
+	  O	  - goes back to terminal, entering new valid link will play new album
      Esc  - quit

@@ -31,6 +31,7 @@ type Album struct {
 	DatePublished string                 `json:"datePublished"` // release date
 	Image         string                 `json:"image"`         // link to album art
 	Tracks        Track                  `json:"track"`         // container for track data
+	AlbumArt      image.Image
 }
 
 type Track struct {
@@ -122,7 +123,6 @@ type playback struct {
 	CurrentTrack int
 	Status       playbackStatus
 	AlbumList    Album // not a list at the moment
-	AlbumArt     image.Image
 	Stream       *mediaStream
 	Format       beep.Format
 
@@ -139,6 +139,10 @@ type playback struct {
 }
 
 func (player *playback) getNewTrack() {
+	if len(player.AlbumList.Tracks.ItemListElement) == 0 {
+		player.LatestMessage = "No album data was found"
+		return
+	}
 	trackNumber := player.CurrentTrack
 	item := player.AlbumList.Tracks.ItemListElement[trackNumber]
 	filename := fmt.Sprint(player.AlbumList.ByArtist["name"], " - ", item.TrackInfo.Name, ".mp3")
@@ -185,93 +189,6 @@ func (player *playback) getNewTrack() {
 
 func (player *playback) getCurrentTrackPosition() string {
 	return fmt.Sprint(player.Format.SampleRate.D(player.Stream.streamer.Position()).Round(time.Second))
-}
-
-func (player *playback) handle(event tcell.Event) (changed, quit bool) {
-	switch event := event.(type) {
-	case *tcell.EventKey:
-		if event.Key() == tcell.KeyESC {
-			return false, true
-		}
-
-		if event.Key() != tcell.KeyRune {
-			return false, false
-		}
-
-		switch unicode.ToLower(event.Rune()) {
-		case ' ':
-			if player.Status == playing {
-				player.Status = paused
-			} else {
-				player.Status = playing
-			}
-			speaker.Lock()
-			player.Stream.ctrl.Paused = !player.Stream.ctrl.Paused
-			speaker.Unlock()
-			return true, false
-		case 'a':
-			speaker.Lock()
-			player.changePosition(0 - player.Format.SampleRate.N(time.Second*2))
-			player.CurrentPos = player.getCurrentTrackPosition()
-			speaker.Unlock()
-			return true, false
-
-		case 'd':
-			speaker.Lock()
-			player.changePosition(player.Format.SampleRate.N(time.Second * 2))
-			player.CurrentPos = player.getCurrentTrackPosition()
-			speaker.Unlock()
-			return true, false
-
-		case 's':
-			if player.volume < -9.6 {
-				return false, false
-			}
-			player.volume -= 0.5
-			speaker.Lock()
-			if !player.muted && player.volume < -9.6 {
-				player.muted = true
-				player.Stream.volume.Silent = player.muted
-			}
-			player.Stream.volume.Volume = player.volume
-			speaker.Unlock()
-			return true, false
-
-		case 'w':
-			if player.volume > -0.4 {
-				return false, false
-			}
-			player.volume += 0.5
-			speaker.Lock()
-			if player.muted {
-				player.muted = false
-				player.Stream.volume.Silent = player.muted
-			}
-			player.Stream.volume.Volume = player.volume
-			speaker.Unlock()
-			return true, false
-
-		case 'm':
-			player.muted = !player.muted
-			speaker.Lock()
-			player.Stream.volume.Silent = player.muted
-			speaker.Unlock()
-			return true, false
-
-		case 'r':
-			player.PlaybackMode = (player.PlaybackMode + 1) % 4
-			return true, false
-
-		case 'b':
-			player.skip(false)
-			return true, false
-
-		case 'f':
-			player.skip(true)
-			return true, false
-		}
-	}
-	return false, false
 }
 
 func (player *playback) skip(forward bool) {
@@ -331,7 +248,7 @@ func (player *playback) reDrawMetaData(screen tcell.Screen, x, y int, style tcel
 	screen.Fill(' ', style)
 
 	// draw album art
-	art := convert.NewImageConverter().Image2CharPixelMatrix(player.AlbumArt, &convert.DefaultOptions)
+	art := convert.NewImageConverter().Image2CharPixelMatrix(player.AlbumList.AlbumArt, &convert.DefaultOptions)
 	xReset := x
 	for _, pixelY := range art {
 		for _, pixelX := range pixelY {
@@ -348,7 +265,14 @@ func (player *playback) reDrawMetaData(screen tcell.Screen, x, y int, style tcel
 }
 
 func (player *playback) updateTextData(screen tcell.Screen, style tcell.Style) {
+	clearString(screen, player.xOffset, 11, style)
+	drawString(screen, player.xOffset, 11, player.LatestMessage, style)
+
 	var sbuilder strings.Builder
+	if len(player.AlbumList.Tracks.ItemListElement) == 0 {
+		screen.Show()
+		return
+	}
 	item := player.AlbumList.Tracks.ItemListElement[player.CurrentTrack]
 	clearString(screen, player.xOffset, 1, style)
 	drawString(screen, player.xOffset, 1, player.Status.String(), style)
@@ -382,7 +306,7 @@ func (player *playback) updateTextData(screen tcell.Screen, style tcell.Style) {
 	if player.muted {
 		fmt.Fprintf(&sbuilder, "Volume: Mute")
 	} else {
-		fmt.Fprintf(&sbuilder, "Volume: %.0f", (100 + player.volume*10))
+		fmt.Fprintf(&sbuilder, "Volume: %.0f%%", (100 + player.volume*10))
 	}
 	clearString(screen, player.xOffset, 7, style)
 	drawString(screen, player.xOffset, 7, sbuilder.String(), style)
@@ -428,18 +352,7 @@ func reportError(err error) {
 	}
 }
 
-func main() {
-	var player playback
-	cachedResponses = make(map[int][]byte)
-
-	stdinReader := bufio.NewReader(os.Stdin)
-	fmt.Print("Enter bandcamp album link: ")
-	input, err := stdinReader.ReadString('\n')
-	if err != nil {
-		reportError(err)
-	}
-	input = strings.Trim(input, "\n")
-
+func parseJSON(input string) (album Album) {
 	// TODO: link validation, note: not all bandcamp artist are hosted on whatever.bandcamp.com
 	// apparently band pages work, if they have album on main page
 	request, err := http.NewRequest("GET", input, nil)
@@ -462,7 +375,6 @@ func main() {
 		fmt.Printf("Request failed with status code: %d\n", response.StatusCode)
 		os.Exit(1)
 	}
-	player.LatestMessage = fmt.Sprint(input, " ", response.Status)
 	response.Body.Close()
 
 	reader := bytes.NewBuffer(body)
@@ -484,12 +396,12 @@ func main() {
 
 	// TODO: track and album pages are different, for now only album pages supported
 	// track pages will likely crash
-	err = json.Unmarshal([]byte(jsonstring), &player.AlbumList)
+	err = json.Unmarshal([]byte(jsonstring), &album)
 	if err != nil {
 		reportError(err)
 	}
 
-	request, err = http.NewRequest("GET", player.AlbumList.Image, nil)
+	request, err = http.NewRequest("GET", album.Image, nil)
 	if err != nil {
 		reportError(err)
 	}
@@ -498,7 +410,7 @@ func main() {
 	if err != nil {
 		fmt.Println(err, "trying http://")
 	}
-	request, err = http.NewRequest("GET", strings.Replace(player.AlbumList.Image, "https://", "http://", 1), nil)
+	request, err = http.NewRequest("GET", strings.Replace(album.Image, "https://", "http://", 1), nil)
 	if err != nil {
 		reportError(err)
 	}
@@ -507,43 +419,63 @@ func main() {
 	if err != nil {
 		reportError(err)
 	}
-
+	defer response.Body.Close()
 	// TODO: add default case that generates white image
 	// is there anything other than jpeg?
 	switch response.Header.Get("Content-Type") {
 	case "image/jpeg":
-		player.AlbumArt, err = jpeg.Decode(response.Body)
+		album.AlbumArt, err = jpeg.Decode(response.Body)
 	case "image/png":
-		player.AlbumArt, err = png.Decode(response.Body)
+		album.AlbumArt, err = png.Decode(response.Body)
 	}
+	return album
+}
 
-	// FIXME: behaves weird after coming from suspend (high CPU load)
-	// FIXME: device does not initialize after suspend
-	// FIXME: takes device to itself, doesn't allow any other program to use it, and can't use it, if device is already being used
-
+func initScreen() (screen tcell.Screen, style tcell.Style) {
 	screen, err := tcell.NewScreen()
 	reportError(err)
 	err = screen.Init()
 	reportError(err)
-	mainStyle := tcell.StyleDefault.
+	style = tcell.StyleDefault.
 		Background(tcell.NewHexColor(0x2B2B2B))
-	screen.Fill(' ', mainStyle)
+	screen.Fill(' ', style)
 	screen.Show()
+	return screen, style
+}
 
-	// start timer and set channel for sending end of track, completed download and keyboard events signals
+func (player *playback) initPlayer(input string) {
+	cachedResponses = make(map[int][]byte)
+	player.AlbumList = parseJSON(strings.Trim(input, "\n"))
 	player.timer = time.Tick(time.Second)
 	player.next = make(chan bool)
 	player.trackNumber = make(chan int)
+	go player.getNewTrack()
+}
+
+func main() {
+	var player playback
+	player = playback{PlaybackMode: player.PlaybackMode, volume: player.volume, muted: player.muted}
+	// FIXME: behaves weird after coming from suspend (high CPU load)
+	// FIXME: device does not initialize after suspend
+	// FIXME: takes device to itself, doesn't allow any other program to use it, and can't use it, if device is already being used
+	stdinReader := bufio.NewReader(os.Stdin)
+	fmt.Print("Enter bandcamp album link: ")
+	input, err := stdinReader.ReadString('\n')
+	if err != nil {
+		reportError(err)
+	}
+	player.initPlayer(input)
+	screen, style := initScreen()
+	player.reDrawMetaData(screen, 3, 0, style)
 	events := make(chan tcell.Event)
+	// FIXME: ?
 	go func() {
 		for {
 			events <- screen.PollEvent()
 		}
 	}()
-	// get first stream, default value for current track is 0
-	go player.getNewTrack()
-	player.reDrawMetaData(screen, 3, 0, mainStyle)
 
+	// event loop
 	for {
 		select {
 		case <-player.timer:
@@ -552,10 +484,10 @@ func main() {
 				player.CurrentPos = player.getCurrentTrackPosition()
 				speaker.Unlock()
 			}
-			player.updateTextData(screen, mainStyle)
+			player.updateTextData(screen, style)
 		case <-player.next:
 			player.nextTrack()
-			player.updateTextData(screen, mainStyle)
+			player.updateTextData(screen, style)
 		case trackNumber := <-player.trackNumber:
 			if trackNumber == player.CurrentTrack && player.Status != playing {
 				streamer, format, err := mp3.Decode(&bytesRSC{bytes.
@@ -571,23 +503,111 @@ func main() {
 				})))
 			}
 		case event := <-events:
-			switch event.(type) {
+			switch event := event.(type) {
 			case *tcell.EventResize:
-				player.reDrawMetaData(screen, 3, 0, mainStyle)
+				player.reDrawMetaData(screen, 3, 0, style)
 			case *tcell.EventKey:
-				if player.Stream == nil {
-					player.LatestMessage = "First track is not ready yet"
-					continue
-				}
-				changed, quit := player.handle(event)
-				if quit {
+				if event.Key() == tcell.KeyESC {
 					screen.Fini()
-					fmt.Println(player.Stream.volume.Volume)
 					os.Exit(0)
 				}
-				if changed {
-					player.updateTextData(screen, mainStyle)
+
+				if event.Key() != tcell.KeyRune {
+					continue
 				}
+
+				switch unicode.ToLower(event.Rune()) {
+				case ' ':
+					if player.Stream == nil {
+						continue
+					}
+					if player.Status == playing {
+						player.Status = paused
+					} else {
+						player.Status = playing
+					}
+					speaker.Lock()
+					player.Stream.ctrl.Paused = !player.Stream.ctrl.Paused
+					speaker.Unlock()
+				case 'a':
+					if player.Stream == nil {
+						continue
+					}
+					speaker.Lock()
+					player.changePosition(0 - player.Format.SampleRate.N(time.Second*2))
+					player.CurrentPos = player.getCurrentTrackPosition()
+					speaker.Unlock()
+
+				case 'd':
+					if player.Stream == nil {
+						continue
+					}
+					speaker.Lock()
+					player.changePosition(player.Format.SampleRate.N(time.Second * 2))
+					player.CurrentPos = player.getCurrentTrackPosition()
+					speaker.Unlock()
+
+				case 's':
+					if player.volume < -9.6 || player.Stream == nil {
+						continue
+					}
+					player.volume -= 0.5
+					speaker.Lock()
+					if !player.muted && player.volume < -9.6 {
+						player.muted = true
+						player.Stream.volume.Silent = player.muted
+					}
+					player.Stream.volume.Volume = player.volume
+					speaker.Unlock()
+
+				case 'w':
+					if player.volume > -0.4 || player.Stream == nil {
+						continue
+					}
+					player.volume += 0.5
+					speaker.Lock()
+					if player.muted {
+						player.muted = false
+						player.Stream.volume.Silent = player.muted
+					}
+					player.Stream.volume.Volume = player.volume
+					speaker.Unlock()
+
+				case 'm':
+					if player.Stream == nil {
+						continue
+					}
+					player.muted = !player.muted
+					speaker.Lock()
+					player.Stream.volume.Silent = player.muted
+					speaker.Unlock()
+
+				case 'r':
+					player.PlaybackMode = (player.PlaybackMode + 1) % 4
+
+				case 'b':
+					player.skip(false)
+
+				case 'f':
+					player.skip(true)
+				case 'o':
+					screen.Fini()
+					fmt.Println("Enter another album link, or leave empty to go back:")
+					input, err := stdinReader.ReadString('\n')
+					if err != nil {
+						reportError(err)
+					}
+					if input != "\n" {
+						player.stop()
+						player = playback{PlaybackMode: player.PlaybackMode, volume: player.volume, muted: player.muted}
+						player.initPlayer(input)
+						screen, style = initScreen()
+						player.reDrawMetaData(screen, 3, 0, style)
+						continue
+					}
+					screen, style = initScreen()
+				}
+				player.updateTextData(screen, style)
 			}
 		}
 	}
