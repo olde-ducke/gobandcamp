@@ -155,11 +155,12 @@ func (player *playback) getNewTrack() {
 
 	player.LatestMessage = fmt.Sprint(filename, " - Fetching...")
 	for _, value := range item.TrackInfo.AdditionalProperty {
-		// hardcoded JSON field name
+		// not all tracks are available for streaming,
+		// there is a `streaming` field in JSON
+		// but tracks that haven't been published yet
+		// (pre order albums with some tracks available
+		// for streaming) don't have it at all
 		if value.Name == "file_mp3-128" {
-
-			// TODO: not all tracks are streamable on service, pretty sure there was "streamable" field in JSON
-			// new request to media server
 			request, err := http.NewRequest("GET", value.Value.(string), nil)
 			if err != nil {
 				reportError(err)
@@ -182,9 +183,11 @@ func (player *playback) getNewTrack() {
 			}
 			defer response.Body.Close()
 			player.LatestMessage = fmt.Sprint(filename, " - Done")
+			player.trackNumber <- trackNumber
+			return
 		}
 	}
-	player.trackNumber <- trackNumber
+	player.LatestMessage = "Track is currently not available for streaming"
 }
 
 func (player *playback) getCurrentTrackPosition() string {
@@ -518,7 +521,7 @@ func main() {
 
 				switch unicode.ToLower(event.Rune()) {
 				case ' ':
-					if player.Stream == nil {
+					if player.Stream == nil || player.Status == stopped {
 						continue
 					}
 					if player.Status == playing {
