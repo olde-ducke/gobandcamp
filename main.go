@@ -78,11 +78,19 @@ const (
 	stopped playbackStatus = iota
 	playing
 	paused
+	seekBWD
+	seekFWD
+	skipBWD
+	skipFWD
 )
 
 func (status playbackStatus) String() string {
-	return [3]string{"Stopped:", "Playing:", "Pause:"}[status]
+	return [7]string{"\u23f9", "\u23f5", "\u23f8",
+		"\u23ea", "\u23e9", "\u23ee", "\u23ed"}[status]
 }
+
+// TODO: finish playback status
+// TODO: check if windows know about these symbols
 
 type mediaStream struct {
 	sampleRate beep.SampleRate
@@ -115,9 +123,6 @@ type playback struct {
 }
 
 func (player *playback) changePosition(pos int) {
-	if player.status != playing {
-		return
-	}
 	newPos := player.stream.streamer.Position()
 	newPos += pos
 	if newPos < 0 {
@@ -132,10 +137,11 @@ func (player *playback) changePosition(pos int) {
 	}
 }
 
-func (player *playback) newStream(sampleRate beep.SampleRate, streamer beep.StreamSeekCloser) *mediaStream {
+func newStream(sampleRate beep.SampleRate, streamer beep.StreamSeekCloser,
+	playerVolume float64, muted bool) *mediaStream {
 	ctrl := &beep.Ctrl{Streamer: streamer}
 	resampler := beep.Resample(4, 44100, sampleRate, ctrl)
-	volume := &effects.Volume{Streamer: resampler, Base: 2, Volume: float64(player.volume), Silent: player.muted}
+	volume := &effects.Volume{Streamer: resampler, Base: 2, Volume: playerVolume, Silent: muted}
 	return &mediaStream{sampleRate, streamer, ctrl, resampler, volume}
 }
 
@@ -164,20 +170,21 @@ func (player *playback) getNewTrack() {
 		if value.Name == "file_mp3-128" {
 			response, err := http.DefaultClient.Do(createNewRequest(value.Value.(string)))
 			if err != nil {
-				reportError(err)
+				return
 			}
 			if response.StatusCode > 299 {
-				fmt.Printf("Request failed with status code: %d\n", response.StatusCode)
-				os.Exit(1)
+				player.latestMessage = fmt.Sprintf(
+					"Request failed with status code: %d\n", response.StatusCode)
+				return
 			}
 			player.latestMessage = fmt.Sprint(filename, " - ", response.Status, " Downloading...")
 
 			cachedResponses[trackNumber], err = io.ReadAll(response.Body)
+			response.Body.Close()
 			if err != nil {
 				player.latestMessage = err.Error()
 				return
 			}
-			defer response.Body.Close()
 			player.latestMessage = fmt.Sprint(filename, " - Done")
 			player.event <- trackNumber
 			return
@@ -200,7 +207,8 @@ func (player *playback) skip(forward bool) {
 	if forward {
 		player.currentTrack = (player.currentTrack + 1) % player.albumList.Tracks.NumberOfItems
 	} else {
-		player.currentTrack = (player.albumList.Tracks.NumberOfItems + player.currentTrack - 1) % player.albumList.Tracks.NumberOfItems
+		player.currentTrack = (player.albumList.Tracks.NumberOfItems + player.currentTrack - 1) %
+			player.albumList.Tracks.NumberOfItems
 	}
 	go player.getNewTrack()
 }
@@ -325,7 +333,7 @@ func (player *playback) updateTextData() {
 	if player.muted {
 		fmt.Fprintf(&sbuilder, "Volume: Mute")
 	} else {
-		fmt.Fprintf(&sbuilder, "Volume: %.0f%%", (100 + player.volume*10))
+		fmt.Fprintf(&sbuilder, "Volume: %3.0f%%", (100 + player.volume*10))
 	}
 	player.clearString(player.xOffset, 7)
 	player.drawString(player.xOffset, 7, sbuilder.String())
@@ -545,7 +553,7 @@ func main() {
 						continue
 					}
 					player.format = format
-					player.stream = player.newStream(format.SampleRate, streamer)
+					player.stream = newStream(format.SampleRate, streamer, player.volume, player.muted)
 					player.status = playing
 					speaker.Play(beep.Seq(player.stream.volume, beep.Callback(func() {
 						player.event <- true
@@ -565,7 +573,8 @@ func main() {
 				if event.Key() == tcell.KeyESC {
 					player.stop()
 					player.screen.Fini()
-					speaker.Close()
+					// crashes after suspend
+					// speaker.Close()
 					ticker.Stop()
 					os.Exit(0)
 				}
@@ -588,7 +597,7 @@ func main() {
 					player.stream.ctrl.Paused = !player.stream.ctrl.Paused
 					speaker.Unlock()
 				case 'a', 'A':
-					if player.stream == nil {
+					if player.stream == nil || player.status == stopped {
 						continue
 					}
 					speaker.Lock()
@@ -597,7 +606,7 @@ func main() {
 					speaker.Unlock()
 
 				case 'd', 'D':
-					if player.stream == nil {
+					if player.stream == nil || player.status == stopped {
 						continue
 					}
 					speaker.Lock()
@@ -606,7 +615,7 @@ func main() {
 					speaker.Unlock()
 
 				case 's', 'S':
-					if player.volume < -9.6 || player.stream == nil {
+					if player.stream == nil || player.volume < -9.6 {
 						continue
 					}
 					player.volume -= 0.5
@@ -619,7 +628,7 @@ func main() {
 					speaker.Unlock()
 
 				case 'w', 'W':
-					if player.volume > -0.4 || player.stream == nil {
+					if player.stream == nil || player.volume > -0.4 {
 						continue
 					}
 					player.volume += 0.5
@@ -659,7 +668,6 @@ func main() {
 						player.stop()
 						player.initPlayer(strings.Trim(input, "\n"))
 						player.screen, player.style = initScreen()
-						player.reDrawMetaData(3, 0)
 						continue
 					}
 					player.screen, player.style = initScreen()
