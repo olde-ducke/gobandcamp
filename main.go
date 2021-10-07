@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image"
 	"image/jpeg"
@@ -24,7 +25,7 @@ import (
 
 // TODO: struct names and fields are complete mess
 type Album struct {
-	ByArtist      map[string]interface{} `json:"byArtist"`      // field "name" contains artist/band
+	ByArtist      map[string]interface{} `json:"byArtist"`      // field "name" contains artist/band name
 	Name          string                 `json:"name"`          // album title
 	DatePublished string                 `json:"datePublished"` // release date
 	Image         string                 `json:"image"`         // link to album art
@@ -34,13 +35,13 @@ type Album struct {
 }
 
 type Track struct {
-	NumberOfItems   int        `json:"numberOfItems"`   // tracks in album
+	NumberOfItems   int        `json:"numberOfItems"`   // total number of tracks
 	ItemListElement []ItemList `json:"itemListElement"` // further container for track data
 }
 
 type ItemList struct {
-	TrackInfo Item `json:"item"`     // further container for track data
 	Position  int  `json:"position"` // track number
+	TrackInfo Item `json:"item"`     // further container for track data
 }
 
 type Item struct {
@@ -84,13 +85,12 @@ const (
 	skipFWD
 )
 
+// □ ▹ ▯▯ ◃◃ ▹▹ ▯◃ ▹▯
 func (status playbackStatus) String() string {
-	return [7]string{"\u23f9", "\u23f5", "\u23f8",
-		"\u23ea", "\u23e9", "\u23ee", "\u23ed"}[status]
+	return [7]string{" \u25a1", " \u25b9", "\u25af\u25af",
+		"\u25c3\u25c3", "\u25b9\u25b9", "\u25af\u25c3",
+		"\u25b9\u25af"}[status]
 }
-
-// TODO: finish playback status
-// TODO: check if windows know about these symbols
 
 type mediaStream struct {
 	sampleRate beep.SampleRate
@@ -114,7 +114,8 @@ type playback struct {
 	latestMessage string
 	volume        float64
 	muted         bool
-	xOffset       int
+
+	xOffset int
 
 	screen tcell.Screen
 	style  tcell.Style
@@ -132,7 +133,8 @@ func (player *playback) changePosition(pos int) {
 		newPos = player.stream.streamer.Len() - 1
 	}
 	if err := player.stream.streamer.Seek(newPos); err != nil {
-		// probably everything goes wrong in case of an error
+		// sometimes reports error:
+		// https://github.com/faiface/beep/issues/116
 		player.latestMessage = err.Error()
 	}
 }
@@ -289,10 +291,12 @@ func (player *playback) reDrawMetaData(x, y int) {
 }
 
 func (player *playback) updateTextData() {
+	// TODO: replace this mess with tcell/views?
 
 	_, height := player.screen.Size()
-
-	player.clearString(player.xOffset, height-2)
+	for i := 1; i <= height-2; i++ {
+		player.clearString(player.xOffset, i)
+	}
 	player.drawString(player.xOffset, height-2, player.latestMessage)
 
 	var sbuilder strings.Builder
@@ -301,42 +305,27 @@ func (player *playback) updateTextData() {
 		return
 	}
 	item := player.albumList.Tracks.ItemListElement[player.currentTrack]
-	player.clearString(player.xOffset, 1)
-	player.drawString(player.xOffset, 1, player.status.String())
-
-	fmt.Fprintf(&sbuilder, "%d/%d - %s", item.Position,
-		player.albumList.Tracks.NumberOfItems, item.TrackInfo.Name)
-	player.clearString(player.xOffset, 2)
-	player.drawString(player.xOffset, 2, sbuilder.String())
-	sbuilder.Reset()
 
 	fmt.Fprintf(&sbuilder, "Artist: %s", player.albumList.ByArtist["name"])
-	player.clearString(player.xOffset, 3)
-	player.drawString(player.xOffset, 3, sbuilder.String())
+	player.drawString(player.xOffset, 1, sbuilder.String())
 	sbuilder.Reset()
 
 	fmt.Fprintf(&sbuilder, "Album: %s", player.albumList.Name)
-	player.clearString(player.xOffset, 4)
-	player.drawString(player.xOffset, 4, sbuilder.String())
+	player.drawString(player.xOffset, 2, sbuilder.String())
 	sbuilder.Reset()
 
 	fmt.Fprintf(&sbuilder, "Release Date: %s", player.albumList.DatePublished[:11])
-	player.clearString(player.xOffset, 5)
-	player.drawString(player.xOffset, 5, sbuilder.String())
+	player.drawString(player.xOffset, 3, sbuilder.String())
 	sbuilder.Reset()
 
-	fmt.Fprintf(&sbuilder, "Mode: %s", player.playbackMode.String())
-	player.clearString(player.xOffset, 6)
+	fmt.Fprint(&sbuilder, player.albumList.Tags)
+	player.drawString(player.xOffset, 4, sbuilder.String())
+	sbuilder.Reset()
+
+	fmt.Fprintf(&sbuilder, "%2s %2d/%d - %s", player.status.String(),
+		item.Position, player.albumList.Tracks.NumberOfItems,
+		item.TrackInfo.Name)
 	player.drawString(player.xOffset, 6, sbuilder.String())
-	sbuilder.Reset()
-
-	if player.muted {
-		fmt.Fprintf(&sbuilder, "Volume: Mute")
-	} else {
-		fmt.Fprintf(&sbuilder, "Volume: %3.0f%%", (100 + player.volume*10))
-	}
-	player.clearString(player.xOffset, 7)
-	player.drawString(player.xOffset, 7, sbuilder.String())
 	sbuilder.Reset()
 
 	var seconds float64
@@ -348,13 +337,16 @@ func (player *playback) updateTextData() {
 
 	fmt.Fprintf(&sbuilder, "%s/%s", player.currentPos,
 		time.Duration(seconds*float64(time.Second)).Round(time.Second))
-	player.clearString(player.xOffset, 9)
-	player.drawString(player.xOffset, 9, sbuilder.String())
+	player.drawString(player.xOffset, 7, sbuilder.String())
 	sbuilder.Reset()
 
-	fmt.Fprint(&sbuilder, player.albumList.Tags)
-	player.clearString(player.xOffset, 10)
-	player.drawString(player.xOffset, 10, sbuilder.String())
+	if player.muted {
+		fmt.Fprintf(&sbuilder, "Volume: Mute")
+	} else {
+		fmt.Fprintf(&sbuilder, "Volume: %3.0f%%", (100 + player.volume*10))
+	}
+	fmt.Fprintf(&sbuilder, " Mode: %s", player.playbackMode.String())
+	player.drawString(player.xOffset, 8, sbuilder.String())
 	sbuilder.Reset()
 
 	player.screen.Show()
@@ -430,40 +422,10 @@ func (player *playback) downloadCover() {
 	player.event <- "Album cover downloaded"
 }
 
-func parseJSON(input string) *Album {
+func parseJSON(jsonstring string) *Album {
 	var album Album
-	response, err := http.DefaultClient.Do(createNewRequest(input))
-	if err != nil {
-		reportError(err)
-	}
-	if response.StatusCode > 299 {
-		fmt.Printf("Request failed with status code: %d\n", response.StatusCode)
-		os.Exit(1)
-	}
-	body, err := io.ReadAll(response.Body)
-	if err != nil {
-		fmt.Println(err.Error())
-		os.Exit(1)
-	}
-	response.Body.Close()
-	reader := bytes.NewBuffer(body)
-
-	var jsonstring string
-	for {
-		jsonstring, err = reader.ReadString('\n')
-		if err != nil {
-			reportError(err)
-		}
-		if strings.Contains(jsonstring, "application/ld+json") {
-			jsonstring, err = reader.ReadString('\n')
-			if err != nil {
-				reportError(err)
-			}
-			break
-		}
-	}
 	// TODO: track and album pages are different, for now only album pages supported
-	err = json.Unmarshal([]byte(jsonstring), &album)
+	err := json.Unmarshal([]byte(jsonstring), &album)
 	if err != nil {
 		reportError(err)
 	}
@@ -482,17 +444,83 @@ func initScreen() (screen tcell.Screen, style tcell.Style) {
 	return screen, style
 }
 
-func (player *playback) initPlayer(input string) {
+func (player *playback) initPlayer(album *Album) {
 	cachedResponses = make(map[int][]byte)
 	// keeps volume and playback mode from previous playback
 	*player = playback{playbackMode: player.playbackMode, volume: player.volume,
-		muted: player.muted}
-	player.albumList = parseJSON(input)
+		muted: player.muted, albumList: album}
 	player.albumList.AlbumArt = image.NewRGBA(image.Rect(0, 0, 1, 1))
 	player.event = make(chan interface{})
-
 	go player.downloadCover()
 	go player.getNewTrack()
+}
+
+func getAlbumPage(link string) (jsonString string, err error) {
+	response, err := http.DefaultClient.Do(createNewRequest(link))
+	if err != nil {
+		return "", err
+	}
+	if response.StatusCode > 299 {
+		return "", errors.New(
+			fmt.Sprintf("Request failed with status code: %d\n",
+				response.StatusCode),
+		)
+	}
+	body, err := io.ReadAll(response.Body)
+	// seems reasonable to crash, if we can't close reader
+	reportError(response.Body.Close())
+	if err != nil {
+		fmt.Println("Error:", err.Error())
+		return "", err
+	}
+
+	// not all artists are hosted on bandname.bandcamp.com,
+	// deal with aliases by reading canonical names from response
+	if !strings.Contains(response.Header.Get("Link"),
+		"bandcamp.com") {
+		return "", errors.New("Response came not from bandcamp.com")
+	}
+
+	reader := bytes.NewBuffer(body)
+
+	for {
+		jsonString, err = reader.ReadString('\n')
+		if err != nil {
+			fmt.Println(err.Error())
+			return "", err
+		}
+		if strings.Contains(jsonString, "application/ld+json") {
+			jsonString, err = reader.ReadString('\n')
+			if err != nil {
+				return "", err
+			}
+			break
+		}
+	}
+	return jsonString, nil
+}
+
+func handleInput(message string) (jsonString string) {
+	for {
+		stdinReader := bufio.NewReader(os.Stdin)
+		fmt.Println(message)
+		input, err := stdinReader.ReadString('\n')
+		reportError(err)
+		switch input {
+		case "\n":
+			return ""
+		case "exit\n", "q\n":
+			return "q"
+		default:
+			jsonString, err = getAlbumPage(strings.Trim(input, "\n"))
+		}
+		if err == nil {
+			break
+		} else {
+			fmt.Println("Error:", err)
+		}
+	}
+	return jsonString
 }
 
 func init() {
@@ -505,18 +533,25 @@ func main() {
 	// FIXME: behaves weird after coming from suspend (high CPU load)
 	// FIXME: device does not reinitialize after suspend
 	// FIXME: takes device to itself, doesn't allow any other program to use it, and can't use it, if device is already being used
-	stdinReader := bufio.NewReader(os.Stdin)
-	fmt.Println("Enter bandcamp album link:")
-	input, err := stdinReader.ReadString('\n')
-	if err != nil {
-		reportError(err)
+	var jsonString string
+	for jsonString == "" {
+		jsonString = handleInput("Enter bandcamp album link, type `exit` or q to quit")
+		if jsonString == "q" {
+			os.Exit(0)
+		}
 	}
-	player.initPlayer(strings.Trim(input, "\n"))
+
+	player.initPlayer(parseJSON(jsonString))
+
 	player.screen, player.style = initScreen()
 	player.reDrawMetaData(3, 0)
 	ticker := time.NewTicker(time.Second)
 	timer := ticker.C
 	tcellEvent := make(chan tcell.Event)
+	// FIXME: probably breaks something: store real player status
+	// and display new status while key is held down, then update it
+	// on next timer tick (tcell can't tell when key is released)
+	var buf playbackStatus
 
 	// doesn't fail without screen and continues to work
 	// after reinitialization normally
@@ -531,6 +566,9 @@ func main() {
 	for {
 		select {
 		case <-timer:
+			if player.status == seekBWD || player.status == seekFWD {
+				player.status = buf
+			}
 			if player.format.SampleRate != 0 {
 				speaker.Lock()
 				player.currentPos = player.getCurrentTrackPosition()
@@ -543,6 +581,7 @@ func main() {
 			switch value.(type) {
 			case bool:
 				player.nextTrack()
+				player.status = skipFWD
 				player.updateTextData()
 			case int:
 				if value.(int) == player.currentTrack && player.status != playing {
@@ -558,6 +597,7 @@ func main() {
 					speaker.Play(beep.Seq(player.stream.volume, beep.Callback(func() {
 						player.event <- true
 					})))
+					player.updateTextData()
 				}
 			case string:
 				player.latestMessage = value.(string)
@@ -585,20 +625,26 @@ func main() {
 
 				switch event.Rune() {
 				case ' ':
-					if player.stream == nil || player.status == stopped {
-						continue
+					if player.status == seekBWD || player.status == seekFWD {
+						player.status = buf
 					}
 					if player.status == playing {
 						player.status = paused
-					} else {
+					} else if player.status == paused {
 						player.status = playing
-					}
+					} else {
+						continue
+					} // FIXME???
 					speaker.Lock()
 					player.stream.ctrl.Paused = !player.stream.ctrl.Paused
 					speaker.Unlock()
 				case 'a', 'A':
 					if player.stream == nil || player.status == stopped {
 						continue
+					}
+					if player.status != seekBWD && player.status != seekFWD {
+						buf = player.status
+						player.status = seekBWD
 					}
 					speaker.Lock()
 					player.changePosition(0 - player.format.SampleRate.N(time.Second*2))
@@ -608,6 +654,10 @@ func main() {
 				case 'd', 'D':
 					if player.stream == nil || player.status == stopped {
 						continue
+					}
+					if player.status != seekFWD && player.status != seekBWD {
+						buf = player.status
+						player.status = seekFWD
 					}
 					speaker.Lock()
 					player.changePosition(player.format.SampleRate.N(time.Second * 2))
@@ -654,23 +704,33 @@ func main() {
 
 				case 'b', 'B':
 					player.skip(false)
+					player.status = skipBWD
+					player.updateTextData()
 
 				case 'f', 'F':
 					player.skip(true)
+					player.status = skipFWD
+					player.updateTextData()
+
 				case 'o', 'O':
+					// FIXME: hangs on next() when in terminal, next()
+					// triggers screen update, which is not set when in
+					// terminal
 					player.screen.Fini()
-					fmt.Println("Enter another album link, or leave empty to go back:")
-					input, err := stdinReader.ReadString('\n')
-					if err != nil {
-						reportError(err)
-					}
-					if input != "\n" {
+					jsonString = handleInput("Enter new album link, leave empty to go back")
+					if jsonString == "q" {
 						player.stop()
-						player.initPlayer(strings.Trim(input, "\n"))
-						player.screen, player.style = initScreen()
-						continue
+						player.screen.Fini()
+						// crashes after suspend
+						// speaker.Close()
+						ticker.Stop()
+						os.Exit(0)
+					} else if jsonString != "" {
+						player.stop()
+						player.initPlayer(parseJSON(jsonString))
 					}
 					player.screen, player.style = initScreen()
+					continue
 				}
 				player.updateTextData()
 			}
