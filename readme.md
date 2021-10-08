@@ -20,4 +20,6 @@
 |       <kbd>B</kbd>      | previous track                                                     |
 |       <kbd>R</kbd>      | change playback mode                                               |
 |       <kbd>O</kbd>      | goes back to terminal, entering new valid link will play new album |
+|       <kbd>T</kbd>      | light/dark mode                                                    |
+|       <kbd>I</kbd>      | Switch art drawing mode                                            |
 |      <kbd>Esc</kbd>     | quit                                                               |

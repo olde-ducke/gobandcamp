@@ -123,10 +123,14 @@ type screenRect struct {
 }
 
 type screenDrawer struct {
-	textArea screenRect
-	screen   tcell.Screen
-	style    tcell.Style
-	margin   int // left margin
+	textArea  screenRect
+	screen    tcell.Screen
+	style     tcell.Style
+	margin    int // left margin
+	artMode   int
+	lightMode bool
+	bgColor   tcell.Color
+	fgColor   tcell.Color
 }
 
 func (player *playback) changePosition(pos int) {
@@ -139,7 +143,7 @@ func (player *playback) changePosition(pos int) {
 		newPos = player.stream.streamer.Len() - 1
 	}
 	if err := player.stream.streamer.Seek(newPos); err != nil {
-		// sometime reports error:
+		// sometime reports errors, for example this one:
 		// https://github.com/faiface/beep/issues/116
 		player.latestMessage = err.Error()
 	}
@@ -212,10 +216,14 @@ func (player *playback) skip(forward bool) {
 	}
 	player.stop()
 	if forward {
-		player.currentTrack = (player.currentTrack + 1) % player.albumList.Tracks.NumberOfItems
-	} else {
-		player.currentTrack = (player.albumList.Tracks.NumberOfItems + player.currentTrack - 1) %
+		player.currentTrack = (player.currentTrack + 1) %
 			player.albumList.Tracks.NumberOfItems
+		player.status = skipFWD
+	} else {
+		player.currentTrack = (player.albumList.Tracks.NumberOfItems +
+			player.currentTrack - 1) %
+			player.albumList.Tracks.NumberOfItems
+		player.status = skipBWD
 	}
 	go player.getNewTrack(player.currentTrack)
 }
@@ -268,35 +276,67 @@ func (c bytesRSC) Close() error {
 func (drawer *screenDrawer) reDrawMetaData(player *playback) {
 
 	drawer.screen.Fill(' ', drawer.style)
-	// draw album art
-	options := convert.Options{
-		Ratio:           1.0,
-		FixedWidth:      -1,
-		FixedHeight:     -1,
-		FitScreen:       true,
-		StretchedScreen: false,
-		Colored:         true,
-		Reversed:        false,
-	}
-	art := convert.NewImageConverter().Image2CharPixelMatrix(
-		player.albumList.AlbumArt, &options)
-	xReset := drawer.margin
-	x, y := xReset, 0
-	for _, pixelY := range art {
-		for _, pixelX := range pixelY {
-			drawer.screen.SetContent(x, y, rune(pixelX.Char), nil,
-				drawer.style.Foreground(tcell.NewRGBColor(int32(pixelX.R),
-					int32(pixelX.G), int32(pixelX.B))))
-			x++
-		}
-		x = xReset
-		y++
-	}
 
-	drawer.textArea.minX = len(art[0]) + drawer.margin*2
+	drawer.textArea.minX = drawer.redrawArt(player) + drawer.margin*2
 	drawer.textArea.maxX, drawer.textArea.maxY = drawer.screen.Size()
 	drawer.updateTextData(player)
 	drawer.screen.Sync()
+}
+
+// draw album art
+func (drawer *screenDrawer) redrawArt(player *playback) int {
+	art := convert.NewImageConverter().Image2CharPixelMatrix(
+		player.albumList.AlbumArt, &convert.DefaultOptions)
+
+	x, y := drawer.margin, 0
+	for _, pixelY := range art {
+		for _, pixelX := range pixelY {
+			switch drawer.artMode {
+			// fill all cells with colourful spaces
+			case 0:
+				drawer.screen.SetContent(x, y, ' ', nil,
+					drawer.style.Background(tcell.NewRGBColor(int32(pixelX.R),
+						int32(pixelX.G), int32(pixelX.B))))
+			// foreground is darker shade, background lighter shade
+			case 1:
+				style := tcell.StyleDefault.Background(
+					tcell.NewRGBColor(int32(pixelX.R),
+						int32(pixelX.G), int32(pixelX.B))).Foreground(
+					tcell.NewRGBColor(int32(pixelX.R)/2,
+						int32(pixelX.G)/2, int32(pixelX.B)/2))
+				drawer.screen.SetContent(x, y, rune(pixelX.Char), nil, style)
+			// opposite
+			case 2:
+				style := tcell.StyleDefault.Background(
+					tcell.NewRGBColor(int32(pixelX.R)/2,
+						int32(pixelX.G)/2, int32(pixelX.B)/2)).Foreground(
+					tcell.NewRGBColor(int32(pixelX.R),
+						int32(pixelX.G), int32(pixelX.B)))
+				drawer.screen.SetContent(x, y, rune(pixelX.Char), nil, style)
+			// draws art with colourful symbols on background color
+			case 3:
+				drawer.screen.SetContent(x, y, rune(pixelX.Char), nil,
+					drawer.style.Foreground(tcell.NewRGBColor(int32(pixelX.R),
+						int32(pixelX.G), int32(pixelX.B))))
+			// draw colourful background with dark theme symbols
+			case 4:
+				style := tcell.StyleDefault.Foreground(drawer.bgColor)
+				drawer.screen.SetContent(x, y, rune(pixelX.Char), nil,
+					style.Background(tcell.NewRGBColor(int32(pixelX.R),
+						int32(pixelX.G), int32(pixelX.B))))
+			// same, but with light theme symbols
+			case 5:
+				style := tcell.StyleDefault.Foreground(drawer.fgColor)
+				drawer.screen.SetContent(x, y, rune(pixelX.Char), nil,
+					style.Background(tcell.NewRGBColor(int32(pixelX.R),
+						int32(pixelX.G), int32(pixelX.B))))
+			}
+			x++
+		}
+		x = drawer.margin
+		y++
+	}
+	return len(art[0])
 }
 
 func (drawer *screenDrawer) updateTextData(player *playback) {
@@ -467,8 +507,15 @@ func (drawer *screenDrawer) initScreen(player *playback) {
 	reportError(err)
 	err = drawer.screen.Init()
 	reportError(err)
-	drawer.style = tcell.StyleDefault.
-		Background(tcell.NewHexColor(0x2B2B2B))
+	if drawer.lightMode {
+		drawer.style = tcell.StyleDefault.
+			Foreground(drawer.bgColor).
+			Background(drawer.fgColor)
+	} else {
+		drawer.style = tcell.StyleDefault.
+			Foreground(drawer.fgColor).
+			Background(drawer.bgColor)
+	}
 	drawer.screen.Fill(' ', drawer.style)
 	drawer.reDrawMetaData(player)
 	drawer.margin = 3
@@ -573,9 +620,12 @@ func main() {
 
 	player.initPlayer(parseJSON(jsonString))
 
-	var drawer screenDrawer
+	drawer := screenDrawer{
+		fgColor: tcell.NewHexColor(0xf9fdff),
+		bgColor: tcell.NewHexColor(0x2b2b2b),
+	}
 	drawer.initScreen(&player)
-	ticker := time.NewTicker(time.Second)
+	ticker := time.NewTicker(time.Second / 2)
 	timer := ticker.C
 	tcellEvent := make(chan tcell.Event)
 	// FIXME: probably breaks something: store real player status
@@ -729,15 +779,23 @@ func main() {
 					speaker.Unlock()
 
 				case 'r', 'R':
-					player.playbackMode = (player.playbackMode + 1) % 4
+					player.playbackMode = (player.playbackMode + 1) % 5
 
 				case 'b', 'B':
 					player.skip(false)
-					player.status = skipBWD
 
 				case 'f', 'F':
 					player.skip(true)
-					player.status = skipFWD
+
+				case 't', 'T':
+					drawer.lightMode = !drawer.lightMode
+					fgColor, bgColor, _ := drawer.style.Decompose()
+					drawer.style = drawer.style.Foreground(bgColor).
+						Background(fgColor)
+					drawer.reDrawMetaData(&player)
+				case 'i', 'I':
+					drawer.artMode = (drawer.artMode + 1) % 6
+					drawer.redrawArt(&player)
 
 				// FIXME: hangs sometimes, not all deadlocks are resolved
 				// probably poll events listener in other goroutine
