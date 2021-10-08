@@ -104,23 +104,29 @@ var cachedResponses map[int][]byte
 
 type playback struct {
 	currentTrack int
-	status       playbackStatus
 	albumList    *Album // not a list at the moment
 	stream       *mediaStream
 	format       beep.Format
 
+	status        playbackStatus
 	playbackMode  playbackMode
-	currentPos    string
+	currentPos    time.Duration
 	latestMessage string
 	volume        float64
 	muted         bool
 
-	xOffset int
-
-	screen tcell.Screen
-	style  tcell.Style
-
 	event chan interface{}
+}
+
+type screenRect struct {
+	minX, minY, maxX, maxY int
+}
+
+type screenDrawer struct {
+	textArea screenRect
+	screen   tcell.Screen
+	style    tcell.Style
+	margin   int // left margin
 }
 
 func (player *playback) changePosition(pos int) {
@@ -133,7 +139,7 @@ func (player *playback) changePosition(pos int) {
 		newPos = player.stream.streamer.Len() - 1
 	}
 	if err := player.stream.streamer.Seek(newPos); err != nil {
-		// sometimes reports error:
+		// sometime reports error:
 		// https://github.com/faiface/beep/issues/116
 		player.latestMessage = err.Error()
 	}
@@ -147,12 +153,11 @@ func newStream(sampleRate beep.SampleRate, streamer beep.StreamSeekCloser,
 	return &mediaStream{sampleRate, streamer, ctrl, resampler, volume}
 }
 
-func (player *playback) getNewTrack() {
+func (player *playback) getNewTrack(trackNumber int) {
 	if len(player.albumList.Tracks.ItemListElement) == 0 {
 		player.latestMessage = "No album data was found"
 		return
 	}
-	trackNumber := player.currentTrack
 	item := player.albumList.Tracks.ItemListElement[trackNumber]
 	filename := fmt.Sprint(player.albumList.ByArtist["name"], " - ", item.TrackInfo.Name, ".mp3")
 
@@ -195,9 +200,9 @@ func (player *playback) getNewTrack() {
 	player.latestMessage = "Track is currently not available for streaming"
 }
 
-func (player *playback) getCurrentTrackPosition() string {
-	return fmt.Sprint(player.format.SampleRate.D(player.stream.
-		streamer.Position()).Round(time.Second))
+func (player *playback) getCurrentTrackPosition() time.Duration {
+	return player.format.SampleRate.D(player.stream.
+		streamer.Position()).Round(time.Second)
 }
 
 func (player *playback) skip(forward bool) {
@@ -212,7 +217,7 @@ func (player *playback) skip(forward bool) {
 		player.currentTrack = (player.albumList.Tracks.NumberOfItems + player.currentTrack - 1) %
 			player.albumList.Tracks.NumberOfItems
 	}
-	go player.getNewTrack()
+	go player.getNewTrack(player.currentTrack)
 }
 
 func (player *playback) nextTrack() {
@@ -221,18 +226,18 @@ func (player *playback) nextTrack() {
 	case random:
 		rand.Seed(time.Now().UnixNano())
 		player.currentTrack = rand.Intn(player.albumList.Tracks.NumberOfItems)
-		go player.getNewTrack()
+		go player.getNewTrack(player.currentTrack)
 	case repeatOne:
-		go player.getNewTrack()
+		go player.getNewTrack(player.currentTrack)
 	case repeat:
 		player.skip(true)
 	case normal:
 		if player.currentTrack == player.albumList.Tracks.NumberOfItems-1 {
-			player.status = stopped
 			return
 		}
 		player.skip(true)
 	}
+	player.status = skipFWD
 }
 
 func (player *playback) stop() {
@@ -260,9 +265,9 @@ func (c bytesRSC) Close() error {
 	return nil
 }
 
-func (player *playback) reDrawMetaData(x, y int) {
-	player.screen.Fill(' ', player.style)
+func (drawer *screenDrawer) reDrawMetaData(player *playback) {
 
+	drawer.screen.Fill(' ', drawer.style)
 	// draw album art
 	options := convert.Options{
 		Ratio:           1.0,
@@ -273,59 +278,67 @@ func (player *playback) reDrawMetaData(x, y int) {
 		Colored:         true,
 		Reversed:        false,
 	}
-	art := convert.NewImageConverter().Image2CharPixelMatrix(player.albumList.AlbumArt, &options)
-	xReset := x
+	art := convert.NewImageConverter().Image2CharPixelMatrix(
+		player.albumList.AlbumArt, &options)
+	xReset := drawer.margin
+	x, y := xReset, 0
 	for _, pixelY := range art {
 		for _, pixelX := range pixelY {
-			player.screen.SetContent(x, y, rune(pixelX.Char), nil,
-				player.style.Foreground(tcell.NewRGBColor(int32(pixelX.R),
+			drawer.screen.SetContent(x, y, rune(pixelX.Char), nil,
+				drawer.style.Foreground(tcell.NewRGBColor(int32(pixelX.R),
 					int32(pixelX.G), int32(pixelX.B))))
 			x++
 		}
 		x = xReset
 		y++
 	}
-	player.xOffset = len(art[0]) + 6
-	player.updateTextData()
-	player.screen.Sync()
+
+	drawer.textArea.minX = len(art[0]) + drawer.margin*2
+	drawer.textArea.maxX, drawer.textArea.maxY = drawer.screen.Size()
+	drawer.updateTextData(player)
+	drawer.screen.Sync()
 }
 
-func (player *playback) updateTextData() {
+func (drawer *screenDrawer) updateTextData(player *playback) {
 	// TODO: replace this mess with tcell/views?
 
-	_, height := player.screen.Size()
-	for i := 1; i <= height-2; i++ {
-		player.clearString(player.xOffset, i)
+	messagePos := drawer.textArea.maxY - 2
+	for i := 1; i <= messagePos; i++ {
+		drawer.clearString(drawer.textArea.minX, i)
 	}
-	player.drawString(player.xOffset, height-2, player.latestMessage)
+
+	if messagePos > 10 {
+		drawer.drawString(drawer.textArea.minX, drawer.textArea.maxY-2,
+			player.latestMessage)
+	}
 
 	var sbuilder strings.Builder
 	if len(player.albumList.Tracks.ItemListElement) == 0 {
-		player.screen.Show()
+		drawer.screen.Show()
 		return
 	}
 	item := player.albumList.Tracks.ItemListElement[player.currentTrack]
 
 	fmt.Fprintf(&sbuilder, "Artist: %s", player.albumList.ByArtist["name"])
-	player.drawString(player.xOffset, 1, sbuilder.String())
+	drawer.drawString(drawer.textArea.minX, 1, sbuilder.String())
 	sbuilder.Reset()
 
 	fmt.Fprintf(&sbuilder, "Album: %s", player.albumList.Name)
-	player.drawString(player.xOffset, 2, sbuilder.String())
+	drawer.drawString(drawer.textArea.minX, 2, sbuilder.String())
 	sbuilder.Reset()
 
 	fmt.Fprintf(&sbuilder, "Release Date: %s", player.albumList.DatePublished[:11])
-	player.drawString(player.xOffset, 3, sbuilder.String())
+	drawer.drawString(drawer.textArea.minX, 3, sbuilder.String())
 	sbuilder.Reset()
 
 	fmt.Fprint(&sbuilder, player.albumList.Tags)
-	player.drawString(player.xOffset, 4, sbuilder.String())
+	drawer.drawString(drawer.textArea.minX, 4, sbuilder.String())
 	sbuilder.Reset()
 
 	fmt.Fprintf(&sbuilder, "%2s %2d/%d - %s", player.status.String(),
 		item.Position, player.albumList.Tracks.NumberOfItems,
 		item.TrackInfo.Name)
-	player.drawString(player.xOffset, 6, sbuilder.String())
+	drawer.drawString(drawer.textArea.minX, 6, sbuilder.String())
 	sbuilder.Reset()
 
 	var seconds float64
@@ -335,9 +348,19 @@ func (player *playback) updateTextData() {
 		}
 	}
 
+	if seconds != 0 {
+		var repeats int = int(100*player.currentPos/
+			time.Duration(seconds*1_000_000_000)) *
+			(drawer.textArea.maxX - drawer.textArea.minX - drawer.margin) /
+			100
+
+		drawer.drawString(drawer.textArea.minX, 7, strings.Repeat("\u25b1", repeats))
+		sbuilder.Reset()
+	}
+
 	fmt.Fprintf(&sbuilder, "%s/%s", player.currentPos,
-		time.Duration(seconds*float64(time.Second)).Round(time.Second))
-	player.drawString(player.xOffset, 7, sbuilder.String())
+		time.Duration(seconds*1_000_000_000).Round(time.Second))
+	drawer.drawString(drawer.textArea.minX, 8, sbuilder.String())
 	sbuilder.Reset()
 
 	if player.muted {
@@ -346,23 +369,29 @@ func (player *playback) updateTextData() {
 		fmt.Fprintf(&sbuilder, "Volume: %3.0f%%", (100 + player.volume*10))
 	}
 	fmt.Fprintf(&sbuilder, " Mode: %s", player.playbackMode.String())
-	player.drawString(player.xOffset, 8, sbuilder.String())
+	drawer.drawString(drawer.textArea.minX, 9, sbuilder.String())
 	sbuilder.Reset()
 
-	player.screen.Show()
+	drawer.screen.Show()
 }
 
-func (player *playback) drawString(x, y int, str string) {
+func (drawer *screenDrawer) drawString(x, y int, str string) {
 	for _, r := range str {
-		player.screen.SetContent(x, y, r, nil, player.style)
+		if x == drawer.textArea.maxX-drawer.margin {
+			x -= 3
+			for i := x; i < drawer.textArea.maxX-drawer.margin; i++ {
+				drawer.screen.SetContent(i, y, '.', nil, drawer.style)
+			}
+			return
+		}
+		drawer.screen.SetContent(x, y, r, nil, drawer.style)
 		x++
 	}
 }
 
-func (player *playback) clearString(x, y int) {
-	width, _ := player.screen.Size()
-	for i := x; i < width; i++ {
-		player.screen.SetContent(i, y, ' ', nil, player.style)
+func (drawer *screenDrawer) clearString(x, y int) {
+	for i := x; i < drawer.textArea.maxX-drawer.margin; i++ {
+		drawer.screen.SetContent(i, y, ' ', nil, drawer.style)
 	}
 }
 
@@ -432,16 +461,17 @@ func parseJSON(jsonstring string) *Album {
 	return &album
 }
 
-func initScreen() (screen tcell.Screen, style tcell.Style) {
-	screen, err := tcell.NewScreen()
+func (drawer *screenDrawer) initScreen(player *playback) {
+	var err error
+	drawer.screen, err = tcell.NewScreen()
 	reportError(err)
-	err = screen.Init()
+	err = drawer.screen.Init()
 	reportError(err)
-	style = tcell.StyleDefault.
+	drawer.style = tcell.StyleDefault.
 		Background(tcell.NewHexColor(0x2B2B2B))
-	screen.Fill(' ', style)
-	screen.Show()
-	return screen, style
+	drawer.screen.Fill(' ', drawer.style)
+	drawer.reDrawMetaData(player)
+	drawer.margin = 3
 }
 
 func (player *playback) initPlayer(album *Album) {
@@ -452,7 +482,7 @@ func (player *playback) initPlayer(album *Album) {
 	player.albumList.AlbumArt = image.NewRGBA(image.Rect(0, 0, 1, 1))
 	player.event = make(chan interface{})
 	go player.downloadCover()
-	go player.getNewTrack()
+	go player.getNewTrack(player.currentTrack)
 }
 
 func getAlbumPage(link string) (jsonString string, err error) {
@@ -543,8 +573,8 @@ func main() {
 
 	player.initPlayer(parseJSON(jsonString))
 
-	player.screen, player.style = initScreen()
-	player.reDrawMetaData(3, 0)
+	var drawer screenDrawer
+	drawer.initScreen(&player)
 	ticker := time.NewTicker(time.Second)
 	timer := ticker.C
 	tcellEvent := make(chan tcell.Event)
@@ -558,7 +588,7 @@ func main() {
 	// does it even end?
 	go func() {
 		for {
-			tcellEvent <- player.screen.PollEvent()
+			tcellEvent <- drawer.screen.PollEvent()
 		}
 	}()
 
@@ -573,7 +603,7 @@ func main() {
 				speaker.Lock()
 				player.currentPos = player.getCurrentTrackPosition()
 				speaker.Unlock()
-				player.updateTextData()
+				drawer.updateTextData(&player)
 			}
 
 		// handle player events
@@ -581,8 +611,7 @@ func main() {
 			switch value.(type) {
 			case bool:
 				player.nextTrack()
-				player.status = skipFWD
-				player.updateTextData()
+				drawer.updateTextData(&player)
 			case int:
 				if value.(int) == player.currentTrack && player.status != playing {
 					streamer, format, err := mp3.Decode(&bytesRSC{bytes.
@@ -597,22 +626,22 @@ func main() {
 					speaker.Play(beep.Seq(player.stream.volume, beep.Callback(func() {
 						player.event <- true
 					})))
-					player.updateTextData()
+					drawer.updateTextData(&player)
 				}
 			case string:
 				player.latestMessage = value.(string)
-				player.reDrawMetaData(3, 0)
+				drawer.reDrawMetaData(&player)
 			}
 
 		// handle tcell events
 		case event := <-tcellEvent:
 			switch event := event.(type) {
 			case *tcell.EventResize:
-				player.reDrawMetaData(3, 0)
+				drawer.reDrawMetaData(&player)
 			case *tcell.EventKey:
 				if event.Key() == tcell.KeyESC {
+					drawer.screen.Fini()
 					player.stop()
-					player.screen.Fini()
 					// crashes after suspend
 					// speaker.Close()
 					ticker.Stop()
@@ -705,22 +734,19 @@ func main() {
 				case 'b', 'B':
 					player.skip(false)
 					player.status = skipBWD
-					player.updateTextData()
 
 				case 'f', 'F':
 					player.skip(true)
 					player.status = skipFWD
-					player.updateTextData()
 
+				// FIXME: hangs sometimes, not all deadlocks are resolved
+				// probably poll events listener in other goroutine
+				// trying to get events from screen that is disabled
 				case 'o', 'O':
-					// FIXME: hangs on next() when in terminal, next()
-					// triggers screen update, which is not set when in
-					// terminal
-					player.screen.Fini()
+					drawer.screen.Fini()
 					jsonString = handleInput("Enter new album link, leave empty to go back")
 					if jsonString == "q" {
 						player.stop()
-						player.screen.Fini()
 						// crashes after suspend
 						// speaker.Close()
 						ticker.Stop()
@@ -729,10 +755,10 @@ func main() {
 						player.stop()
 						player.initPlayer(parseJSON(jsonString))
 					}
-					player.screen, player.style = initScreen()
+					drawer.initScreen(&player)
 					continue
 				}
-				player.updateTextData()
+				drawer.updateTextData(&player)
 			}
 		}
 	}
