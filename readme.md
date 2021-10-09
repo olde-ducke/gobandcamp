@@ -14,12 +14,12 @@
 |       <kbd>M</kbd>      | mute                                                               |
 |       <kbd>S</kbd>      | lower volume                                                       |
 |       <kbd>W</kbd>      | raise volume                                                       |
-|       <kbd>A</kbd>      | go back 2 seconds                                                  |
-|       <kbd>D</kbd>      | go forward 2 seconds                                               |
+|       <kbd>A</kbd>      | rewind                                                             |
+|       <kbd>D</kbd>      | fast forward                                                       |
 |       <kbd>F</kbd>      | next track                                                         |
 |       <kbd>B</kbd>      | previous track                                                     |
 |       <kbd>R</kbd>      | change playback mode                                               |
-|       <kbd>O</kbd>      | goes back to terminal, entering new valid link will play new album |
+|       <kbd>O</kbd>      | goes back to terminal, after entering new link new album will play |
 |       <kbd>T</kbd>      | light/dark mode                                                    |
-|       <kbd>I</kbd>      | Switch art drawing mode                                            |
+|       <kbd>I</kbd>      | switch art drawing method                                          |
 |      <kbd>Esc</kbd>     | quit                                                               |
