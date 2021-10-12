@@ -28,12 +28,10 @@ func wrapInRSC(index int) *bytesReadSeekCloser {
 	return &bytesReadSeekCloser{bytes.NewReader(cachedResponses[index])}
 }
 
-func createNewRequest(link string) *http.Request {
+func createNewRequest(link string) (*http.Request, error) {
 	request, err := http.NewRequest("GET", link, nil)
 	if err != nil {
-		// If we can't even create new request, then something
-		//gone horribly wrong
-		reportError(err)
+		return nil, err
 	}
 	// pretend that we are Chrome on Win10
 	request.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/93.0.4577.82 Safari/537.36")
@@ -41,11 +39,15 @@ func createNewRequest(link string) *http.Request {
 	// TODO: bandcamp tag search is all sorts of not okay on mobile
 	// version
 	request.Header.Set("Cookie", "mvp=p")
-	return request
+	return request, nil
 }
 
 func getAlbumPage(link string) (jsonString string, err error) {
-	response, err := http.DefaultClient.Do(createNewRequest(link))
+	request, err := createNewRequest(link)
+	if err != nil {
+		return "", err
+	}
+	response, err := http.DefaultClient.Do(request)
 	if err != nil {
 		return "", err
 	}
@@ -92,19 +94,33 @@ func getAlbumPage(link string) (jsonString string, err error) {
 // TODO: methods below don't need to be methods, message can be formed on caller side,
 // they really need only media links and channel where signal could be sent
 func (player *playback) downloadCover() {
+	request, err := createNewRequest(player.albumList.Image)
+	if err != nil {
+		player.albumList.AlbumArt = getPlaceholderImage()
+		player.event <- err.Error()
+		return
+	}
 	// images requests over https fail with EOF error
 	// for me lately, not even official app can download
 	// covers/avatars/etc, request doesn't fail over http
-	response, err := http.DefaultClient.Do(createNewRequest(player.albumList.Image))
+	response, err := http.DefaultClient.Do(request)
 	if err != nil {
 		player.latestMessage = fmt.Sprint("https://... image request failed with error:",
 			err, "trying http://...")
 	}
 	httpLink := strings.Replace(player.albumList.Image, "https://",
 		"http://", 1)
-	response, err = http.DefaultClient.Do(createNewRequest(httpLink))
+	request, err = createNewRequest(httpLink)
 	if err != nil {
-		reportError(err)
+		player.albumList.AlbumArt = getPlaceholderImage()
+		player.event <- err.Error()
+		return
+	}
+	response, err = http.DefaultClient.Do(request)
+	if err != nil {
+		player.albumList.AlbumArt = getPlaceholderImage()
+		player.event <- err.Error()
+		return
 	}
 	defer response.Body.Close()
 
@@ -118,7 +134,7 @@ func (player *playback) downloadCover() {
 		}
 	/*
 		// TODO: delete later: there seem to be only jpeg covers
-		// in case placeholder image will be in png, can actually be
+		// in case if planned placeholder image will be in png, can actually be
 		// restored
 		case "image/png":
 			player.albumList.AlbumArt, _ = png.Decode(response.Body)
@@ -152,8 +168,16 @@ func (player *playback) getNewTrack(trackNumber int) {
 		// (preorder items with some tracks available
 		// for streaming) don't have it at all
 		if value.Name == "file_mp3-128" {
-			response, err := http.DefaultClient.Do(createNewRequest(value.Value.(string)))
+			request, err := createNewRequest(value.Value.(string))
 			if err != nil {
+				player.latestMessage = fmt.Sprintf(
+					"Request cannot be made: %s\n", err.Error())
+				return
+			}
+			response, err := http.DefaultClient.Do(request)
+			if err != nil {
+				player.latestMessage = fmt.Sprintf(
+					"Request failed: %s\n", err.Error())
 				return
 			}
 			if response.StatusCode > 299 {

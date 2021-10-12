@@ -78,16 +78,14 @@ func (player *playback) changePosition(pos int) time.Duration {
 	}
 	if err := player.stream.streamer.Seek(newPos); err != nil {
 		// FIXME:
-		// sometime reports errors, for example this one:
+		// sometimes reports errors, for example this one:
 		// https://github.com/faiface/beep/issues/116
 		// causes track to skip, again, only sometimes
-		player.latestMessage = fmt.Sprint("Seek:", err.Error())
+		player.latestMessage = fmt.Sprint("Seek: ", err.Error())
 	}
 	return player.format.SampleRate.D(newPos).Round(time.Second)
 }
 
-// TODO: finish position resetting
-// don't allow seek to seek after song change/stop
 func (player *playback) resetPosition() {
 	if err := player.stream.streamer.Seek(0); err != nil {
 		player.latestMessage = err.Error()
@@ -97,6 +95,19 @@ func (player *playback) resetPosition() {
 func (player *playback) getCurrentTrackPosition() time.Duration {
 	return player.format.SampleRate.D(player.stream.
 		streamer.Position()).Round(time.Second)
+}
+
+func (player *playback) isPlaying() bool {
+	if player.stream != nil && (player.status == playing ||
+		player.status == paused || player.status == seekFWD ||
+		player.status == seekBWD) {
+		return true
+	}
+	return false
+}
+
+func (player *playback) isReady() bool {
+	return player.stream != nil
 }
 
 func (player *playback) skip(forward bool) {
@@ -115,7 +126,7 @@ func (player *playback) skip(forward bool) {
 			player.albumList.Tracks.NumberOfItems
 		player.status = skipBWD
 	}
-	// to prevent downloading on fast track switching
+	// to prevent downloading every item on fast track switching
 	// probably dumb idea, -race yells with warnings about it
 	go func() {
 		if _, ok := cachedResponses[player.currentTrack]; ok {
@@ -150,15 +161,34 @@ func (player *playback) nextTrack() {
 	player.status = skipFWD
 }
 
-// TODO: play function, to play after stop?
+func (player *playback) play(track int) error {
+	streamer, format, err := mp3.Decode(wrapInRSC(track))
+	if err != nil {
+		player.status = stopped
+		return err
+	}
+	speaker.Lock()
+	player.format = format
+	player.stream = newStream(format.SampleRate, streamer, player.volume, player.muted)
+	player.status = playing
+	speaker.Unlock()
+	speaker.Play(beep.Seq(player.stream.volume, beep.Callback(func() {
+		player.event <- true
+	})))
+	return nil
+}
+
 func (player *playback) stop() {
 	speaker.Clear()
-	if player.stream != nil {
+	speaker.Lock()
+	if player.isReady() {
+		player.resetPosition()
 		err := player.stream.streamer.Close()
 		if err != nil {
 			player.latestMessage = err.Error()
 		}
 	}
+	speaker.Unlock()
 	player.status = stopped
 }
 
@@ -237,7 +267,7 @@ func main() {
 	// FIXME: probably breaks something: store real player status
 	// and display new status while key is held down, then update it
 	// on next timer tick (tcell can't tell when key is released)
-	var buf playbackStatus
+	var bufferedStatus playbackStatus
 
 	// FIXME: can cause weird behaviour when going back from terminal
 	// problem should go away if we implement input inside tcell itself
@@ -252,9 +282,9 @@ func main() {
 		select {
 		case <-timer:
 			if player.status == seekBWD || player.status == seekFWD {
-				player.status = buf
+				player.status = bufferedStatus
 			}
-			if player.format.SampleRate != 0 {
+			if player.isReady() {
 				speaker.Lock()
 				player.currentPos = player.getCurrentTrackPosition()
 				speaker.Unlock()
@@ -264,33 +294,25 @@ func main() {
 		// TODO: this is kinda janky, implement something that makes sense
 		// to handle player events
 		case event := <-player.event:
-			switch event.(type) {
+			switch value := event.(type) {
 			case bool:
 				player.nextTrack()
 				drawer.updateTextData(&player)
 			case int:
 				if event == player.currentTrack && player.status != playing {
-					streamer, format, err := mp3.Decode(wrapInRSC(event.(int)))
+					err := player.play(value)
 					if err != nil {
 						player.latestMessage = fmt.Sprint("Error creating new stream:", err)
-						continue
 					}
-					player.format = format
-					player.stream = newStream(format.SampleRate, streamer, player.volume, player.muted)
-					player.status = playing
-					speaker.Play(beep.Seq(player.stream.volume, beep.Callback(func() {
-						player.event <- true
-					})))
 					drawer.updateTextData(&player)
 				}
 			case string:
-				player.latestMessage = event.(string)
+				player.latestMessage = value
 				drawer.reDrawMetaData(&player)
 			case *tcell.EventResize:
 				drawer.reDrawMetaData(&player)
 			}
 
-		// TODO: player status checking and stream availability are a mess
 		// handle tcell events
 		// TODO: change controls
 		case event := <-tcellEvent:
@@ -313,14 +335,23 @@ func main() {
 
 				switch event.Rune() {
 				case ' ':
-					if player.status == seekBWD || player.status == seekFWD {
-						player.status = buf
-					}
 					// FIXME ???
+					if !player.isReady() {
+						continue
+					}
+					if player.status == seekBWD || player.status == seekFWD {
+						player.status = bufferedStatus
+					}
 					if player.status == playing {
 						player.status = paused
 					} else if player.status == paused {
 						player.status = playing
+					} else if player.status == stopped {
+						err := player.play(player.currentTrack)
+						if err != nil {
+							player.latestMessage = err.Error()
+						}
+						continue
 					} else {
 						continue
 					}
@@ -328,11 +359,10 @@ func main() {
 					player.stream.ctrl.Paused = !player.stream.ctrl.Paused
 					speaker.Unlock()
 				case 'a', 'A':
-					if player.stream == nil || player.status == stopped {
+					if !player.isPlaying() {
 						continue
-					}
-					if player.status != seekBWD && player.status != seekFWD {
-						buf = player.status
+					} else if player.status != seekBWD && player.status != seekFWD {
+						bufferedStatus = player.status
 						player.status = seekBWD
 					}
 					speaker.Lock()
@@ -342,11 +372,10 @@ func main() {
 					speaker.Unlock()
 
 				case 'd', 'D':
-					if player.stream == nil || player.status == stopped {
+					if !player.isPlaying() {
 						continue
-					}
-					if player.status != seekFWD && player.status != seekBWD {
-						buf = player.status
+					} else if player.status != seekFWD && player.status != seekBWD {
+						bufferedStatus = player.status
 						player.status = seekFWD
 					}
 					speaker.Lock()
@@ -356,7 +385,7 @@ func main() {
 					speaker.Unlock()
 
 				case 's', 'S':
-					if player.stream == nil || player.volume < -9.6 {
+					if !player.isReady() || player.volume < -9.6 {
 						continue
 					}
 					player.volume -= 0.5
@@ -369,7 +398,7 @@ func main() {
 					speaker.Unlock()
 
 				case 'w', 'W':
-					if player.stream == nil || player.volume > -0.4 {
+					if !player.isReady() || player.volume > -0.4 {
 						continue
 					}
 					player.volume += 0.5
@@ -382,7 +411,7 @@ func main() {
 					speaker.Unlock()
 
 				case 'm', 'M':
-					if player.stream == nil {
+					if !player.isReady() {
 						continue
 					}
 					player.muted = !player.muted
@@ -394,9 +423,16 @@ func main() {
 					player.playbackMode = (player.playbackMode + 1) % 4
 
 				case 'b', 'B':
-					// TODO: resetting position to beginning if current position
-					// is after 3s mark?
-					player.skip(false)
+					// FIXME: something weird is going on here
+					if player.currentPos.Round(time.Second) > time.Second*3 &&
+						player.isReady() {
+
+						speaker.Lock()
+						player.resetPosition()
+						speaker.Unlock()
+					} else {
+						player.skip(false)
+					}
 
 				case 'f', 'F':
 					player.skip(true)
@@ -412,12 +448,10 @@ func main() {
 					drawer.artMode = (drawer.artMode + 1) % 6
 					drawer.redrawArt(&player)
 
-				// TODO: delete later
-				case 'p':
-					speaker.Lock()
-					player.resetPosition()
-					player.currentPos = 0
-					speaker.Unlock()
+				case 'p', 'P':
+					if player.isReady() {
+						player.stop()
+					}
 				// FIXME: hangs sometimes, not all deadlocks are resolved
 				// probably poll events listener in other goroutine
 				// trying to get events from screen that is disabled
@@ -441,14 +475,15 @@ func main() {
 			}
 		}
 		// TODO: remove later, sometimes hangs anyway without any reasonable
-		// error, fun fact: even though tcell disables default Ctrl+c
-		// termination, program still responds politely to terminate
-		// request
-		if player.stream != nil {
+		// error
+		// didn't hang for a while, somehow fixed???
+		if player.isReady() {
+			speaker.Lock()
 			reportError(player.stream.streamer.Err())
 			reportError(player.stream.ctrl.Err())
 			reportError(player.stream.resampler.Err())
 			reportError(player.stream.volume.Err())
+			speaker.Unlock()
 		}
 	}
 }

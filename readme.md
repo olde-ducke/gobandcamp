@@ -11,6 +11,7 @@
 | Shortcut                | Description                                                        |
 |-------------------------|--------------------------------------------------------------------|
 |     <kbd>Space</kbd>    | play/pause                                                         |
+|       <kbd>P</kbd>      | stop                                                               |
 |       <kbd>M</kbd>      | mute                                                               |
 |       <kbd>S</kbd>      | lower volume                                                       |
 |       <kbd>W</kbd>      | raise volume                                                       |

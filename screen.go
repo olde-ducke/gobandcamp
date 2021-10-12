@@ -37,8 +37,16 @@ func (drawer *screenDrawer) reDrawMetaData(player *playback) {
 
 // draw album art
 func (drawer *screenDrawer) redrawArt(player *playback) int {
+	options := convert.DefaultOptions
+	if drawer.artMode == 3 {
+		// with that option lighter colors wiil be transparent on
+		// light theme and darker ones will be transparent on dark,
+		// otherwise fourth mode doesn't look good on light background,
+		// it still looks kinda bad though
+		options.Reversed = drawer.lightMode
+	}
 	art := convert.NewImageConverter().Image2CharPixelMatrix(
-		player.albumList.AlbumArt, &convert.DefaultOptions)
+		player.albumList.AlbumArt, &options)
 
 	x, y := drawer.hMargin, 0
 	for _, pixelY := range art {
@@ -117,7 +125,7 @@ func (drawer *screenDrawer) updateTextData(player *playback) {
 	drawer.drawString(drawer.textArea.minX+3, drawer.vMargin+1,
 		player.albumList.ByArtist["name"].(string), false)
 
-	fmt.Fprintf(&sbuilder, "released %s", player.albumList.DatePublished[:11])
+	fmt.Fprintf(&sbuilder, "released %s", strings.ToLower(player.albumList.DatePublished[:11]))
 	drawer.drawString(drawer.textArea.minX, drawer.vMargin+2, sbuilder.String(), false)
 	sbuilder.Reset()
 
