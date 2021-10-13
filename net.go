@@ -59,7 +59,7 @@ func getAlbumPage(link string) (jsonString string, err error) {
 	}
 	body, err := io.ReadAll(response.Body)
 	// seems reasonable to crash, if we can't close reader
-	reportError(response.Body.Close())
+	checkFatalError(response.Body.Close())
 	if err != nil {
 		fmt.Println("Error:", err.Error())
 		return "", err
@@ -188,7 +188,7 @@ func (player *playback) getNewTrack(trackNumber int) {
 			player.latestMessage = fmt.Sprint(filename, " - ", response.Status, " Downloading...")
 
 			bodyBytes, err := io.ReadAll(response.Body)
-			defer reportError(response.Body.Close())
+			defer checkFatalError(response.Body.Close())
 			if err != nil {
 				player.latestMessage = err.Error()
 				return

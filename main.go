@@ -11,7 +11,6 @@ import (
 	"github.com/faiface/beep"
 	"github.com/faiface/beep/mp3"
 	"github.com/faiface/beep/speaker"
-	"github.com/gdamore/tcell/v2"
 )
 
 // TODO: cache cleaning
@@ -209,7 +208,7 @@ func handleInput(message string) (jsonString string) {
 		stdinReader := bufio.NewReader(os.Stdin)
 		fmt.Println(message)
 		input, err := stdinReader.ReadString('\n')
-		reportError(err)
+		checkFatalError(err)
 		switch input {
 		case "\n":
 			return ""
@@ -227,8 +226,9 @@ func handleInput(message string) (jsonString string) {
 	return jsonString
 }
 
-func reportError(err error) {
+func checkFatalError(err error) {
 	if err != nil {
+		app.Quit()
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -236,42 +236,27 @@ func reportError(err error) {
 
 // device initialization
 func init() {
-	sr := beep.SampleRate(defaultSampleRate)
-	speaker.Init(sr, sr.N(time.Second/10))
+	//sr := beep.SampleRate(defaultSampleRate)
+	//speaker.Init(sr, sr.N(time.Second/10))
 }
 
 func main() {
-	var player playback
+	//var player playback
 	// FIXME: behaves weird after coming from suspend (high CPU load)
 	// FIXME: device does not reinitialize after suspend
 	// FIXME: takes device to itself, doesn't allow any other program to use it, and can't use it, if device is already being used
-	var parsedString string
-	for parsedString == "" {
-		parsedString = handleInput("Enter bandcamp album link, type `exit` or q to quit")
-		if parsedString == "q" {
-			os.Exit(0)
-		}
-	}
 
-	player.initPlayer(parseJSON(parsedString))
+	err := app.Run()
+	checkFatalError(err)
 
-	drawer := screenDrawer{
-		fgColor:  tcell.NewHexColor(0xf9fdff),
-		bgColor:  tcell.NewHexColor(0x2b2b2b),
-		altColor: tcell.NewHexColor(0x999999),
-	}
-	drawer.initScreen(&player)
-	ticker := time.NewTicker(time.Second / 2)
-	timer := ticker.C
-	tcellEvent := make(chan tcell.Event)
 	// FIXME: probably breaks something: store real player status
 	// and display new status while key is held down, then update it
 	// on next timer tick (tcell can't tell when key is released)
-	var bufferedStatus playbackStatus
+	//var bufferedStatus playbackStatus
 
 	// FIXME: can cause weird behaviour when going back from terminal
 	// problem should go away if we implement input inside tcell itself
-	go func() {
+	/*go func() {
 		for {
 			tcellEvent <- drawer.screen.PollEvent()
 		}
@@ -485,5 +470,5 @@ func main() {
 			reportError(player.stream.volume.Err())
 			speaker.Unlock()
 		}
-	}
+	}*/
 }

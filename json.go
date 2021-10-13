@@ -53,7 +53,7 @@ func parseJSON(jsonstring string) *Album {
 	// only album pages are implemented
 	err := json.Unmarshal([]byte(jsonstring), &album)
 	if err != nil {
-		reportError(err)
+		checkFatalError(err)
 	}
 	return &album
 }
