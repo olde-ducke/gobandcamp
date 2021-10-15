@@ -15,6 +15,7 @@ import (
 
 // TODO: cache cleaning
 var cachedResponses map[int][]byte
+var logFile *os.File
 
 const defaultSampleRate beep.SampleRate = 48000
 
@@ -230,14 +231,18 @@ func checkFatalError(err error) {
 	if err != nil {
 		app.Quit()
 		fmt.Fprintln(os.Stderr, err)
+		logFile.WriteString(time.Now().Format(time.ANSIC) + "[err]:" + err.Error() + "\n")
 		os.Exit(1)
 	}
 }
 
 // device initialization
 func init() {
+	var err error
 	//sr := beep.SampleRate(defaultSampleRate)
 	//speaker.Init(sr, sr.N(time.Second/10))
+	logFile, err = os.Create("dump.log")
+	checkFatalError(err)
 }
 
 func main() {

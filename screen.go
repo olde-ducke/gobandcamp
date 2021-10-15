@@ -23,13 +23,16 @@ var window = &windowLayout{}
 
 type windowLayout struct {
 	views.BoxLayout
-	screen      tcell.Screen
-	hideInput   bool
-	width       int
-	height      int
-	placeholder image.Image
-	art         *artModel
-	converter   convert.ImageConverter
+	screen         tcell.Screen
+	hideInput      bool
+	width          int
+	height         int
+	placeholder    image.Image
+	art            *artModel
+	artDrawingMode int
+	orientation    int
+	hMargin        int
+	vMargin        int
 }
 
 func (window *windowLayout) HandleEvent(event tcell.Event) bool {
@@ -37,26 +40,38 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 	case *tcell.EventKey:
 		switch event.Key() {
 		case tcell.KeyEscape:
+			logFile.WriteString(event.When().Format(time.ANSIC) + "[ext]:exit with code 0\n")
 			app.Quit()
 			return true
 		case tcell.KeyTab:
 			window.hideInput = !window.hideInput
+		case tcell.KeyRune:
+			if window.hideInput && event.Rune() == 'i' {
+				window.artDrawingMode = (window.artDrawingMode + 1) % 4
+				return true
+			}
 		}
 	}
 	return window.BoxLayout.HandleEvent(event)
 }
 
+// FIXME ?
 func (window *windowLayout) checkOrientation() {
 	if window.width > 2*window.height {
-		window.SetOrientation(views.Horizontal)
-	} else {
+		if window.orientation != views.Horizontal {
+			window.SetOrientation(views.Horizontal)
+			window.orientation = views.Horizontal
+		}
+	} else if window.orientation != views.Vertical {
 		window.SetOrientation(views.Vertical)
+		window.orientation = views.Vertical
 	}
 }
 
 // FIXME: on the start ~64 resize events are captured, every actual
 // screen resize captures 36, evey key press captures 14
-// don't know what's happening here
+// don't know what's happening here, this prevents unnecessary
+// redraws and image conversion
 func (window *windowLayout) hasChangedSize() bool {
 	width, height := window.screen.Size()
 	if window.width != width || window.height != height {
@@ -78,7 +93,7 @@ func (field *textField) HandleEvent(event tcell.Event) bool {
 	field.HideCursor(window.hideInput)
 	field.EnableCursor(!window.hideInput)
 	if window.hideInput {
-		return false
+		return true
 	}
 	field.MakeCursorVisible()
 	posX, _, _, _ := field.GetModel().GetCursor()
@@ -89,6 +104,7 @@ func (field *textField) HandleEvent(event tcell.Event) bool {
 		switch event.Key() {
 
 		case tcell.KeyEnter:
+			parseInput(field.getText())
 			field.Clear()
 			window.hideInput = !window.hideInput
 			field.HideCursor(window.hideInput)
@@ -103,6 +119,7 @@ func (field *textField) HandleEvent(event tcell.Event) bool {
 			}
 			field.SetContent(string(field.symbols))
 			field.SetCursorX(posX)
+			return true
 
 		case tcell.KeyDelete:
 			if posX < len(field.symbols)-1 {
@@ -112,6 +129,7 @@ func (field *textField) HandleEvent(event tcell.Event) bool {
 				posX++
 			}
 			field.SetContent(string(field.symbols))
+			return true
 
 		case tcell.KeyRune:
 			field.symbols = append(field.symbols, 0)
@@ -119,6 +137,7 @@ func (field *textField) HandleEvent(event tcell.Event) bool {
 			field.symbols[posX] = event.Rune()
 			field.SetContent(string(field.symbols))
 			field.SetCursorX(posX + 1)
+			return true
 		}
 	}
 	return field.TextArea.HandleEvent(event)
@@ -149,22 +168,31 @@ type contentArea struct {
 }
 
 func (content *contentArea) HandleEvent(event tcell.Event) bool {
-	switch event.(type) {
+	switch event := event.(type) {
 	case *views.EventWidgetResize:
 		if window.hasChangedSize() {
 			window.checkOrientation()
+			return true
 		}
-		return true
+	case *tcell.EventInterrupt:
+		if event.Data() == nil {
+			content.SetText(time.Now().String())
+			app.Update()
+			return true
+		}
+		return false
 	}
 	return content.Text.HandleEvent(event)
 }
 
 type artModel struct {
-	x        int
-	y        int
-	endx     int
-	endy     int
-	asciiart [][]ascii.CharPixel
+	x         int
+	y         int
+	endx      int
+	endy      int
+	asciiart  [][]ascii.CharPixel
+	style     tcell.Style
+	converter convert.ImageConverter
 }
 
 func (model *artModel) GetBounds() (int, int) {
@@ -189,13 +217,43 @@ func (model *artModel) SetCursor(x int, y int) {
 
 func (model *artModel) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
 	if x > len(model.asciiart[0])-1 || y > len(model.asciiart)-1 {
-		return ' ', tcell.StyleDefault, nil, 1
+		return ' ', model.style, nil, 1
 	}
-	return rune(model.asciiart[y][x].Char), tcell.StyleDefault.Background(
-		tcell.NewRGBColor(
-			int32(model.asciiart[y][x].R),
-			int32(model.asciiart[y][x].G),
-			int32(model.asciiart[y][x].B))), nil, 1
+	switch window.artDrawingMode {
+	case 1:
+		return rune(model.asciiart[y][x].Char), tcell.StyleDefault.Background(
+			tcell.NewRGBColor(
+				int32(model.asciiart[y][x].R),
+				int32(model.asciiart[y][x].G),
+				int32(model.asciiart[y][x].B))).Foreground(
+			tcell.NewRGBColor(
+				int32(model.asciiart[y][x].R/2),
+				int32(model.asciiart[y][x].G/2),
+				int32(model.asciiart[y][x].B/2))), nil, 1
+	case 2:
+		return rune(model.asciiart[y][x].Char), tcell.StyleDefault.Background(
+			tcell.NewRGBColor(
+				int32(model.asciiart[y][x].R/2),
+				int32(model.asciiart[y][x].G/2),
+				int32(model.asciiart[y][x].B/2))).Foreground(
+			tcell.NewRGBColor(
+				int32(model.asciiart[y][x].R),
+				int32(model.asciiart[y][x].G),
+				int32(model.asciiart[y][x].B))), nil, 1
+	case 3:
+		return rune(model.asciiart[y][x].Char), model.style.Background(
+			tcell.NewRGBColor(
+				int32(model.asciiart[y][x].R),
+				int32(model.asciiart[y][x].G),
+				int32(model.asciiart[y][x].B))), nil, 1
+	default:
+		return ' ', model.style.Background(
+			tcell.NewRGBColor(
+				int32(model.asciiart[y][x].R),
+				int32(model.asciiart[y][x].G),
+				int32(model.asciiart[y][x].B))), nil, 1
+
+	}
 }
 
 type artArea struct {
@@ -214,6 +272,7 @@ func (art *artArea) HandleEvent(event tcell.Event) bool {
 			return true
 		}
 	}
+	// don't pass any events to wrapped widget
 	return false
 }
 
@@ -227,10 +286,94 @@ func (model *artModel) refitArt() {
 		Colored:         false,
 		Reversed:        false,
 	}
-	model.asciiart = window.converter.Image2CharPixelMatrix(
+	model.asciiart = model.converter.Image2CharPixelMatrix(
 		getPlaceholderImage(), &options)
 	model.endx, model.endy = len(model.asciiart[0])-1,
 		len(model.asciiart)-1
+}
+
+type spacer struct {
+	*views.Text
+	dynamic bool
+}
+
+func (s *spacer) Size() (int, int) {
+	if s.dynamic && window.orientation != views.Horizontal {
+		return 0, 0
+	}
+	return window.hMargin, window.vMargin
+}
+
+type errorMessage struct {
+	*views.Text
+}
+
+func (message *errorMessage) HandleEvent(event tcell.Event) bool {
+	switch event := event.(type) {
+	case *tcell.EventInterrupt:
+		switch data := event.Data().(type) {
+		case string:
+			//app.Update()
+			logFile.WriteString(event.When().Format(time.ANSIC) + "[msg]:" + data + "\n")
+			message.SetText(data)
+			return true
+		}
+		return false
+	}
+	return message.Text.HandleEvent(event)
+}
+
+func parseInput(input string) {
+	commands := strings.Split(input, " ")
+	if strings.Contains(commands[0], "http://") || strings.Contains(commands[0], "https://") {
+		window.HandleEvent(tcell.NewEventInterrupt("link"))
+		return
+	} else if commands[0] == "exit" || commands[0] == "q" || commands[0] == "quit" {
+		window.HandleEvent(tcell.NewEventInterrupt("quit"))
+		return
+	} else if !strings.HasPrefix(commands[0], "-") {
+		window.HandleEvent(tcell.NewEventInterrupt("search"))
+		return
+	}
+
+	var args struct {
+		tags     []string
+		location []string
+		sort     string
+		flag     int
+	}
+
+	for i := 0; i < len(commands); i++ {
+		if i <= len(commands)-2 && strings.HasPrefix(commands[i], "-") {
+			switch commands[i] {
+			case "-t", "--tag":
+				args.flag = 1
+			case "-l", "--location":
+				args.flag = 2
+			case "-s", "--sort":
+				args.flag = 3
+			default:
+				args.flag = 0
+			}
+			i++
+		}
+		switch args.flag {
+		case 1:
+			args.tags = append(args.tags, commands[i])
+		case 2:
+			args.location = append(args.location, commands[i])
+		case 3:
+			if commands[i] == "random" || commands[i] == "date" {
+				args.sort = commands[i]
+			}
+		}
+	}
+	window.HandleEvent(tcell.NewEventInterrupt(fmt.Sprintf(
+		"tag search%s %s %s",
+		fmt.Sprint("tags:", args.tags),
+		fmt.Sprint("location:", args.location),
+		fmt.Sprint("sorting method:", args.sort),
+	)))
 }
 
 func init() {
@@ -240,31 +383,28 @@ func init() {
 	if err != nil {
 		checkFatalError(err)
 	}
-	window.converter = *convert.NewImageConverter()
 	window.art = &artModel{}
+	window.art.converter = *convert.NewImageConverter()
 	window.art.refitArt()
+	window.hMargin, window.vMargin = 3, 1
 
-	margin := "   "
-
-	spacer1 := views.NewText()
-	spacer1.SetText(margin)
+	spacer1 := &spacer{views.NewText(), false}
+	// FIXME: setting style for screen/window doesn't seem to be working?
 	spacer1.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorChocolate).
 		Background(tcell.ColorSkyblue))
 
 	art := &artArea{views.NewCellView()}
-	art.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhiteSmoke).
-		Background(tcell.ColorTomato))
 	art.SetModel(window.art)
+	window.art.style = tcell.StyleDefault.Foreground(tcell.ColorWhiteSmoke).
+		Background(tcell.ColorTomato)
 
-	spacer2 := views.NewText()
-	spacer2.SetText(margin)
+	spacer2 := &spacer{views.NewText(), false}
 	spacer2.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorChocolate).
 		Background(tcell.ColorSkyblue))
 
 	contentBox := views.NewBoxLayout(views.Vertical)
 
-	spacer3 := views.NewText()
-	spacer3.SetText(margin)
+	spacer3 := &spacer{views.NewText(), true}
 	spacer3.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorChocolate).
 		Background(tcell.ColorSkyblue))
 
@@ -272,8 +412,7 @@ func init() {
 	content.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorDarkSlateGray).
 		Background(tcell.ColorLightGoldenrodYellow))
 
-	message := views.NewText()
-	message.SetText(" ")
+	message := &errorMessage{views.NewText()}
 	message.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorDarkSlateGray).
 		Background(tcell.ColorPaleGoldenrod))
 
@@ -284,8 +423,7 @@ func init() {
 	field.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorDarkSlateGray).
 		Background(tcell.ColorYellowGreen))
 
-	spacer4 := views.NewText()
-	spacer4.SetText(margin)
+	spacer4 := &spacer{views.NewText(), true}
 	spacer4.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorChocolate).
 		Background(tcell.ColorSkyblue))
 
@@ -306,14 +444,14 @@ func init() {
 	app.SetScreen(window.screen)
 	app.SetRootWidget(window)
 
-	app.PostFunc(func() {
-		go func() {
-			for {
-				time.Sleep(time.Second / 2)
-				window.HandleEvent(tcell.NewEventInterrupt(nil))
-			}
-		}()
-	})
+	//app.PostFunc(func() {
+	go func() {
+		for {
+			time.Sleep(time.Second / 2)
+			window.HandleEvent(tcell.NewEventInterrupt(nil))
+		}
+	}()
+	//})
 }
 
 func getPlaceholderImage() image.Image {
