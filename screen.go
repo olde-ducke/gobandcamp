@@ -23,8 +23,9 @@ var app = &views.Application{}
 var window = &windowLayout{}
 var exitCode = 0
 
-type eventPlay int            // value unused for now
-type eventCoverDownloader int // value unused for now
+type eventNewItem int // value unused for now
+type eventNextTrack int
+type eventCoverDownloader int
 type eventTrackDownloader int
 
 type recolorable interface {
@@ -46,7 +47,7 @@ type windowLayout struct {
 	widgets        []views.Widget
 }
 
-func (window *windowLayout) handlePlayerEvent(data interface{}) {
+func (window *windowLayout) sendPlayerEvent(data interface{}) {
 	window.HandleEvent(tcell.NewEventInterrupt(data))
 }
 
@@ -54,9 +55,15 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 	switch event := event.(type) {
 	case *tcell.EventInterrupt:
 		switch data := event.Data().(type) {
-		case eventPlay:
-			go downloadMedia(window.playerM.media.Trackinfo[player.currentTrack].File.MP3)
+		// TODO: isn't it silly to send empty link and check it only
+		// on other side?
+		case eventNewItem:
+			go downloadMedia(window.playerM.media.Trackinfo[0].File.MP3)
 			go downloadCover(window.playerM.album.Image)
+			player.totalTracks = window.playerM.album.Tracks.NumberOfItems
+		case eventNextTrack:
+			go downloadMedia(window.playerM.media.Trackinfo[data].File.MP3)
+			player.stop()
 		case eventTrackDownloader:
 			if data != eventTrackDownloader(player.currentTrack) {
 				return false
@@ -74,10 +81,14 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 		case tcell.KeyF5:
 			app.Refresh()
 		case tcell.KeyRune:
-			// TODO: only lowercase
-			if window.hideInput && event.Rune() == 'i' {
-				window.artDrawingMode = (window.artDrawingMode + 1) % 5
-				return true
+			if window.hideInput {
+				switch event.Rune() {
+				case 'i', 'I':
+					window.artDrawingMode = (window.artDrawingMode + 1) % 5
+					return true
+				default:
+					return player.handleEvent(event.Rune())
+				}
 			}
 		case tcell.KeyCtrlD:
 			for _, widget := range window.widgets {
@@ -214,12 +225,12 @@ func (content *contentArea) HandleEvent(event tcell.Event) bool {
 		}
 	case *tcell.EventInterrupt:
 		if event.Data() == nil {
-			content.SetText(player.getCurrentTrackPosition().String())
+			//content.SetText(player.getCurrentTrackPosition().String())
 			app.Update()
 			return true
 		}
 		switch event.Data().(type) {
-		case eventPlay:
+		case eventNewItem:
 			content.SetText(
 				fmt.Sprint(
 					window.playerM.album.Name +
@@ -324,8 +335,11 @@ func (art *artArea) Size() (int, int) {
 func (art *artArea) HandleEvent(event tcell.Event) bool {
 	switch event := event.(type) {
 	case *tcell.EventInterrupt:
-		switch event.Data().(type) {
+		switch i := event.Data().(type) {
 		case eventCoverDownloader:
+			if i < 0 {
+				window.artM.cover = nil
+			}
 			window.artM.refitArt()
 			return true
 		}
@@ -390,6 +404,10 @@ func (message *messageBox) HandleEvent(event tcell.Event) bool {
 			logFile.WriteString(event.When().Format(time.ANSIC) + "[msg]:" + data + "\n")
 			message.SetText(data)
 			return true
+		case error:
+			logFile.WriteString(event.When().Format(time.ANSIC) + "[err]:" + data.Error() + "\n")
+			message.SetText(data.Error())
+			return true
 		}
 		return false
 	}
@@ -400,14 +418,14 @@ func parseInput(input string) {
 	commands := strings.Split(input, " ")
 	if strings.Contains(commands[0], "http://") || strings.Contains(commands[0], "https://") {
 		player.initPlayer()
-		go processMediaPage(commands[0], true)
+		go processMediaPage(commands[0], true, window.playerM)
 		return
 	} else if commands[0] == "exit" || commands[0] == "q" || commands[0] == "quit" {
 		logFile.WriteString(time.Now().Format(time.ANSIC) + "[ext]:exit with code 0\n")
 		app.Quit()
 		return
 	} else if !strings.HasPrefix(commands[0], "-") {
-		window.handlePlayerEvent("search (not implemented)")
+		window.sendPlayerEvent("search (not implemented)")
 		return
 	}
 
@@ -444,14 +462,14 @@ func parseInput(input string) {
 		}
 	}
 	if len(args.tags) > 0 {
-		window.handlePlayerEvent(fmt.Sprintf(
+		window.sendPlayerEvent(fmt.Sprintf(
 			"tag search (not implemented): %s %s %s",
 			fmt.Sprint("tags:", args.tags),
 			fmt.Sprint("location:", args.location),
 			fmt.Sprint("sorting method:", args.sort),
 		))
 	} else {
-		window.handlePlayerEvent("no tags to search")
+		window.sendPlayerEvent("no tags to search")
 	}
 }
 
@@ -509,7 +527,7 @@ func init() {
 	go func() {
 		for {
 			time.Sleep(time.Second / 2)
-			window.handlePlayerEvent(nil)
+			window.sendPlayerEvent(nil)
 		}
 	}()
 	//})

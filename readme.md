@@ -6,6 +6,8 @@
 
  Only album pages (e.g. artistname.bandcamp.com/album/albumname) are supported.
 
+ Placeholder image source: https://github.com/egonelbre/gophers
+
 ## Controls
 
 | Shortcut                | Description                                                        |
@@ -20,7 +22,7 @@
 |       <kbd>F</kbd>      | next track                                                         |
 |       <kbd>B</kbd>      | previous track                                                     |
 |       <kbd>R</kbd>      | change playback mode                                               |
-|       <kbd>O</kbd>      | goes back to terminal, after entering new link new album will play |
 |       <kbd>T</kbd>      | light/dark mode                                                    |
 |       <kbd>I</kbd>      | switch art drawing method                                          |
+|      <kbd>Tab</kbd>     | enable input                                                       |
 |      <kbd>Esc</kbd>     | quit                                                               |

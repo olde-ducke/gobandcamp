@@ -57,10 +57,11 @@ type playback struct {
 	stream      *mediaStream
 	format      beep.Format
 
-	status       playbackStatus
-	playbackMode playbackMode
-	volume       float64
-	muted        bool
+	status         playbackStatus
+	bufferedStatus playbackStatus
+	playbackMode   playbackMode
+	volume         float64
+	muted          bool
 }
 
 func (player *playback) changePosition(pos int) time.Duration {
@@ -77,14 +78,14 @@ func (player *playback) changePosition(pos int) time.Duration {
 		// sometimes reports errors, for example this one:
 		// https://github.com/faiface/beep/issues/116
 		// causes track to skip, again, only sometimes
-		window.handlePlayerEvent(fmt.Sprint("Seek: ", err.Error()))
+		window.sendPlayerEvent(err)
 	}
 	return player.format.SampleRate.D(newPos).Round(time.Second)
 }
 
 func (player *playback) resetPosition() {
 	if err := player.stream.streamer.Seek(0); err != nil {
-		window.handlePlayerEvent(err.Error())
+		window.sendPlayerEvent(err)
 	}
 }
 
@@ -116,7 +117,7 @@ func (player *playback) skip(forward bool) {
 		player.nextTrack()
 		return
 	}
-	player.stop()
+	//player.stop()
 	if forward {
 		player.currentTrack = (player.currentTrack + 1) %
 			player.totalTracks
@@ -127,30 +128,34 @@ func (player *playback) skip(forward bool) {
 			player.totalTracks
 		player.status = skipBWD
 	}
+	// FIXME: random playback skips this
 	// to prevent downloading every item on fast track switching
 	// probably dumb idea, -race yells with warnings about it
 	go func() {
 		if _, ok := cache[player.currentTrack]; ok {
 			//player.getNewTrack(player.currentTrack)
+			window.sendPlayerEvent(eventNextTrack(player.currentTrack))
 		} else {
 			track := player.currentTrack
 			time.Sleep(time.Second / 2)
 			if track == player.currentTrack {
 				//player.getNewTrack(player.currentTrack)
+				window.sendPlayerEvent(eventNextTrack(player.currentTrack))
 			}
 		}
 	}()
 }
 
 func (player *playback) nextTrack() {
-	player.stop()
+	window.sendPlayerEvent("next track")
+	//player.stop()
 	switch player.playbackMode {
 	case random:
 		rand.Seed(time.Now().UnixNano())
 		player.currentTrack = rand.Intn(player.totalTracks)
-		//go player.getNewTrack(player.currentTrack)
+		window.sendPlayerEvent(eventNextTrack(player.currentTrack))
 	case repeatOne:
-		//go player.getNewTrack(player.currentTrack)
+		window.sendPlayerEvent(eventNextTrack(player.currentTrack))
 	case repeat:
 		player.skip(true)
 	case normal:
@@ -163,10 +168,11 @@ func (player *playback) nextTrack() {
 }
 
 func (player *playback) play(track int) {
+	// TODO: update current track for playlist view
 	streamer, format, err := mp3.Decode(wrapInRSC(track))
 	if err != nil {
 		player.status = stopped
-		window.handlePlayerEvent(err.Error())
+		window.sendPlayerEvent(err)
 		return
 	}
 	speaker.Lock()
@@ -174,10 +180,9 @@ func (player *playback) play(track int) {
 	player.stream = newStream(format.SampleRate, streamer, player.volume, player.muted)
 	player.status = playing
 	speaker.Unlock()
-	speaker.Play(player.stream.volume)
-	/*speaker.Play(beep.Seq(player.stream.volume, beep.Callback(func() {
-		player.event <- true
-	})))*/
+	//speaker.Play(player.stream.volume)
+	speaker.Play(beep.Seq(player.stream.volume, beep.Callback(
+		player.nextTrack)))
 }
 
 func (player *playback) stop() {
@@ -187,7 +192,7 @@ func (player *playback) stop() {
 		player.resetPosition()
 		err := player.stream.streamer.Close()
 		if err != nil {
-			window.handlePlayerEvent(err.Error())
+			window.sendPlayerEvent(err)
 		}
 		speaker.Unlock()
 	}
@@ -221,236 +226,123 @@ func init() {
 	checkFatalError(err)
 }
 
+func (player *playback) handleEvent(key rune) bool {
+	switch key {
+	// TODO: change controls
+	case ' ':
+		// FIXME ???
+		if !player.isReady() {
+			return true
+		}
+		if player.status == seekBWD || player.status == seekFWD {
+			player.status = player.bufferedStatus
+		}
+		if player.status == playing {
+			player.status = paused
+		} else if player.status == paused {
+			player.status = playing
+		} else if player.status == stopped {
+			player.play(player.currentTrack)
+			return true
+		}
+		speaker.Lock()
+		player.stream.ctrl.Paused = !player.stream.ctrl.Paused
+		speaker.Unlock()
+
+	case 'a', 'A':
+		if !player.isPlaying() {
+			return true
+		} else if player.status != seekBWD && player.status != seekFWD {
+			player.bufferedStatus = player.status
+			player.status = seekBWD
+		}
+		speaker.Lock()
+		player.changePosition(0 - player.format.SampleRate.N(time.Second*3))
+		speaker.Unlock()
+
+	case 'd', 'D':
+		if !player.isPlaying() {
+			return true
+		} else if player.status != seekFWD && player.status != seekBWD {
+			player.bufferedStatus = player.status
+			player.status = seekFWD
+		}
+		speaker.Lock()
+		player.changePosition(player.format.SampleRate.N(time.Second * 3))
+		speaker.Unlock()
+
+	case 's', 'S':
+		if !player.isReady() || player.volume < -9.6 {
+			return true
+		}
+		player.volume -= 0.5
+		speaker.Lock()
+		if !player.muted && player.volume < -9.6 {
+			player.muted = true
+			player.stream.volume.Silent = player.muted
+		}
+		player.stream.volume.Volume = player.volume
+		speaker.Unlock()
+
+	case 'w', 'W':
+		if !player.isReady() || player.volume > -0.4 {
+			return true
+		}
+		player.volume += 0.5
+		speaker.Lock()
+		if player.muted {
+			player.muted = false
+			player.stream.volume.Silent = player.muted
+		}
+		player.stream.volume.Volume = player.volume
+		speaker.Unlock()
+
+	case 'm', 'M':
+		if !player.isReady() {
+			return true
+		}
+		player.muted = !player.muted
+		speaker.Lock()
+		player.stream.volume.Silent = player.muted
+		speaker.Unlock()
+
+	case 'r', 'R':
+		player.playbackMode = (player.playbackMode + 1) % 4
+
+	case 'b', 'B':
+		// FIXME: something weird is going on here
+		if player.getCurrentTrackPosition().Round(time.Second) > time.Second*3 &&
+			player.isReady() {
+
+			speaker.Lock()
+			player.resetPosition()
+			speaker.Unlock()
+		} else {
+			player.skip(false)
+		}
+
+	case 'f', 'F':
+		player.skip(true)
+
+	case 'p', 'P':
+		if player.isReady() {
+			player.stop()
+		}
+	default:
+		return false
+	}
+	return true
+}
+
 func main() {
 	//
 	// FIXME: behaves weird after coming from suspend (high CPU load)
 	// FIXME: device does not reinitialize after suspend
 	// FIXME: takes device to itself, doesn't allow any other program to use it, and can't use it, if device is already being used
 	//player.initPlayer()
+	// just switch to SDL, it doesn't have any of these problems
 	err := app.Run()
 	checkFatalError(err)
+	logFile.Close()
 	os.Exit(exitCode)
-
-	// FIXME: probably breaks something: store real player status
-	// and display new status while key is held down, then update it
-	// on next timer tick (tcell can't tell when key is released)
-	//var bufferedStatus playbackStatus
-
-	// FIXME: can cause weird behaviour when going back from terminal
-	// problem should go away if we implement input inside tcell itself
-	/*go func() {
-		for {
-			tcellEvent <- drawer.screen.PollEvent()
-		}
-	}()
-
-	// event loop
-	for {
-		select {
-		case <-timer:
-			if player.status == seekBWD || player.status == seekFWD {
-				player.status = bufferedStatus
-			}
-			if player.isReady() {
-				speaker.Lock()
-				player.currentPos = player.getCurrentTrackPosition()
-				speaker.Unlock()
-				drawer.updateTextData(&player)
-			}
-
-		// TODO: this is kinda janky, implement something that makes sense
-		// to handle player events
-		case event := <-player.event:
-			switch value := event.(type) {
-			case bool:
-				player.nextTrack()
-				drawer.updateTextData(&player)
-			case int:
-				if event == player.currentTrack && player.status != playing {
-					err := player.play(value)
-					if err != nil {
-						player.latestMessage = fmt.Sprint("Error creating new stream:", err)
-					}
-					drawer.updateTextData(&player)
-				}
-			case string:
-				player.latestMessage = value
-				drawer.reDrawMetaData(&player)
-			case *tcell.EventResize:
-				drawer.reDrawMetaData(&player)
-			}
-
-		// handle tcell events
-		// TODO: change controls
-		case event := <-tcellEvent:
-			switch event := event.(type) {
-			case *tcell.EventResize:
-				drawer.reDrawMetaData(&player)
-			case *tcell.EventKey:
-				if event.Key() == tcell.KeyESC {
-					drawer.screen.Fini()
-					player.stop()
-					// crashes after suspend
-					// speaker.Close()
-					ticker.Stop()
-					os.Exit(0)
-				}
-
-				if event.Key() != tcell.KeyRune {
-					continue
-				}
-
-				switch event.Rune() {
-				case ' ':
-					// FIXME ???
-					if !player.isReady() {
-						continue
-					}
-					if player.status == seekBWD || player.status == seekFWD {
-						player.status = bufferedStatus
-					}
-					if player.status == playing {
-						player.status = paused
-					} else if player.status == paused {
-						player.status = playing
-					} else if player.status == stopped {
-						err := player.play(player.currentTrack)
-						if err != nil {
-							player.latestMessage = err.Error()
-						}
-						continue
-					} else {
-						continue
-					}
-
-					player.stream.ctrl.Paused = !player.stream.ctrl.Paused
-
-				case 'a', 'A':
-					if !player.isPlaying() {
-						continue
-					} else if player.status != seekBWD && player.status != seekFWD {
-						bufferedStatus = player.status
-						player.status = seekBWD
-					}
-					speaker.Lock()
-					player.currentPos =
-						player.changePosition(
-							0 - player.format.SampleRate.N(time.Second*3))
-					speaker.Unlock()
-
-				case 'd', 'D':
-					if !player.isPlaying() {
-						continue
-					} else if player.status != seekFWD && player.status != seekBWD {
-						bufferedStatus = player.status
-						player.status = seekFWD
-					}
-					speaker.Lock()
-					player.currentPos =
-						player.changePosition(
-							player.format.SampleRate.N(time.Second * 3))
-					speaker.Unlock()
-
-				case 's', 'S':
-					if !player.isReady() || player.volume < -9.6 {
-						continue
-					}
-					player.volume -= 0.5
-					speaker.Lock()
-					if !player.muted && player.volume < -9.6 {
-						player.muted = true
-						player.stream.volume.Silent = player.muted
-					}
-					player.stream.volume.Volume = player.volume
-					speaker.Unlock()
-
-				case 'w', 'W':
-					if !player.isReady() || player.volume > -0.4 {
-						continue
-					}
-					player.volume += 0.5
-					speaker.Lock()
-					if player.muted {
-						player.muted = false
-						player.stream.volume.Silent = player.muted
-					}
-					player.stream.volume.Volume = player.volume
-					speaker.Unlock()
-
-				case 'm', 'M':
-					if !player.isReady() {
-						continue
-					}
-					player.muted = !player.muted
-					speaker.Lock()
-					player.stream.volume.Silent = player.muted
-					speaker.Unlock()
-
-				case 'r', 'R':
-					player.playbackMode = (player.playbackMode + 1) % 4
-
-				case 'b', 'B':
-					// FIXME: something weird is going on here
-					if player.currentPos.Round(time.Second) > time.Second*3 &&
-						player.isReady() {
-
-						speaker.Lock()
-						player.resetPosition()
-						speaker.Unlock()
-					} else {
-						player.skip(false)
-					}
-
-				case 'f', 'F':
-					player.skip(true)
-
-				case 't', 'T':
-					drawer.lightMode = !drawer.lightMode
-					fgColor, bgColor, _ := drawer.style.Decompose()
-					drawer.style = drawer.style.Foreground(bgColor).
-						Background(fgColor)
-					drawer.reDrawMetaData(&player)
-
-				case 'i', 'I':
-					drawer.artMode = (drawer.artMode + 1) % 6
-					drawer.redrawArt(&player)
-
-				case 'p', 'P':
-					if player.isReady() {
-						player.stop()
-					}
-				// FIXME: hangs sometimes, not all deadlocks are resolved
-				// probably poll events listener in other goroutine
-				// trying to get events from screen that is disabled
-				case 'o', 'O':
-					drawer.screen.Fini()
-					parsedString = handleInput("Enter new album link, leave empty to go back")
-					if parsedString == "q" {
-						player.stop()
-						// crashes after suspend
-						// speaker.Close()
-						ticker.Stop()
-						os.Exit(0)
-					} else if parsedString != "" {
-						player.stop()
-						player.initPlayer(parseJSON(parsedString))
-					}
-					drawer.initScreen(&player)
-					continue
-				}
-				drawer.updateTextData(&player)
-			}
-		}
-		// TODO: remove later, sometimes hangs anyway without any reasonable
-		// error
-		// didn't hang for a while, somehow fixed???
-		if player.isReady() {
-			speaker.Lock()
-			reportError(player.stream.streamer.Err())
-			reportError(player.stream.ctrl.Err())
-			reportError(player.stream.resampler.Err())
-			reportError(player.stream.volume.Err())
-			speaker.Unlock()
-		}
-	}*/
 }
