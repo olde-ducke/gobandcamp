@@ -1,11 +1,9 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"math/rand"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/faiface/beep"
@@ -14,7 +12,8 @@ import (
 )
 
 // TODO: cache cleaning
-var cachedResponses map[int][]byte
+var cache map[int][]byte
+var player playback
 var logFile *os.File
 
 const defaultSampleRate beep.SampleRate = 48000
@@ -53,9 +52,10 @@ func (status playbackStatus) String() string {
 
 type playback struct {
 	currentTrack int
-	albumList    *Album // not a list at the moment
-	stream       *mediaStream
-	format       beep.Format
+	//albumList    *Album // not a list at the moment
+	totalTracks int
+	stream      *mediaStream
+	format      beep.Format
 
 	status        playbackStatus
 	playbackMode  playbackMode
@@ -93,8 +93,13 @@ func (player *playback) resetPosition() {
 }
 
 func (player *playback) getCurrentTrackPosition() time.Duration {
-	return player.format.SampleRate.D(player.stream.
-		streamer.Position()).Round(time.Second)
+	if player.isReady() {
+		speaker.Lock()
+		defer speaker.Unlock()
+		return player.format.SampleRate.D(player.stream.
+			streamer.Position()).Round(time.Second)
+	}
+	return 0
 }
 
 func (player *playback) isPlaying() bool {
@@ -118,24 +123,24 @@ func (player *playback) skip(forward bool) {
 	player.stop()
 	if forward {
 		player.currentTrack = (player.currentTrack + 1) %
-			player.albumList.Tracks.NumberOfItems
+			player.totalTracks
 		player.status = skipFWD
 	} else {
-		player.currentTrack = (player.albumList.Tracks.NumberOfItems +
+		player.currentTrack = (player.totalTracks +
 			player.currentTrack - 1) %
-			player.albumList.Tracks.NumberOfItems
+			player.totalTracks
 		player.status = skipBWD
 	}
 	// to prevent downloading every item on fast track switching
 	// probably dumb idea, -race yells with warnings about it
 	go func() {
-		if _, ok := cachedResponses[player.currentTrack]; ok {
-			player.getNewTrack(player.currentTrack)
+		if _, ok := cache[player.currentTrack]; ok {
+			//player.getNewTrack(player.currentTrack)
 		} else {
 			track := player.currentTrack
 			time.Sleep(time.Second / 2)
 			if track == player.currentTrack {
-				player.getNewTrack(player.currentTrack)
+				//player.getNewTrack(player.currentTrack)
 			}
 		}
 	}()
@@ -146,14 +151,14 @@ func (player *playback) nextTrack() {
 	switch player.playbackMode {
 	case random:
 		rand.Seed(time.Now().UnixNano())
-		player.currentTrack = rand.Intn(player.albumList.Tracks.NumberOfItems)
-		go player.getNewTrack(player.currentTrack)
+		player.currentTrack = rand.Intn(player.totalTracks)
+		//go player.getNewTrack(player.currentTrack)
 	case repeatOne:
-		go player.getNewTrack(player.currentTrack)
+		//go player.getNewTrack(player.currentTrack)
 	case repeat:
 		player.skip(true)
 	case normal:
-		if player.currentTrack == player.albumList.Tracks.NumberOfItems-1 {
+		if player.currentTrack == player.totalTracks-1 {
 			return
 		}
 		player.skip(true)
@@ -165,16 +170,17 @@ func (player *playback) play(track int) error {
 	streamer, format, err := mp3.Decode(wrapInRSC(track))
 	if err != nil {
 		player.status = stopped
-		return err
+		window.handlePlayerEvent(err.Error())
 	}
 	speaker.Lock()
 	player.format = format
 	player.stream = newStream(format.SampleRate, streamer, player.volume, player.muted)
 	player.status = playing
 	speaker.Unlock()
-	speaker.Play(beep.Seq(player.stream.volume, beep.Callback(func() {
+	speaker.Play(player.stream.volume)
+	/*speaker.Play(beep.Seq(player.stream.volume, beep.Callback(func() {
 		player.event <- true
-	})))
+	})))*/
 	return nil
 }
 
@@ -192,67 +198,44 @@ func (player *playback) stop() {
 	player.status = stopped
 }
 
-func (player *playback) initPlayer(album *Album) {
-	cachedResponses = make(map[int][]byte)
+func (player *playback) initPlayer() {
+	cache = make(map[int][]byte)
 	// keeps volume and playback mode from previous playback
 	*player = playback{playbackMode: player.playbackMode, volume: player.volume,
-		muted: player.muted, albumList: album}
-	player.albumList.AlbumArt = getPlaceholderImage()
-	player.event = make(chan interface{})
-	go player.downloadCover()
-	go player.getNewTrack(player.currentTrack)
-}
-
-// TODO: comand line arguments and input parser for tag search
-func handleInput(message string) (jsonString string) {
-	for {
-		stdinReader := bufio.NewReader(os.Stdin)
-		fmt.Println(message)
-		input, err := stdinReader.ReadString('\n')
-		checkFatalError(err)
-		switch input {
-		case "\n":
-			return ""
-		case "exit\n", "q\n":
-			return "q"
-		default:
-			jsonString, err = getAlbumPage(strings.Trim(input, "\n"))
-		}
-		if err == nil {
-			break
-		} else {
-			fmt.Println("Error:", err)
-		}
-	}
-	return jsonString
+		muted: player.muted}
+	//go player.downloadCover()
+	//go player.getNewTrack(player.currentTrack)
 }
 
 func checkFatalError(err error) {
 	if err != nil {
 		app.Quit()
+		app.Wait()
+		logFile.WriteString(time.Now().Format(time.ANSIC) + "[err]:" + err.Error())
+		// FIXME: can't print while app is finishing
 		fmt.Fprintln(os.Stderr, err)
-		logFile.WriteString(time.Now().Format(time.ANSIC) + "[err]:" + err.Error() + "\n")
-		os.Exit(1)
+		exitCode = 1
 	}
 }
 
 // device initialization
 func init() {
 	var err error
-	//sr := beep.SampleRate(defaultSampleRate)
-	//speaker.Init(sr, sr.N(time.Second/10))
+	sr := beep.SampleRate(defaultSampleRate)
+	speaker.Init(sr, sr.N(time.Second/10))
 	logFile, err = os.Create("dump.log")
 	checkFatalError(err)
 }
 
 func main() {
-	//var player playback
+	//
 	// FIXME: behaves weird after coming from suspend (high CPU load)
 	// FIXME: device does not reinitialize after suspend
 	// FIXME: takes device to itself, doesn't allow any other program to use it, and can't use it, if device is already being used
-
+	//player.initPlayer()
 	err := app.Run()
 	checkFatalError(err)
+	os.Exit(exitCode)
 
 	// FIXME: probably breaks something: store real player status
 	// and display new status while key is held down, then update it
@@ -345,9 +328,9 @@ func main() {
 					} else {
 						continue
 					}
-					speaker.Lock()
+
 					player.stream.ctrl.Paused = !player.stream.ctrl.Paused
-					speaker.Unlock()
+
 				case 'a', 'A':
 					if !player.isPlaying() {
 						continue

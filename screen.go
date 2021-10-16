@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"image"
 	"image/png"
+	"math/rand"
 	"strings"
 	"time"
 
@@ -20,6 +21,15 @@ var gopherPNG []byte
 
 var app = &views.Application{}
 var window = &windowLayout{}
+var exitCode = 0
+
+type eventPlay int
+type eventCoverDownloader int
+type eventTrackDownloader int
+
+type recolorable interface {
+	SetStyle(tcell.Style)
+}
 
 type windowLayout struct {
 	views.BoxLayout
@@ -28,20 +38,36 @@ type windowLayout struct {
 	width          int
 	height         int
 	placeholder    image.Image
-	art            *artModel
+	artM           *artModel
+	playerM        *playerModel
 	artDrawingMode int
 	orientation    int
 	hMargin        int
 	vMargin        int
+	widgets        []views.Widget
+}
+
+func (window *windowLayout) handlePlayerEvent(data interface{}) {
+	window.HandleEvent(tcell.NewEventInterrupt(data))
 }
 
 func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 	switch event := event.(type) {
+	case *tcell.EventInterrupt:
+		switch data := event.Data().(type) {
+		case eventPlay:
+			go downloadMedia(window.playerM.media.Trackinfo[player.currentTrack].File.MP3)
+		case eventTrackDownloader:
+			if data != eventTrackDownloader(player.currentTrack) {
+				return false
+			}
+			player.play(int(data))
+		}
 	case *tcell.EventKey:
 		switch event.Key() {
 		case tcell.KeyEscape:
-			logFile.WriteString(event.When().Format(time.ANSIC) + "[ext]:exit with code 0\n")
 			app.Quit()
+			logFile.WriteString(event.When().Format(time.ANSIC) + "[ext]:exit with code 0\n")
 			return true
 		case tcell.KeyTab:
 			window.hideInput = !window.hideInput
@@ -50,6 +76,13 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 				window.artDrawingMode = (window.artDrawingMode + 1) % 4
 				return true
 			}
+		case tcell.KeyCtrlD:
+			for _, widget := range window.widgets {
+				// FIXME: might fail after adding new widgets without
+				// this method
+				widget.(recolorable).SetStyle(getRandomStyle())
+			}
+			return true
 		}
 	}
 	return window.BoxLayout.HandleEvent(event)
@@ -176,8 +209,18 @@ func (content *contentArea) HandleEvent(event tcell.Event) bool {
 		}
 	case *tcell.EventInterrupt:
 		if event.Data() == nil {
-			content.SetText(time.Now().String())
 			app.Update()
+			return true
+		}
+		switch event.Data().(type) {
+		case eventPlay:
+			content.SetText(
+				fmt.Sprint(
+					window.playerM.album.Name +
+						"\n by " + window.playerM.album.ByArtist["name"].(string) + "\n" +
+						window.playerM.album.Tracks.ItemListElement[player.currentTrack].TrackInfo.Name,
+				),
+			)
 			return true
 		}
 		return false
@@ -261,14 +304,14 @@ type artArea struct {
 }
 
 func (art *artArea) Size() (int, int) {
-	return window.art.GetBounds()
+	return window.artM.GetBounds()
 }
 
 func (art *artArea) HandleEvent(event tcell.Event) bool {
 	switch event.(type) {
 	case *views.EventWidgetResize:
 		if window.hasChangedSize() {
-			window.art.refitArt()
+			window.artM.refitArt()
 			return true
 		}
 	}
@@ -292,6 +335,11 @@ func (model *artModel) refitArt() {
 		len(model.asciiart)-1
 }
 
+type playerModel struct {
+	album *albumJSON
+	media *mediaJSON
+}
+
 type spacer struct {
 	*views.Text
 	dynamic bool
@@ -304,16 +352,15 @@ func (s *spacer) Size() (int, int) {
 	return window.hMargin, window.vMargin
 }
 
-type errorMessage struct {
+type messageBox struct {
 	*views.Text
 }
 
-func (message *errorMessage) HandleEvent(event tcell.Event) bool {
+func (message *messageBox) HandleEvent(event tcell.Event) bool {
 	switch event := event.(type) {
 	case *tcell.EventInterrupt:
 		switch data := event.Data().(type) {
 		case string:
-			//app.Update()
 			logFile.WriteString(event.When().Format(time.ANSIC) + "[msg]:" + data + "\n")
 			message.SetText(data)
 			return true
@@ -326,13 +373,16 @@ func (message *errorMessage) HandleEvent(event tcell.Event) bool {
 func parseInput(input string) {
 	commands := strings.Split(input, " ")
 	if strings.Contains(commands[0], "http://") || strings.Contains(commands[0], "https://") {
-		window.HandleEvent(tcell.NewEventInterrupt("link"))
+		player.stop()
+		player.initPlayer()
+		go processMediaPage(commands[0], true)
 		return
 	} else if commands[0] == "exit" || commands[0] == "q" || commands[0] == "quit" {
-		window.HandleEvent(tcell.NewEventInterrupt("quit"))
+		logFile.WriteString(time.Now().Format(time.ANSIC) + "[ext]:exit with code 0\n")
+		app.Quit()
 		return
 	} else if !strings.HasPrefix(commands[0], "-") {
-		window.HandleEvent(tcell.NewEventInterrupt("search"))
+		window.handlePlayerEvent("search (not implemented)")
 		return
 	}
 
@@ -368,12 +418,12 @@ func parseInput(input string) {
 			}
 		}
 	}
-	window.HandleEvent(tcell.NewEventInterrupt(fmt.Sprintf(
-		"tag search%s %s %s",
+	window.handlePlayerEvent(fmt.Sprintf(
+		"tag search (not implemented): %s %s %s",
 		fmt.Sprint("tags:", args.tags),
 		fmt.Sprint("location:", args.location),
 		fmt.Sprint("sorting method:", args.sort),
-	)))
+	))
 }
 
 func init() {
@@ -383,49 +433,25 @@ func init() {
 	if err != nil {
 		checkFatalError(err)
 	}
-	window.art = &artModel{}
-	window.art.converter = *convert.NewImageConverter()
-	window.art.refitArt()
+	window.artM = &artModel{}
+	window.artM.converter = *convert.NewImageConverter()
+	window.artM.refitArt()
 	window.hMargin, window.vMargin = 3, 1
+	window.playerM = &playerModel{}
 
 	spacer1 := &spacer{views.NewText(), false}
-	// FIXME: setting style for screen/window doesn't seem to be working?
-	spacer1.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorChocolate).
-		Background(tcell.ColorSkyblue))
-
 	art := &artArea{views.NewCellView()}
-	art.SetModel(window.art)
-	window.art.style = tcell.StyleDefault.Foreground(tcell.ColorWhiteSmoke).
-		Background(tcell.ColorTomato)
-
+	art.SetModel(window.artM)
 	spacer2 := &spacer{views.NewText(), false}
-	spacer2.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorChocolate).
-		Background(tcell.ColorSkyblue))
-
 	contentBox := views.NewBoxLayout(views.Vertical)
-
 	spacer3 := &spacer{views.NewText(), true}
-	spacer3.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorChocolate).
-		Background(tcell.ColorSkyblue))
-
 	content := &contentArea{}
-	content.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorDarkSlateGray).
-		Background(tcell.ColorLightGoldenrodYellow))
-
-	message := &errorMessage{views.NewText()}
-	message.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorDarkSlateGray).
-		Background(tcell.ColorPaleGoldenrod))
-
+	message := &messageBox{views.NewText()}
 	field := &textField{}
 	field.EnableCursor(!window.hideInput)
 	field.HideCursor(window.hideInput)
 	field.Clear()
-	field.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorDarkSlateGray).
-		Background(tcell.ColorYellowGreen))
-
 	spacer4 := &spacer{views.NewText(), true}
-	spacer4.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorChocolate).
-		Background(tcell.ColorSkyblue))
 
 	window.AddWidget(spacer1, 0.0)
 	window.AddWidget(art, 0.0)
@@ -436,6 +462,9 @@ func init() {
 	contentBox.AddWidget(field, 0.0)
 	window.AddWidget(contentBox, 1.0)
 	window.AddWidget(spacer4, 0.0)
+	// FIXME: messy
+	window.widgets = window.Widgets()
+	window.widgets = append(window.widgets, contentBox.Widgets()...)
 
 	// create new screen to gain access to actual terminal dimensions
 	window.screen, err = tcell.NewScreen()
@@ -444,11 +473,12 @@ func init() {
 	app.SetScreen(window.screen)
 	app.SetRootWidget(window)
 
+	// sometimes doesn't work inside main event loop
 	//app.PostFunc(func() {
 	go func() {
 		for {
 			time.Sleep(time.Second / 2)
-			window.HandleEvent(tcell.NewEventInterrupt(nil))
+			window.handlePlayerEvent(nil)
 		}
 	}()
 	//})
@@ -456,4 +486,12 @@ func init() {
 
 func getPlaceholderImage() image.Image {
 	return window.placeholder
+}
+
+func getRandomStyle() tcell.Style {
+	return tcell.StyleDefault.Foreground(
+		tcell.NewHexColor(
+			int32(rand.Intn(2_147_483_647)))).Background(
+		tcell.NewHexColor(
+			int32(rand.Intn(2_147_483_647))))
 }

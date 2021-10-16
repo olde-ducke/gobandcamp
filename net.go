@@ -1,10 +1,8 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
-	"errors"
-	"fmt"
-	"image/jpeg"
 	"io"
 	"net/http"
 	"strings"
@@ -16,6 +14,7 @@ import (
 // by using bytes.Reader and implementing empty Close() method
 // we get io.ReadSeekCloser, which satisfies requirements of beep streamers
 // (need ReadCloser) and implements Seek() method
+
 type bytesReadSeekCloser struct {
 	*bytes.Reader
 }
@@ -25,25 +24,119 @@ func (c bytesReadSeekCloser) Close() error {
 }
 
 func wrapInRSC(index int) *bytesReadSeekCloser {
-	return &bytesReadSeekCloser{bytes.NewReader(cachedResponses[index])}
+	return &bytesReadSeekCloser{bytes.NewReader(cache[index])}
 }
 
-func createNewRequest(link string) (*http.Request, error) {
+func download(link string, mobile bool, checkDomain bool) io.ReadCloser {
+	window.handlePlayerEvent("fetching...")
 	request, err := http.NewRequest("GET", link, nil)
 	if err != nil {
-		return nil, err
+		window.handlePlayerEvent(err.Error())
+		return nil
 	}
 	// pretend that we are Chrome on Win10
 	request.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/93.0.4577.82 Safari/537.36")
 	// set mobile view, html weights a bit less than desktop version
-	// TODO: bandcamp tag search is all sorts of not okay on mobile
-	// version
-	request.Header.Set("Cookie", "mvp=p")
-	return request, nil
+	if mobile {
+		request.Header.Set("Cookie", "mvp=p")
+	}
+
+	window.handlePlayerEvent("downloading...")
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		window.handlePlayerEvent(err.Error())
+		return nil
+	}
+	// not all artists are hosted on bandname.bandcamp.com,
+	// deal with aliases by reading canonical names from response
+	if checkDomain {
+		if !strings.Contains(response.Header.Get("Link"),
+			"bandcamp.com") {
+			window.handlePlayerEvent("Response came not from bandcamp.com")
+			response.Body.Close()
+			return nil
+		}
+	}
+	return response.Body
 }
 
-func getAlbumPage(link string) (jsonString string, err error) {
-	request, err := createNewRequest(link)
+func processMediaPage(link string, mobile bool) {
+	reader := download(link, mobile, true)
+	if reader == nil {
+		return
+	}
+	defer reader.Close()
+
+	scanner := bufio.NewScanner(reader)
+	var metaDataJSON string
+	var mediaDataJSON string
+	var album bool
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.Contains(line, "og:type") {
+			if strings.Contains(line, "album") {
+				album = true
+			}
+		} else if strings.Contains(line, "application/ld+json") {
+			scanner.Scan()
+			metaDataJSON = scanner.Text()
+		} else if strings.Contains(line, "data-tralbum=") {
+			start := strings.Index(line, "data-tralbum=")
+			start += 14
+			end := strings.Index(line[start:], "\"")
+			end += start
+			if start == -1 || end == -1 || end < start {
+				window.handlePlayerEvent("unexpected page format")
+				return
+			}
+			replacer := strings.NewReplacer(`&quot;`, `"`, `&amp;`, `&`)
+			mediaDataJSON = replacer.Replace(line[start:end])
+		}
+	}
+
+	//_, err = io.Copy(file, response.Body)
+	//checkFatalError(err)
+	if metaDataJSON != "" && mediaDataJSON != "" {
+		if !album {
+			window.handlePlayerEvent("found track data (not implemented)")
+		} else {
+			window.handlePlayerEvent("found album data")
+			window.playerM.album, window.playerM.media =
+				parseAlbumJSON(metaDataJSON, mediaDataJSON)
+			player.totalTracks = window.playerM.album.Tracks.NumberOfItems
+			window.handlePlayerEvent(eventPlay(0))
+		}
+	} else {
+		window.handlePlayerEvent("unexpected page format")
+	}
+}
+
+func downloadMedia(link string) {
+	track := player.currentTrack
+	if cache[track] != nil {
+		window.handlePlayerEvent(eventTrackDownloader(track))
+		window.handlePlayerEvent("playing from cache")
+		return
+	}
+	reader := download(link, false, false)
+	if reader == nil {
+		return
+	}
+	defer reader.Close()
+	body, err := io.ReadAll(reader)
+	if err != nil {
+		window.handlePlayerEvent(err.Error())
+		return
+	}
+	cache[track] = body
+	window.handlePlayerEvent(eventTrackDownloader(track))
+	window.handlePlayerEvent("download finished")
+
+}
+
+/*func getAlbumPage(link string) (jsonString string, err error) {
+	request, err := createNewRequest(link, false)
 	if err != nil {
 		return "", err
 	}
@@ -89,12 +182,12 @@ func getAlbumPage(link string) (jsonString string, err error) {
 		}
 	}
 	return jsonString, nil
-}
+}*/
 
 // TODO: methods below don't need to be methods, message can be formed on caller side,
 // they really need only media links and channel where signal could be sent
-func (player *playback) downloadCover() {
-	request, err := createNewRequest(player.albumList.Image)
+/*func (player *playback) downloadCover() {
+	request, err := createNewRequest(player.albumList.Image, false)
 	if err != nil {
 		player.albumList.AlbumArt = getPlaceholderImage()
 		player.event <- err.Error()
@@ -110,7 +203,7 @@ func (player *playback) downloadCover() {
 	}
 	httpLink := strings.Replace(player.albumList.Image, "https://",
 		"http://", 1)
-	request, err = createNewRequest(httpLink)
+	request, err = createNewRequest(httpLink, false)
 	if err != nil {
 		player.albumList.AlbumArt = getPlaceholderImage()
 		player.event <- err.Error()
@@ -132,13 +225,6 @@ func (player *playback) downloadCover() {
 			player.event <- err.Error()
 			return
 		}
-	/*
-		// TODO: delete later: there seem to be only jpeg covers
-		// in case if planned placeholder image will be in png, can actually be
-		// restored
-		case "image/png":
-			player.albumList.AlbumArt, _ = png.Decode(response.Body)
-	*/
 	default:
 		player.albumList.AlbumArt = getPlaceholderImage()
 		player.event <- "Album cover is not jpeg image"
@@ -168,7 +254,7 @@ func (player *playback) getNewTrack(trackNumber int) {
 		// (preorder items with some tracks available
 		// for streaming) don't have it at all
 		if value.Name == "file_mp3-128" {
-			request, err := createNewRequest(value.Value.(string))
+			request, err := createNewRequest(value.Value.(string), false)
 			if err != nil {
 				player.latestMessage = fmt.Sprintf(
 					"Request cannot be made: %s\n", err.Error())
@@ -201,6 +287,6 @@ func (player *playback) getNewTrack(trackNumber int) {
 		}
 	}
 	player.latestMessage = "Track is currently not available for streaming"
-}
+}*/
 
 // TODO: bandcamp tag request and parser
