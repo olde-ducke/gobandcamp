@@ -57,14 +57,10 @@ type playback struct {
 	stream      *mediaStream
 	format      beep.Format
 
-	status        playbackStatus
-	playbackMode  playbackMode
-	currentPos    time.Duration
-	latestMessage string
-	volume        float64
-	muted         bool
-
-	event chan interface{}
+	status       playbackStatus
+	playbackMode playbackMode
+	volume       float64
+	muted        bool
 }
 
 func (player *playback) changePosition(pos int) time.Duration {
@@ -81,14 +77,14 @@ func (player *playback) changePosition(pos int) time.Duration {
 		// sometimes reports errors, for example this one:
 		// https://github.com/faiface/beep/issues/116
 		// causes track to skip, again, only sometimes
-		player.latestMessage = fmt.Sprint("Seek: ", err.Error())
+		window.handlePlayerEvent(fmt.Sprint("Seek: ", err.Error()))
 	}
 	return player.format.SampleRate.D(newPos).Round(time.Second)
 }
 
 func (player *playback) resetPosition() {
 	if err := player.stream.streamer.Seek(0); err != nil {
-		player.latestMessage = err.Error()
+		window.handlePlayerEvent(err.Error())
 	}
 }
 
@@ -166,11 +162,12 @@ func (player *playback) nextTrack() {
 	player.status = skipFWD
 }
 
-func (player *playback) play(track int) error {
+func (player *playback) play(track int) {
 	streamer, format, err := mp3.Decode(wrapInRSC(track))
 	if err != nil {
 		player.status = stopped
 		window.handlePlayerEvent(err.Error())
+		return
 	}
 	speaker.Lock()
 	player.format = format
@@ -181,36 +178,33 @@ func (player *playback) play(track int) error {
 	/*speaker.Play(beep.Seq(player.stream.volume, beep.Callback(func() {
 		player.event <- true
 	})))*/
-	return nil
 }
 
 func (player *playback) stop() {
 	speaker.Clear()
-	speaker.Lock()
 	if player.isReady() {
+		speaker.Lock()
 		player.resetPosition()
 		err := player.stream.streamer.Close()
 		if err != nil {
-			player.latestMessage = err.Error()
+			window.handlePlayerEvent(err.Error())
 		}
+		speaker.Unlock()
 	}
-	speaker.Unlock()
 	player.status = stopped
 }
 
 func (player *playback) initPlayer() {
 	cache = make(map[int][]byte)
 	// keeps volume and playback mode from previous playback
+	player.stop()
 	*player = playback{playbackMode: player.playbackMode, volume: player.volume,
 		muted: player.muted}
-	//go player.downloadCover()
-	//go player.getNewTrack(player.currentTrack)
 }
 
 func checkFatalError(err error) {
 	if err != nil {
 		app.Quit()
-		app.Wait()
 		logFile.WriteString(time.Now().Format(time.ANSIC) + "[err]:" + err.Error())
 		// FIXME: can't print while app is finishing
 		fmt.Fprintln(os.Stderr, err)

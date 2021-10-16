@@ -23,8 +23,8 @@ var app = &views.Application{}
 var window = &windowLayout{}
 var exitCode = 0
 
-type eventPlay int
-type eventCoverDownloader int
+type eventPlay int            // value unused for now
+type eventCoverDownloader int // value unused for now
 type eventTrackDownloader int
 
 type recolorable interface {
@@ -37,7 +37,6 @@ type windowLayout struct {
 	hideInput      bool
 	width          int
 	height         int
-	placeholder    image.Image
 	artM           *artModel
 	playerM        *playerModel
 	artDrawingMode int
@@ -57,6 +56,7 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 		switch data := event.Data().(type) {
 		case eventPlay:
 			go downloadMedia(window.playerM.media.Trackinfo[player.currentTrack].File.MP3)
+			go downloadCover(window.playerM.album.Image)
 		case eventTrackDownloader:
 			if data != eventTrackDownloader(player.currentTrack) {
 				return false
@@ -71,9 +71,12 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 			return true
 		case tcell.KeyTab:
 			window.hideInput = !window.hideInput
+		case tcell.KeyF5:
+			app.Refresh()
 		case tcell.KeyRune:
+			// TODO: only lowercase
 			if window.hideInput && event.Rune() == 'i' {
-				window.artDrawingMode = (window.artDrawingMode + 1) % 4
+				window.artDrawingMode = (window.artDrawingMode + 1) % 5
 				return true
 			}
 		case tcell.KeyCtrlD:
@@ -81,6 +84,7 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 				// FIXME: might fail after adding new widgets without
 				// this method
 				widget.(recolorable).SetStyle(getRandomStyle())
+				window.artM.style = getRandomStyle()
 			}
 			return true
 		}
@@ -142,6 +146,7 @@ func (field *textField) HandleEvent(event tcell.Event) bool {
 			window.hideInput = !window.hideInput
 			field.HideCursor(window.hideInput)
 			field.EnableCursor(!window.hideInput)
+			return true
 
 		case tcell.KeyBackspace2:
 			if posX > 0 {
@@ -209,6 +214,7 @@ func (content *contentArea) HandleEvent(event tcell.Event) bool {
 		}
 	case *tcell.EventInterrupt:
 		if event.Data() == nil {
+			content.SetText(player.getCurrentTrackPosition().String())
 			app.Update()
 			return true
 		}
@@ -229,13 +235,15 @@ func (content *contentArea) HandleEvent(event tcell.Event) bool {
 }
 
 type artModel struct {
-	x         int
-	y         int
-	endx      int
-	endy      int
-	asciiart  [][]ascii.CharPixel
-	style     tcell.Style
-	converter convert.ImageConverter
+	x           int
+	y           int
+	endx        int
+	endy        int
+	asciiart    [][]ascii.CharPixel
+	style       tcell.Style
+	converter   convert.ImageConverter
+	placeholder image.Image
+	cover       image.Image
 }
 
 func (model *artModel) GetBounds() (int, int) {
@@ -289,6 +297,12 @@ func (model *artModel) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
 				int32(model.asciiart[y][x].R),
 				int32(model.asciiart[y][x].G),
 				int32(model.asciiart[y][x].B))), nil, 1
+	case 4:
+		return rune(model.asciiart[y][x].Char), model.style.Foreground(
+			tcell.NewRGBColor(
+				int32(model.asciiart[y][x].R),
+				int32(model.asciiart[y][x].G),
+				int32(model.asciiart[y][x].B))), nil, 1
 	default:
 		return ' ', model.style.Background(
 			tcell.NewRGBColor(
@@ -308,7 +322,13 @@ func (art *artArea) Size() (int, int) {
 }
 
 func (art *artArea) HandleEvent(event tcell.Event) bool {
-	switch event.(type) {
+	switch event := event.(type) {
+	case *tcell.EventInterrupt:
+		switch event.Data().(type) {
+		case eventCoverDownloader:
+			window.artM.refitArt()
+			return true
+		}
 	case *views.EventWidgetResize:
 		if window.hasChangedSize() {
 			window.artM.refitArt()
@@ -329,8 +349,14 @@ func (model *artModel) refitArt() {
 		Colored:         false,
 		Reversed:        false,
 	}
-	model.asciiart = model.converter.Image2CharPixelMatrix(
-		getPlaceholderImage(), &options)
+	if model.cover == nil {
+		model.asciiart = model.converter.Image2CharPixelMatrix(
+			model.placeholder, &options)
+	} else {
+		model.asciiart = model.converter.Image2CharPixelMatrix(
+			model.cover, &options)
+
+	}
 	model.endx, model.endy = len(model.asciiart[0])-1,
 		len(model.asciiart)-1
 }
@@ -373,7 +399,6 @@ func (message *messageBox) HandleEvent(event tcell.Event) bool {
 func parseInput(input string) {
 	commands := strings.Split(input, " ")
 	if strings.Contains(commands[0], "http://") || strings.Contains(commands[0], "https://") {
-		player.stop()
 		player.initPlayer()
 		go processMediaPage(commands[0], true)
 		return
@@ -418,25 +443,31 @@ func parseInput(input string) {
 			}
 		}
 	}
-	window.handlePlayerEvent(fmt.Sprintf(
-		"tag search (not implemented): %s %s %s",
-		fmt.Sprint("tags:", args.tags),
-		fmt.Sprint("location:", args.location),
-		fmt.Sprint("sorting method:", args.sort),
-	))
+	if len(args.tags) > 0 {
+		window.handlePlayerEvent(fmt.Sprintf(
+			"tag search (not implemented): %s %s %s",
+			fmt.Sprint("tags:", args.tags),
+			fmt.Sprint("location:", args.location),
+			fmt.Sprint("sorting method:", args.sort),
+		))
+	} else {
+		window.handlePlayerEvent("no tags to search")
+	}
 }
 
 func init() {
 	var err error
 	window.hideInput = true
-	window.placeholder, err = png.Decode(bytes.NewReader(gopherPNG))
+	window.hMargin, window.vMargin = 3, 1
+
+	window.artM = &artModel{}
+	window.artM.placeholder, err = png.Decode(bytes.NewReader(gopherPNG))
 	if err != nil {
 		checkFatalError(err)
 	}
-	window.artM = &artModel{}
 	window.artM.converter = *convert.NewImageConverter()
 	window.artM.refitArt()
-	window.hMargin, window.vMargin = 3, 1
+
 	window.playerM = &playerModel{}
 
 	spacer1 := &spacer{views.NewText(), false}
@@ -482,10 +513,6 @@ func init() {
 		}
 	}()
 	//})
-}
-
-func getPlaceholderImage() image.Image {
-	return window.placeholder
 }
 
 func getRandomStyle() tcell.Style {

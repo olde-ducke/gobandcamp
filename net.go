@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"image/jpeg"
 	"io"
 	"net/http"
 	"strings"
@@ -44,8 +45,11 @@ func download(link string, mobile bool, checkDomain bool) io.ReadCloser {
 	window.handlePlayerEvent("downloading...")
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
-		window.handlePlayerEvent(err.Error())
-		return nil
+		if !strings.Contains(link, "http://") {
+			window.handlePlayerEvent(err.Error() + " trying http://")
+			return download(strings.Replace(link, "https://", "http://", 1),
+				mobile, checkDomain)
+		}
 	}
 	// not all artists are hosted on bandname.bandcamp.com,
 	// deal with aliases by reading canonical names from response
@@ -95,9 +99,7 @@ func processMediaPage(link string, mobile bool) {
 		}
 	}
 
-	//_, err = io.Copy(file, response.Body)
-	//checkFatalError(err)
-	if metaDataJSON != "" && mediaDataJSON != "" {
+	if metaDataJSON != "" || mediaDataJSON != "" {
 		if !album {
 			window.handlePlayerEvent("found track data (not implemented)")
 		} else {
@@ -131,58 +133,28 @@ func downloadMedia(link string) {
 	}
 	cache[track] = body
 	window.handlePlayerEvent(eventTrackDownloader(track))
-	window.handlePlayerEvent("download finished")
-
+	window.handlePlayerEvent("track downloaded")
+	//_, err = io.Copy(file, response.Body)
+	//checkFatalError(err)
+	// TODO: replace in-memory cache with saving on disk
+	// SDL seems to be able to only open local files
 }
 
-/*func getAlbumPage(link string) (jsonString string, err error) {
-	request, err := createNewRequest(link, false)
+func downloadCover(link string) {
+	reader := download(link, false, false)
+	if reader == nil {
+		return
+	}
+	defer reader.Close()
+	img, err := jpeg.Decode(reader)
 	if err != nil {
-		return "", err
+		window.handlePlayerEvent(err.Error())
+		return
 	}
-	response, err := http.DefaultClient.Do(request)
-	if err != nil {
-		return "", err
-	}
-	if response.StatusCode > 299 {
-		return "", errors.New(
-			fmt.Sprintf("Request failed with status code: %d\n",
-				response.StatusCode),
-		)
-	}
-	body, err := io.ReadAll(response.Body)
-	// seems reasonable to crash, if we can't close reader
-	checkFatalError(response.Body.Close())
-	if err != nil {
-		fmt.Println("Error:", err.Error())
-		return "", err
-	}
-
-	// not all artists are hosted on bandname.bandcamp.com,
-	// deal with aliases by reading canonical names from response
-	if !strings.Contains(response.Header.Get("Link"),
-		"bandcamp.com") {
-		return "", errors.New("Response came not from bandcamp.com")
-	}
-
-	reader := bytes.NewBuffer(body)
-
-	for {
-		jsonString, err = reader.ReadString('\n')
-		if err != nil {
-			fmt.Println(err.Error())
-			return "", err
-		}
-		if strings.Contains(jsonString, "application/ld+json") {
-			jsonString, err = reader.ReadString('\n')
-			if err != nil {
-				return "", err
-			}
-			break
-		}
-	}
-	return jsonString, nil
-}*/
+	window.artM.cover = img
+	window.handlePlayerEvent("album art downloaded")
+	window.handlePlayerEvent(eventCoverDownloader(0))
+}
 
 // TODO: methods below don't need to be methods, message can be formed on caller side,
 // they really need only media links and channel where signal could be sent
@@ -230,63 +202,6 @@ func downloadMedia(link string) {
 		player.event <- "Album cover is not jpeg image"
 	}
 	player.event <- "Album cover downloaded"
-}
-
-func (player *playback) getNewTrack(trackNumber int) {
-	if len(player.albumList.Tracks.ItemListElement) == 0 {
-		player.latestMessage = "No album data was found"
-		return
-	}
-	item := player.albumList.Tracks.ItemListElement[trackNumber]
-	filename := fmt.Sprint(player.albumList.ByArtist["name"], " - ", item.TrackInfo.Name, ".mp3")
-
-	if _, ok := cachedResponses[trackNumber]; ok {
-		player.latestMessage = fmt.Sprint(filename, " - Cached")
-		player.event <- trackNumber
-		return
-	}
-
-	player.latestMessage = fmt.Sprint(filename, " - Fetching...")
-	for _, value := range item.TrackInfo.AdditionalProperty {
-		// not all tracks are available for streaming,
-		// there is a `streaming` field in JSON
-		// but tracks that haven't been published yet
-		// (preorder items with some tracks available
-		// for streaming) don't have it at all
-		if value.Name == "file_mp3-128" {
-			request, err := createNewRequest(value.Value.(string), false)
-			if err != nil {
-				player.latestMessage = fmt.Sprintf(
-					"Request cannot be made: %s\n", err.Error())
-				return
-			}
-			response, err := http.DefaultClient.Do(request)
-			if err != nil {
-				player.latestMessage = fmt.Sprintf(
-					"Request failed: %s\n", err.Error())
-				return
-			}
-			if response.StatusCode > 299 {
-				player.latestMessage = fmt.Sprintf(
-					"Request failed with status code: %d\n", response.StatusCode)
-				return
-			}
-			player.latestMessage = fmt.Sprint(filename, " - ", response.Status, " Downloading...")
-
-			bodyBytes, err := io.ReadAll(response.Body)
-			defer checkFatalError(response.Body.Close())
-			if err != nil {
-				player.latestMessage = err.Error()
-				return
-			}
-
-			cachedResponses[trackNumber] = bodyBytes
-			player.latestMessage = fmt.Sprint(filename, " - Done")
-			player.event <- trackNumber
-			return
-		}
-	}
-	player.latestMessage = "Track is currently not available for streaming"
 }*/
 
 // TODO: bandcamp tag request and parser
