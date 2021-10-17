@@ -58,17 +58,21 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 		// TODO: isn't it silly to send empty link and check it only
 		// on other side?
 		case eventNewItem:
-			go downloadMedia(window.playerM.media.Trackinfo[0].File.MP3)
-			go downloadCover(window.playerM.album.Image)
-			player.totalTracks = window.playerM.album.Tracks.NumberOfItems
-		case eventNextTrack:
-			go downloadMedia(window.playerM.media.Trackinfo[data].File.MP3)
-			player.stop()
-		case eventTrackDownloader:
-			if data != eventTrackDownloader(player.currentTrack) {
-				return false
+			if data >= 0 {
+				go downloadMedia(window.playerM.metadata.tracks[0].url)
+				go downloadCover(window.playerM.metadata.imageSrc, window.artM)
+				player.totalTracks = window.playerM.metadata.totalTracks
 			}
-			player.play(int(data))
+		case eventNextTrack:
+			//player.stop()
+			go downloadMedia(window.playerM.metadata.tracks[data].url)
+		case eventTrackDownloader:
+			if data == eventTrackDownloader(player.currentTrack) && !player.isPlaying() {
+				player.play(int(data))
+				window.playerM.currentTrack = player.currentTrack
+				return true
+			}
+			return false
 		}
 	case *tcell.EventKey:
 		switch event.Key() {
@@ -106,11 +110,9 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 // FIXME ?
 func (window *windowLayout) checkOrientation() {
 	if window.width > 2*window.height {
-		if window.orientation != views.Horizontal {
-			window.SetOrientation(views.Horizontal)
-			window.orientation = views.Horizontal
-		}
-	} else if window.orientation != views.Vertical {
+		window.SetOrientation(views.Horizontal)
+		window.orientation = views.Horizontal
+	} else {
 		window.SetOrientation(views.Vertical)
 		window.orientation = views.Vertical
 	}
@@ -225,24 +227,33 @@ func (content *contentArea) HandleEvent(event tcell.Event) bool {
 		}
 	case *tcell.EventInterrupt:
 		if event.Data() == nil {
-			//content.SetText(player.getCurrentTrackPosition().String())
+			content.SetText(window.playerM.updateText())
 			app.Update()
 			return true
 		}
-		switch event.Data().(type) {
+		switch data := event.Data().(type) {
 		case eventNewItem:
-			content.SetText(
-				fmt.Sprint(
-					window.playerM.album.Name +
-						"\n by " + window.playerM.album.ByArtist["name"].(string) + "\n" +
-						window.playerM.album.Tracks.ItemListElement[player.currentTrack].TrackInfo.Name,
-				),
-			)
+			if data < 0 {
+				window.playerM.metadata = nil
+			}
+			window.playerM.updateText()
 			return true
 		}
 		return false
 	}
 	return content.Text.HandleEvent(event)
+}
+
+// TODO: change back later
+func (content *contentArea) Size() (int, int) {
+	if window.orientation == views.Horizontal {
+		window.playerM.endx = window.width - window.artM.endx - 3*window.hMargin
+		window.playerM.endy = window.height - window.vMargin - 2
+	} else {
+		window.playerM.endx = window.width
+		window.playerM.endy = window.height - 2*window.vMargin - window.artM.endy - 2
+	}
+	return window.playerM.endx, window.playerM.endy
 }
 
 type artModel struct {
@@ -376,8 +387,42 @@ func (model *artModel) refitArt() {
 }
 
 type playerModel struct {
-	album *albumJSON
-	media *mediaJSON
+	metadata     *album
+	dummy        *album
+	endx         int
+	endy         int
+	currentTrack int
+}
+
+func (model *playerModel) updateText() string {
+	var formatString string
+	var volume string
+	var repeats int
+	timeStamp := player.getCurrentTrackPosition()
+
+	if model.metadata == nil {
+		formatString = model.dummy.formatString(window.playerM.currentTrack)
+		repeats = 0
+	} else {
+		formatString = model.metadata.formatString(window.playerM.currentTrack)
+		repeats = int(100*timeStamp/
+			time.Duration(model.metadata.tracks[window.playerM.currentTrack].duration*1_000_000_000)) *
+			model.endx / 100
+	}
+
+	if player.muted {
+		volume = "mute"
+	} else {
+		volume = fmt.Sprintf("%3.0f", (100 + player.volume*10))
+	}
+
+	return fmt.Sprintf(formatString,
+		player.status.String(),
+		strings.Repeat("\u25b1", repeats),
+		timeStamp,
+		volume,
+		player.playbackMode.String(),
+	)
 }
 
 type spacer struct {
@@ -414,9 +459,17 @@ func (message *messageBox) HandleEvent(event tcell.Event) bool {
 	return message.Text.HandleEvent(event)
 }
 
+func (message *messageBox) Size() (int, int) {
+	if window.orientation == views.Horizontal {
+		return window.width - window.artM.endx - 3*window.hMargin, 1
+	}
+	return window.width, 1
+}
+
 func parseInput(input string) {
 	commands := strings.Split(input, " ")
 	if strings.Contains(commands[0], "http://") || strings.Contains(commands[0], "https://") {
+		player.stop()
 		player.initPlayer()
 		go processMediaPage(commands[0], true, window.playerM)
 		return
@@ -487,6 +540,7 @@ func init() {
 	window.artM.refitArt()
 
 	window.playerM = &playerModel{}
+	window.playerM.dummy = getDummyData()
 
 	spacer1 := &spacer{views.NewText(), false}
 	art := &artArea{views.NewCellView()}
@@ -495,7 +549,9 @@ func init() {
 	contentBox := views.NewBoxLayout(views.Vertical)
 	spacer3 := &spacer{views.NewText(), true}
 	content := &contentArea{}
+	content.SetText(window.playerM.updateText())
 	message := &messageBox{views.NewText()}
+	message.SetText("press Tab and enter album link:")
 	field := &textField{}
 	field.EnableCursor(!window.hideInput)
 	field.HideCursor(window.hideInput)
@@ -518,16 +574,18 @@ func init() {
 	// create new screen to gain access to actual terminal dimensions
 	window.screen, err = tcell.NewScreen()
 	checkFatalError(err)
-
 	app.SetScreen(window.screen)
 	app.SetRootWidget(window)
 
-	// sometimes doesn't work inside main event loop
+	// sometimes doesn't work inside main event loop?
 	//app.PostFunc(func() {
 	go func() {
 		for {
 			time.Sleep(time.Second / 2)
 			window.sendPlayerEvent(nil)
+			if player.status == seekBWD || player.status == seekFWD {
+				player.status = player.bufferedStatus
+			}
 		}
 	}()
 	//})

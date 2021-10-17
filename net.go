@@ -31,7 +31,6 @@ func wrapInRSC(index int) *bytesReadSeekCloser {
 }
 
 func download(link string, mobile bool, checkDomain bool) io.ReadCloser {
-	window.sendPlayerEvent("fetching...")
 	request, err := http.NewRequest("GET", link, nil)
 	if err != nil {
 		window.sendPlayerEvent(err)
@@ -67,16 +66,18 @@ func download(link string, mobile bool, checkDomain bool) io.ReadCloser {
 			return nil
 		}
 	}
-	window.sendPlayerEvent("downloading...")
 	return response.Body
 }
 
 func processMediaPage(link string, mobile bool, model *playerModel) {
+	window.sendPlayerEvent("fetching page...")
 	reader := download(link, mobile, true)
 	if reader == nil {
+		window.sendPlayerEvent(eventNewItem(-1))
 		return
 	}
 	defer reader.Close()
+	window.sendPlayerEvent("parsing...")
 
 	scanner := bufio.NewScanner(reader)
 	var metaDataJSON string
@@ -109,10 +110,11 @@ func processMediaPage(link string, mobile bool, model *playerModel) {
 	if metaDataJSON != "" || mediaDataJSON != "" {
 		if !album {
 			window.sendPlayerEvent("found track data (not implemented)")
+			window.sendPlayerEvent(eventCoverDownloader(-1))
+			window.sendPlayerEvent(eventNewItem(-1))
 		} else {
 			window.sendPlayerEvent("found album data")
-			model.album, model.media =
-				parseAlbumJSON(metaDataJSON, mediaDataJSON)
+			model.metadata = parseAlbumJSON(metaDataJSON, mediaDataJSON)
 			window.sendPlayerEvent(eventNewItem(0))
 		}
 	} else {
@@ -122,12 +124,13 @@ func processMediaPage(link string, mobile bool, model *playerModel) {
 
 func downloadMedia(link string) {
 	track := player.currentTrack
+	window.sendPlayerEvent(fmt.Sprintf("fetching track %d...", track+1))
 	if link == "" {
 		window.sendPlayerEvent(fmt.Sprintf("track %d not available for streaming",
 			track+1))
 		return
 	}
-	if cache[track] != nil {
+	if _, ok := cache[track]; ok {
 		window.sendPlayerEvent(eventTrackDownloader(track))
 		window.sendPlayerEvent(fmt.Sprintf("playing track %d from cache",
 			track+1))
@@ -138,6 +141,8 @@ func downloadMedia(link string) {
 		return
 	}
 	defer reader.Close()
+	window.sendPlayerEvent(fmt.Sprintf("downloading track %d...", track+1))
+
 	body, err := io.ReadAll(reader)
 	if err != nil {
 		window.sendPlayerEvent(err)
@@ -151,21 +156,24 @@ func downloadMedia(link string) {
 	//_, err = io.Copy(file, response.Body)
 }
 
-func downloadCover(link string) {
+func downloadCover(link string, model *artModel) {
+	window.sendPlayerEvent("fetching album cover...")
 	reader := download(link, false, false)
 	if reader == nil {
 		window.sendPlayerEvent(eventCoverDownloader(-1))
 		return
 	}
 	defer reader.Close()
+	window.sendPlayerEvent("downloading album cover...")
+
 	img, err := jpeg.Decode(reader)
 	if err != nil {
 		window.sendPlayerEvent(err)
 		window.sendPlayerEvent(eventCoverDownloader(-1))
 		return
 	}
-	window.artM.cover = img
-	window.sendPlayerEvent("album art downloaded")
+	model.cover = img
+	window.sendPlayerEvent("album cover downloaded")
 	window.sendPlayerEvent(eventCoverDownloader(0))
 }
 

@@ -118,6 +118,9 @@ func (player *playback) skip(forward bool) {
 		return
 	}
 	//player.stop()
+	if player.totalTracks == 0 {
+		return
+	}
 	if forward {
 		player.currentTrack = (player.currentTrack + 1) %
 			player.totalTracks
@@ -133,13 +136,11 @@ func (player *playback) skip(forward bool) {
 	// probably dumb idea, -race yells with warnings about it
 	go func() {
 		if _, ok := cache[player.currentTrack]; ok {
-			//player.getNewTrack(player.currentTrack)
 			window.sendPlayerEvent(eventNextTrack(player.currentTrack))
 		} else {
 			track := player.currentTrack
-			time.Sleep(time.Second / 2)
+			time.Sleep(time.Second / 3)
 			if track == player.currentTrack {
-				//player.getNewTrack(player.currentTrack)
 				window.sendPlayerEvent(eventNextTrack(player.currentTrack))
 			}
 		}
@@ -147,8 +148,6 @@ func (player *playback) skip(forward bool) {
 }
 
 func (player *playback) nextTrack() {
-	window.sendPlayerEvent("next track")
-	//player.stop()
 	switch player.playbackMode {
 	case random:
 		rand.Seed(time.Now().UnixNano())
@@ -160,6 +159,10 @@ func (player *playback) nextTrack() {
 		player.skip(true)
 	case normal:
 		if player.currentTrack == player.totalTracks-1 {
+			// can't do anything with speaker when called from callback
+			// added stop to play function, that actually
+			// prevents double playback
+			player.status = stopped
 			return
 		}
 		player.skip(true)
@@ -169,9 +172,9 @@ func (player *playback) nextTrack() {
 
 func (player *playback) play(track int) {
 	// TODO: update current track for playlist view
+	player.stop()
 	streamer, format, err := mp3.Decode(wrapInRSC(track))
 	if err != nil {
-		player.status = stopped
 		window.sendPlayerEvent(err)
 		return
 	}
@@ -186,8 +189,8 @@ func (player *playback) play(track int) {
 }
 
 func (player *playback) stop() {
-	speaker.Clear()
 	if player.isReady() {
+		speaker.Clear()
 		speaker.Lock()
 		player.resetPosition()
 		err := player.stream.streamer.Close()
@@ -202,7 +205,6 @@ func (player *playback) stop() {
 func (player *playback) initPlayer() {
 	cache = make(map[int][]byte)
 	// keeps volume and playback mode from previous playback
-	player.stop()
 	*player = playback{playbackMode: player.playbackMode, volume: player.volume,
 		muted: player.muted}
 }
@@ -231,11 +233,11 @@ func (player *playback) handleEvent(key rune) bool {
 	// TODO: change controls
 	case ' ':
 		// FIXME ???
-		if !player.isReady() {
-			return true
-		}
 		if player.status == seekBWD || player.status == seekFWD {
 			player.status = player.bufferedStatus
+		}
+		if !player.isReady() {
+			return false
 		}
 		if player.status == playing {
 			player.status = paused
@@ -251,7 +253,7 @@ func (player *playback) handleEvent(key rune) bool {
 
 	case 'a', 'A':
 		if !player.isPlaying() {
-			return true
+			return false
 		} else if player.status != seekBWD && player.status != seekFWD {
 			player.bufferedStatus = player.status
 			player.status = seekBWD
@@ -262,7 +264,7 @@ func (player *playback) handleEvent(key rune) bool {
 
 	case 'd', 'D':
 		if !player.isPlaying() {
-			return true
+			return false
 		} else if player.status != seekFWD && player.status != seekBWD {
 			player.bufferedStatus = player.status
 			player.status = seekFWD
@@ -273,7 +275,7 @@ func (player *playback) handleEvent(key rune) bool {
 
 	case 's', 'S':
 		if !player.isReady() || player.volume < -9.6 {
-			return true
+			return false
 		}
 		player.volume -= 0.5
 		speaker.Lock()
@@ -286,7 +288,7 @@ func (player *playback) handleEvent(key rune) bool {
 
 	case 'w', 'W':
 		if !player.isReady() || player.volume > -0.4 {
-			return true
+			return false
 		}
 		player.volume += 0.5
 		speaker.Lock()
@@ -299,7 +301,7 @@ func (player *playback) handleEvent(key rune) bool {
 
 	case 'm', 'M':
 		if !player.isReady() {
-			return true
+			return false
 		}
 		player.muted = !player.muted
 		speaker.Lock()
@@ -331,6 +333,7 @@ func (player *playback) handleEvent(key rune) bool {
 	default:
 		return false
 	}
+	window.sendPlayerEvent(nil)
 	return true
 }
 
@@ -341,6 +344,7 @@ func main() {
 	// FIXME: takes device to itself, doesn't allow any other program to use it, and can't use it, if device is already being used
 	//player.initPlayer()
 	// just switch to SDL, it doesn't have any of these problems
+	// FIXME: can't tell orientation on the start for whatever reason
 	err := app.Run()
 	checkFatalError(err)
 	logFile.Close()
