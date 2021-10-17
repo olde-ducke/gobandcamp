@@ -45,6 +45,9 @@ type windowLayout struct {
 	hMargin        int
 	vMargin        int
 	widgets        []views.Widget
+	bgColor        tcell.Color
+	fgColor        tcell.Color
+	theme          int
 }
 
 func (window *windowLayout) sendPlayerEvent(data interface{}) {
@@ -88,7 +91,10 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 			if window.hideInput {
 				switch event.Rune() {
 				case 'i', 'I':
-					window.artDrawingMode = (window.artDrawingMode + 1) % 5
+					window.artDrawingMode = (window.artDrawingMode + 1) % 6
+					return true
+				case 't', 'T':
+					changeTheme()
 					return true
 				default:
 					return player.handleEvent(event.Rune())
@@ -318,8 +324,16 @@ func (model *artModel) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
 			tcell.NewRGBColor(
 				int32(model.asciiart[y][x].R),
 				int32(model.asciiart[y][x].G),
-				int32(model.asciiart[y][x].B))), nil, 1
+				int32(model.asciiart[y][x].B))).
+			Foreground(window.bgColor), nil, 1
 	case 4:
+		return rune(model.asciiart[y][x].Char), model.style.Background(
+			tcell.NewRGBColor(
+				int32(model.asciiart[y][x].R),
+				int32(model.asciiart[y][x].G),
+				int32(model.asciiart[y][x].B))).
+			Foreground(window.fgColor), nil, 1
+	case 5:
 		return rune(model.asciiart[y][x].Char), model.style.Foreground(
 			tcell.NewRGBColor(
 				int32(model.asciiart[y][x].R),
@@ -530,6 +544,8 @@ func init() {
 	var err error
 	window.hideInput = true
 	window.hMargin, window.vMargin = 3, 1
+	window.fgColor = tcell.NewHexColor(0xf9fdff)
+	window.bgColor = tcell.NewHexColor(0x2b2b2b)
 
 	window.artM = &artModel{}
 	window.artM.placeholder, err = png.Decode(bytes.NewReader(gopherPNG))
@@ -597,4 +613,24 @@ func getRandomStyle() tcell.Style {
 			int32(rand.Intn(2_147_483_647)))).Background(
 		tcell.NewHexColor(
 			int32(rand.Intn(2_147_483_647))))
+}
+
+func changeTheme() {
+	window.theme = (window.theme + 1) % 3
+
+	var style tcell.Style
+	switch window.theme {
+	case 1:
+		style = tcell.StyleDefault.Background(window.bgColor).
+			Foreground(window.fgColor)
+	case 2:
+		style = tcell.StyleDefault.Background(window.fgColor).
+			Foreground(window.bgColor)
+	default:
+		style = tcell.StyleDefault
+	}
+	for _, widget := range window.widgets {
+		widget.(recolorable).SetStyle(style)
+		window.artM.style = style
+	}
 }
