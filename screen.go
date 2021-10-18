@@ -23,10 +23,19 @@ var app = &views.Application{}
 var window = &windowLayout{}
 var exitCode = 0
 
-type eventNewItem int // value unused for now
+type eventNewItem int
 type eventNextTrack int
 type eventCoverDownloader int
 type eventTrackDownloader int
+type eventDebugMessage string
+
+/*func newDebugMessage(message string) eventDebugMessage {
+	return eventDebugMessage(message)
+}*/
+
+func (message *eventDebugMessage) String() string {
+	return string(*message)
+}
 
 type recolorable interface {
 	SetStyle(tcell.Style)
@@ -58,7 +67,7 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 	switch event := event.(type) {
 	case *tcell.EventInterrupt:
 		switch data := event.Data().(type) {
-		// TODO: isn't it silly to send empty link and check it only
+		// TODO: isn't it silly to send an empty link and check if it's empty only
 		// on other side?
 		case eventNewItem:
 			if data >= 0 {
@@ -67,12 +76,11 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 				player.totalTracks = window.playerM.metadata.totalTracks
 			}
 		case eventNextTrack:
-			//player.stop()
 			go downloadMedia(window.playerM.metadata.tracks[data].url)
 		case eventTrackDownloader:
 			if data == eventTrackDownloader(player.currentTrack) && !player.isPlaying() {
 				player.play(int(data))
-				window.playerM.currentTrack = player.currentTrack
+				//window.playerM.currentTrack = player.currentTrack
 				return true
 			}
 			return false
@@ -87,6 +95,7 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 			window.hideInput = !window.hideInput
 		case tcell.KeyF5:
 			app.Refresh()
+			return true
 		case tcell.KeyRune:
 			if window.hideInput {
 				switch event.Rune() {
@@ -401,11 +410,11 @@ func (model *artModel) refitArt() {
 }
 
 type playerModel struct {
-	metadata     *album
-	dummy        *album
-	endx         int
-	endy         int
-	currentTrack int
+	metadata *album
+	dummy    *album
+	endx     int
+	endy     int
+	//currentTrack int
 }
 
 func (model *playerModel) updateText() string {
@@ -415,12 +424,12 @@ func (model *playerModel) updateText() string {
 	timeStamp := player.getCurrentTrackPosition()
 
 	if model.metadata == nil {
-		formatString = model.dummy.formatString(window.playerM.currentTrack)
+		formatString = model.dummy.formatString(player.currentTrack)
 		repeats = 0
 	} else {
-		formatString = model.metadata.formatString(window.playerM.currentTrack)
+		formatString = model.metadata.formatString(player.currentTrack)
 		repeats = int(100*timeStamp/
-			time.Duration(model.metadata.tracks[window.playerM.currentTrack].duration*1_000_000_000)) *
+			time.Duration(model.metadata.tracks[player.currentTrack].duration*1_000_000_000)) *
 			model.endx / 100
 	}
 
@@ -467,6 +476,8 @@ func (message *messageBox) HandleEvent(event tcell.Event) bool {
 			logFile.WriteString(event.When().Format(time.ANSIC) + "[err]:" + data.Error() + "\n")
 			message.SetText(data.Error())
 			return true
+		case eventDebugMessage:
+			logFile.WriteString(event.When().Format(time.ANSIC) + "[dbg]:" + data.String() + "\n")
 		}
 		return false
 	}

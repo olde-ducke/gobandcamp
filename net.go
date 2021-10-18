@@ -27,7 +27,7 @@ func (c bytesReadSeekCloser) Close() error {
 }
 
 func wrapInRSC(index int) *bytesReadSeekCloser {
-	return &bytesReadSeekCloser{bytes.NewReader(cache[index])}
+	return &bytesReadSeekCloser{bytes.NewReader(cache.bytes[index])}
 }
 
 func download(link string, mobile bool, checkDomain bool) io.ReadCloser {
@@ -124,18 +124,20 @@ func processMediaPage(link string, mobile bool, model *playerModel) {
 
 func downloadMedia(link string) {
 	track := player.currentTrack
-	window.sendPlayerEvent(fmt.Sprintf("fetching track %d...", track+1))
 	if link == "" {
 		window.sendPlayerEvent(fmt.Sprintf("track %d not available for streaming",
 			track+1))
 		return
 	}
-	if _, ok := cache[track]; ok {
+	if _, ok := cache.bytes[track]; ok {
 		window.sendPlayerEvent(eventTrackDownloader(track))
 		window.sendPlayerEvent(fmt.Sprintf("playing track %d from cache",
 			track+1))
 		return
 	}
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	window.sendPlayerEvent(fmt.Sprintf("fetching track %d...", track+1))
 	reader := download(link, false, false)
 	if reader == nil {
 		return
@@ -148,7 +150,7 @@ func downloadMedia(link string) {
 		window.sendPlayerEvent(err)
 		return
 	}
-	cache[track] = body
+	cache.bytes[track] = body
 	window.sendPlayerEvent(eventTrackDownloader(track))
 	window.sendPlayerEvent(fmt.Sprintf("track %d downloaded", track+1))
 	// TODO: replace in-memory cache with saving on disk

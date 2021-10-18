@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/faiface/beep"
@@ -12,7 +13,12 @@ import (
 )
 
 // TODO: cache cleaning
-var cache map[int][]byte
+type cached struct {
+	mu    sync.Mutex
+	bytes map[int][]byte
+}
+
+var cache cached
 var player playback
 var logFile *os.File
 
@@ -84,6 +90,7 @@ func (player *playback) changePosition(pos int) time.Duration {
 }
 
 func (player *playback) resetPosition() {
+	window.sendPlayerEvent(eventDebugMessage("reset position"))
 	if err := player.stream.streamer.Seek(0); err != nil {
 		window.sendPlayerEvent(err)
 	}
@@ -113,6 +120,8 @@ func (player *playback) isReady() bool {
 }
 
 func (player *playback) skip(forward bool) {
+	defer player.stop()
+	window.sendPlayerEvent(eventDebugMessage("skip track"))
 	if player.playbackMode == random {
 		player.nextTrack()
 		return
@@ -135,7 +144,9 @@ func (player *playback) skip(forward bool) {
 	// to prevent downloading every item on fast track switching
 	// probably dumb idea, -race yells with warnings about it
 	go func() {
-		if _, ok := cache[player.currentTrack]; ok {
+		cache.mu.Lock()
+		defer cache.mu.Unlock()
+		if _, ok := cache.bytes[player.currentTrack]; ok {
 			window.sendPlayerEvent(eventNextTrack(player.currentTrack))
 		} else {
 			track := player.currentTrack
@@ -148,6 +159,8 @@ func (player *playback) skip(forward bool) {
 }
 
 func (player *playback) nextTrack() {
+	defer player.stop()
+	window.sendPlayerEvent(eventDebugMessage("next track"))
 	switch player.playbackMode {
 	case random:
 		rand.Seed(time.Now().UnixNano())
@@ -172,7 +185,8 @@ func (player *playback) nextTrack() {
 
 func (player *playback) play(track int) {
 	// TODO: update current track for playlist view
-	player.stop()
+	//player.stop()
+	window.sendPlayerEvent(eventDebugMessage("music play"))
 	streamer, format, err := mp3.Decode(wrapInRSC(track))
 	if err != nil {
 		window.sendPlayerEvent(err)
@@ -185,10 +199,11 @@ func (player *playback) play(track int) {
 	speaker.Unlock()
 	//speaker.Play(player.stream.volume)
 	speaker.Play(beep.Seq(player.stream.volume, beep.Callback(
-		player.nextTrack)))
+		func() { go player.nextTrack() })))
 }
 
 func (player *playback) stop() {
+	window.sendPlayerEvent(eventDebugMessage("music stopped"))
 	if player.isReady() {
 		speaker.Clear()
 		speaker.Lock()
@@ -203,10 +218,13 @@ func (player *playback) stop() {
 }
 
 func (player *playback) initPlayer() {
-	cache = make(map[int][]byte)
+	cache.mu.Lock()
+	window.sendPlayerEvent(eventDebugMessage("player reset"))
+	cache.bytes = make(map[int][]byte)
 	// keeps volume and playback mode from previous playback
 	*player = playback{playbackMode: player.playbackMode, volume: player.volume,
 		muted: player.muted}
+	cache.mu.Unlock()
 }
 
 func checkFatalError(err error) {
@@ -236,16 +254,17 @@ func (player *playback) handleEvent(key rune) bool {
 		if player.status == seekBWD || player.status == seekFWD {
 			player.status = player.bufferedStatus
 		}
-		if !player.isReady() {
+		if player.status == stopped {
+			player.play(player.currentTrack)
+			return true
+		}
+		if !player.isPlaying() {
 			return false
 		}
 		if player.status == playing {
 			player.status = paused
 		} else if player.status == paused {
 			player.status = playing
-		} else if player.status == stopped {
-			player.play(player.currentTrack)
-			return true
 		}
 		speaker.Lock()
 		player.stream.ctrl.Paused = !player.stream.ctrl.Paused
