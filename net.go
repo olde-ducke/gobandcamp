@@ -9,7 +9,6 @@ import (
 	"io"
 	"math/rand"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 )
@@ -186,9 +185,6 @@ func downloadCover(link string, model *artModel) {
 // TODO: bandcamp tag request and parser
 func processTagPage(args arguments) {
 	window.sendPlayerEvent("fetching tag search page...")
-	file, err := os.Create("temp.html")
-	checkFatalError(err)
-	defer file.Close()
 
 	sbuilder := strings.Builder{}
 	defer sbuilder.Reset()
@@ -244,17 +240,19 @@ func processTagPage(args arguments) {
 		return
 	}
 	window.sendPlayerEvent("found data")
-	//file.WriteString(dataBlobJSON)
-	//file.WriteString(fmt.Sprint(parseTagSearchJSON(dataBlobJSON)))
 
 	rand.Seed(time.Now().UnixNano())
 	urls := parseTagSearchJSON(dataBlobJSON)
 
+	/*file, err := os.Create("temp.html")
+	checkFatalError(err)
+	defer file.Close()*/
+
 	var url string
 	if urls != nil {
-		for _, url := range urls {
+		/*for _, url := range urls {
 			file.WriteString(url + "\n")
-		}
+		} */
 		url = urls[rand.Intn(len(urls))]
 		player.stop()
 		player.initPlayer()

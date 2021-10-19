@@ -197,7 +197,6 @@ func (player *playback) play(track int) {
 	player.stream = newStream(format.SampleRate, streamer, player.volume, player.muted)
 	player.status = playing
 	speaker.Unlock()
-	//speaker.Play(player.stream.volume)Торможу из другого т
 	speaker.Play(beep.Seq(player.stream.volume, beep.Callback(
 		func() { go player.nextTrack() })))
 }

@@ -226,5 +226,3 @@ func parseTagSearchSimple(dataBlobJSON string) (urls []string) {
 	}
 	return urls
 }
-
-// TODO: not available tracks crash again

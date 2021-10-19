@@ -108,6 +108,9 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 					return player.handleEvent(event.Rune())
 				}
 			}
+		case tcell.KeyCtrlC:
+			window.screen.Fini()
+			return true
 		case tcell.KeyCtrlD:
 			for _, widget := range window.widgets {
 				// FIXME: might fail after adding new widgets without
@@ -427,9 +430,12 @@ func (model *playerModel) updateText() string {
 		repeats = 0
 	} else {
 		formatString = model.metadata.formatString(player.currentTrack)
-		repeats = int(100*timeStamp/
-			time.Duration(model.metadata.tracks[player.currentTrack].duration*1_000_000_000)) *
-			model.endx / 100
+		duration := model.metadata.tracks[player.currentTrack].duration
+		if duration > 0 {
+			repeats = int((float64(timeStamp) / (duration * 1_000_000_000)) * float64(model.endx))
+		} else {
+			repeats = 0
+		}
 	}
 
 	if player.muted {
@@ -542,12 +548,6 @@ func parseInput(input string) {
 		}
 	}
 	if len(args.tags) > 0 {
-		/*window.sendPlayerEvent(fmt.Sprintf(
-			"tag search (not implemented): %s %s %s",
-			fmt.Sprint("tags:", args.tags),
-			fmt.Sprint("location:", args.location),
-			fmt.Sprint("sorting method:", args.sort),
-		))*/
 		go processTagPage(args)
 	} else {
 		window.sendPlayerEvent("no tags to search")
