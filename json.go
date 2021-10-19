@@ -8,10 +8,8 @@ import (
 	"time"
 
 	json "github.com/json-iterator/go"
+	//"encoding/json"
 )
-
-// TODO: maybe it would be a good idea to wrap everything in one more
-// sensible struct and return it instead of this nonsense
 
 type album struct {
 	imageSrc    string
@@ -30,6 +28,26 @@ type track struct {
 	duration    float64
 	lyrics      string
 	url         string
+}
+
+func (metadata *album) formatString(n int) string {
+	sbuilder := strings.Builder{}
+	fmt.Fprintf(&sbuilder, "%s\n by %s\nreleased %s\n%s\n\n%s %2d/%d - %s\n%s\n%s/%s\nvolume %s mode %s\n\n\n\n\n%s",
+		metadata.title,
+		metadata.artist,
+		metadata.date,
+		metadata.tags,
+		`%2s`,
+		n+1,
+		metadata.totalTracks,
+		metadata.tracks[n].title,
+		`%s`, `%s`,
+		(time.Duration(metadata.tracks[n].duration) * time.Second).Round(time.Second),
+		`%4s`, `%s`,
+		metadata.url,
+	)
+	defer sbuilder.Reset()
+	return sbuilder.String()
 }
 
 type albumJSON struct {
@@ -86,7 +104,7 @@ func parseAlbumJSON(metaDataJSON string, mediaDataJSON string) (albumMetaData *a
 		imageSrc:    metaData.Image,
 		title:       metaData.Name,
 		artist:      metaData.ByArtist["name"].(string),
-		date:        metaData.DatePublished[:11],
+		date:        metaData.DatePublished[:11], // TODO: do something with time in parsed date
 		url:         mediaData.URL,
 		tags:        fmt.Sprint(metaData.Tags),
 		totalTracks: metaData.Tracks.NumberOfItems,
@@ -110,34 +128,103 @@ func getDummyData() *album {
 	return &album{
 		title:       "---",
 		artist:      "---",
-		date:        "01 jan 1900",
+		date:        "---",
 		url:         "https://golang.org",
 		tags:        "[gopher music png]",
-		totalTracks: 3,
+		totalTracks: 1,
 		tracks: []track{{
-			trackNumber: 2,
+			trackNumber: 1,
 			title:       "---",
-			duration:    200.5,
+			duration:    0.0,
 		}},
 	}
 }
 
-func (metadata *album) formatString(n int) string {
-	sbuilder := strings.Builder{}
-	fmt.Fprintf(&sbuilder, "%s\n by %s\nreleased %s\n%s\n\n%s %2d/%d - %s\n%s\n%s/%s\nvolume %s mode %s\n\n\n\n\n%s",
-		metadata.title,
-		metadata.artist,
-		metadata.date,
-		metadata.tags,
-		`%2s`,
-		n+1,
-		metadata.totalTracks,
-		metadata.tracks[n].title,
-		`%s`, `%s`,
-		(time.Duration(metadata.tracks[n].duration) * time.Second).Round(time.Second),
-		`%4s`, `%s`,
-		metadata.url,
-	)
-	defer sbuilder.Reset()
-	return sbuilder.String()
+type tagSearchJSON struct {
+	//FanMeta   map[string]interface{} `json:"fan_meta"`
+	//Languages map[string]string      `json:"languages"`
+	Hub Hubs `json:"hub"`
+	//		Tabs []Tab `json:"tabs"`
 }
+
+type Hubs struct {
+	RelatedTags []map[string]interface{} `json:"related_tags"`
+	Subgenres   []map[string]interface{} `json:"subgenres"`
+	IsSimple    bool                     `json:"is_simple"`
+	Tabs        []Tab                    `json:"tabs"`
+}
+
+type Tab struct {
+	Collections []Collection `json:"collections"`
+}
+
+type Collection struct {
+	Items []map[string]interface{} `json:"items"`
+}
+
+func parseTagSearchJSON(dataBlobJSON string) (urls []string) {
+	var dataBlob tagSearchJSON
+	err := json.Unmarshal([]byte(dataBlobJSON), &dataBlob)
+	checkFatalError(err)
+	if dataBlob.Hub.IsSimple {
+		return parseTagSearchSimple(dataBlobJSON)
+	}
+	for _, collection := range dataBlob.Hub.Tabs[0].Collections {
+		for _, item := range collection.Items {
+			if value, ok := item["tralbum_url"].(string); ok {
+				urls = append(urls, value)
+			}
+		}
+	}
+	return urls
+}
+
+type tagSearchSimple struct {
+	Hub HubSimple `json:"hub"`
+}
+
+type HubSimple struct {
+	RelatedTags []map[string]interface{} `json:"related_tags"`
+	Subgenres   []map[string]interface{} `json:"subgenres"`
+	IsSimple    bool                     `json:"is_simple"`
+	Tabs        []TabSimple              `json:"tabs"`
+}
+
+type TabSimple struct {
+	DigDeeper Results `json:"dig_deeper"`
+}
+
+type Results struct {
+	Result map[string]interface{} `json:"results"`
+}
+
+func parseTagSearchSimple(dataBlobJSON string) (urls []string) {
+	var dataBlob tagSearchSimple
+	err := json.Unmarshal([]byte(dataBlobJSON), &dataBlob)
+	checkFatalError(err)
+	for _, results := range dataBlob.Hub.Tabs[0].DigDeeper.Result {
+		if results, ok := results.(map[string]interface{}); ok {
+			if items, ok := results["items"].([]interface{}); ok {
+				for _, item := range items {
+					if item, ok := item.(map[string]interface{}); ok {
+						if value, ok := item["tralbum_url"].(string); ok {
+							urls = append(urls, value)
+						} else {
+							window.sendPlayerEvent(eventDebugMessage("you know the drill"))
+						}
+					} else {
+						window.sendPlayerEvent(eventDebugMessage("type assertion (.[]interface{}]) failed for item"))
+					}
+				}
+				break
+			} else {
+				window.sendPlayerEvent(eventDebugMessage("type assertion (.[]interface{}]) failed for items"))
+			}
+		} else {
+			window.sendPlayerEvent(eventDebugMessage("type assertion (.map[string]interface{}) failed for results"))
+		}
+	}
+	return urls
+}
+
+// TODO: not available tracks crash again

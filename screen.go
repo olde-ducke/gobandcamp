@@ -80,7 +80,6 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 		case eventTrackDownloader:
 			if data == eventTrackDownloader(player.currentTrack) && !player.isPlaying() {
 				player.play(int(data))
-				//window.playerM.currentTrack = player.currentTrack
 				return true
 			}
 			return false
@@ -491,12 +490,20 @@ func (message *messageBox) Size() (int, int) {
 	return window.width, 1
 }
 
+type arguments struct {
+	tags     []string
+	location []string
+	sort     string
+	flag     int
+}
+
 func parseInput(input string) {
+	// FIXME `-t ` incorrectly parsed
 	commands := strings.Split(input, " ")
 	if strings.Contains(commands[0], "http://") || strings.Contains(commands[0], "https://") {
 		player.stop()
 		player.initPlayer()
-		go processMediaPage(commands[0], true, window.playerM)
+		go processMediaPage(commands[0], window.playerM)
 		return
 	} else if commands[0] == "exit" || commands[0] == "q" || commands[0] == "quit" {
 		logFile.WriteString(time.Now().Format(time.ANSIC) + "[ext]:exit with code 0\n")
@@ -507,12 +514,7 @@ func parseInput(input string) {
 		return
 	}
 
-	var args struct {
-		tags     []string
-		location []string
-		sort     string
-		flag     int
-	}
+	var args arguments
 
 	for i := 0; i < len(commands); i++ {
 		if i <= len(commands)-2 && strings.HasPrefix(commands[i], "-") {
@@ -540,14 +542,44 @@ func parseInput(input string) {
 		}
 	}
 	if len(args.tags) > 0 {
-		window.sendPlayerEvent(fmt.Sprintf(
+		/*window.sendPlayerEvent(fmt.Sprintf(
 			"tag search (not implemented): %s %s %s",
 			fmt.Sprint("tags:", args.tags),
 			fmt.Sprint("location:", args.location),
 			fmt.Sprint("sorting method:", args.sort),
-		))
+		))*/
+		go processTagPage(args)
 	} else {
 		window.sendPlayerEvent("no tags to search")
+	}
+}
+
+func getRandomStyle() tcell.Style {
+	rand.Seed(time.Now().UnixNano())
+	return tcell.StyleDefault.Foreground(
+		tcell.NewHexColor(
+			int32(rand.Intn(2_147_483_647)))).Background(
+		tcell.NewHexColor(
+			int32(rand.Intn(2_147_483_647))))
+}
+
+func changeTheme() {
+	window.theme = (window.theme + 1) % 3
+
+	var style tcell.Style
+	switch window.theme {
+	case 1:
+		style = tcell.StyleDefault.Background(window.bgColor).
+			Foreground(window.fgColor)
+	case 2:
+		style = tcell.StyleDefault.Background(window.fgColor).
+			Foreground(window.bgColor)
+	default:
+		style = tcell.StyleDefault
+	}
+	for _, widget := range window.widgets {
+		widget.(recolorable).SetStyle(style)
+		window.artM.style = style
 	}
 }
 
@@ -616,32 +648,4 @@ func init() {
 		}
 	}()
 	//})
-}
-
-func getRandomStyle() tcell.Style {
-	return tcell.StyleDefault.Foreground(
-		tcell.NewHexColor(
-			int32(rand.Intn(2_147_483_647)))).Background(
-		tcell.NewHexColor(
-			int32(rand.Intn(2_147_483_647))))
-}
-
-func changeTheme() {
-	window.theme = (window.theme + 1) % 3
-
-	var style tcell.Style
-	switch window.theme {
-	case 1:
-		style = tcell.StyleDefault.Background(window.bgColor).
-			Foreground(window.fgColor)
-	case 2:
-		style = tcell.StyleDefault.Background(window.fgColor).
-			Foreground(window.bgColor)
-	default:
-		style = tcell.StyleDefault
-	}
-	for _, widget := range window.widgets {
-		widget.(recolorable).SetStyle(style)
-		window.artM.style = style
-	}
 }

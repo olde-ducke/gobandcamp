@@ -185,8 +185,8 @@ func (player *playback) nextTrack() {
 
 func (player *playback) play(track int) {
 	// TODO: update current track for playlist view
-	//player.stop()
 	window.sendPlayerEvent(eventDebugMessage("music play"))
+	//player.stop()
 	streamer, format, err := mp3.Decode(wrapInRSC(track))
 	if err != nil {
 		window.sendPlayerEvent(err)
@@ -197,7 +197,7 @@ func (player *playback) play(track int) {
 	player.stream = newStream(format.SampleRate, streamer, player.volume, player.muted)
 	player.status = playing
 	speaker.Unlock()
-	//speaker.Play(player.stream.volume)
+	//speaker.Play(player.stream.volume)Торможу из другого т
 	speaker.Play(beep.Seq(player.stream.volume, beep.Callback(
 		func() { go player.nextTrack() })))
 }

@@ -7,8 +7,11 @@ import (
 	"fmt"
 	"image/jpeg"
 	"io"
+	"math/rand"
 	"net/http"
+	"os"
 	"strings"
+	"time"
 )
 
 // response.Body doesn't implement Seek() method
@@ -31,6 +34,7 @@ func wrapInRSC(index int) *bytesReadSeekCloser {
 }
 
 func download(link string, mobile bool, checkDomain bool) io.ReadCloser {
+	window.sendPlayerEvent(eventDebugMessage(link))
 	request, err := http.NewRequest("GET", link, nil)
 	if err != nil {
 		window.sendPlayerEvent(err)
@@ -46,15 +50,15 @@ func download(link string, mobile bool, checkDomain bool) io.ReadCloser {
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
 		// images requests over https keep failing for me
-		if !strings.Contains(link, "http://") {
-			window.sendPlayerEvent(err)
+		window.sendPlayerEvent(err)
+		if strings.Contains(link, "https://") {
 			window.sendPlayerEvent("trying over http://")
 			return download(strings.Replace(link, "https://", "http://", 1),
 				mobile, checkDomain)
 		}
 		return nil
 	}
-	window.sendPlayerEvent(response.Status)
+	window.sendPlayerEvent(eventDebugMessage(response.Status))
 
 	// not all artists are hosted on bandname.bandcamp.com,
 	// deal with aliases by reading canonical names from response
@@ -69,9 +73,9 @@ func download(link string, mobile bool, checkDomain bool) io.ReadCloser {
 	return response.Body
 }
 
-func processMediaPage(link string, mobile bool, model *playerModel) {
+func processMediaPage(link string, model *playerModel) {
 	window.sendPlayerEvent("fetching page...")
-	reader := download(link, mobile, true)
+	reader := download(link, true, true)
 	if reader == nil {
 		window.sendPlayerEvent(eventNewItem(-1))
 		return
@@ -135,12 +139,12 @@ func downloadMedia(link string) {
 			track+1))
 		return
 	}
+	window.sendPlayerEvent(fmt.Sprintf("fetching track %d...", track+1))
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
-	window.sendPlayerEvent(fmt.Sprintf("fetching track %d...", track+1))
 	reader := download(link, false, false)
 	if reader == nil {
-		return
+		return // error should be reported on other end already
 	}
 	defer reader.Close()
 	window.sendPlayerEvent(fmt.Sprintf("downloading track %d...", track+1))
@@ -180,3 +184,82 @@ func downloadCover(link string, model *artModel) {
 }
 
 // TODO: bandcamp tag request and parser
+func processTagPage(args arguments) {
+	window.sendPlayerEvent("fetching tag search page...")
+	file, err := os.Create("temp.html")
+	checkFatalError(err)
+	defer file.Close()
+
+	sbuilder := strings.Builder{}
+	defer sbuilder.Reset()
+	// TODO: not all tag pages have tabs
+	fmt.Fprint(&sbuilder, "https://bandcamp.com/tag/", args.tags[0], "?tab=all_releases")
+
+	if len(args.tags) > 1 {
+		fmt.Fprint(&sbuilder, "&t=")
+		for i := 1; i < len(args.tags); i++ {
+			if i == 1 {
+				fmt.Fprint(&sbuilder, args.tags[i])
+				continue
+			}
+			fmt.Fprint(&sbuilder, "%2C", args.tags[i])
+		}
+	}
+
+	if args.sort != "" {
+		fmt.Fprint(&sbuilder, "&s=", args.sort)
+	}
+
+	reader := download(sbuilder.String(), false, true)
+	if reader == nil {
+		return
+	}
+	defer reader.Close()
+	window.sendPlayerEvent("parsing...")
+
+	scanner := bufio.NewScanner(reader)
+	var dataBlobJSON string
+	// 64k is not enough for these pages
+	var buffer []byte
+	scanner.Buffer(buffer, 1048576)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.Contains(line, "data-blob=") {
+			start := strings.Index(line, `data-blob=`)
+			start += 11
+			end := strings.Index(line[start:], "></div>")
+			end += start
+			end--
+			if start == -1 || end == -1 || end < start {
+				window.sendPlayerEvent(errors.New("unexpected page format"))
+				return
+			}
+			replacer := strings.NewReplacer(`&quot;`, `"`, `&amp;`, `&`)
+			dataBlobJSON = replacer.Replace(line[start:end])
+			break
+		}
+	}
+	if dataBlobJSON == "" {
+		window.sendPlayerEvent(errors.New("unexpected page format"))
+		return
+	}
+	window.sendPlayerEvent("found data")
+	//file.WriteString(dataBlobJSON)
+	//file.WriteString(fmt.Sprint(parseTagSearchJSON(dataBlobJSON)))
+
+	rand.Seed(time.Now().UnixNano())
+	urls := parseTagSearchJSON(dataBlobJSON)
+
+	var url string
+	if urls != nil {
+		for _, url := range urls {
+			file.WriteString(url + "\n")
+		}
+		url = urls[rand.Intn(len(urls))]
+		player.stop()
+		player.initPlayer()
+		processMediaPage(url, window.playerM)
+		return
+	}
+	window.sendPlayerEvent("nothing found")
+}
