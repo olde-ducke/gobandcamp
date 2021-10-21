@@ -1,23 +1,14 @@
 package main
 
 import (
-	"bytes"
-	_ "embed"
 	"fmt"
-	"image"
-	"image/png"
 	"math/rand"
 	"strings"
 	"time"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/gdamore/tcell/v2/views"
-	"github.com/qeesung/image2ascii/ascii"
-	"github.com/qeesung/image2ascii/convert"
 )
-
-//go:embed assets/gopher.png
-var gopherPNG []byte
 
 var app = &views.Application{}
 var window = &windowLayout{}
@@ -149,88 +140,6 @@ func (window *windowLayout) hasChangedSize() bool {
 	return false
 }
 
-type textField struct {
-	views.TextArea
-	symbols  []rune
-	sbuilder strings.Builder
-}
-
-func (field *textField) HandleEvent(event tcell.Event) bool {
-	// FIXME: jank
-	field.HideCursor(window.hideInput)
-	field.EnableCursor(!window.hideInput)
-	if window.hideInput {
-		return true
-	}
-	field.MakeCursorVisible()
-	posX, _, _, _ := field.GetModel().GetCursor()
-
-	switch event := event.(type) {
-
-	case *tcell.EventKey:
-		switch event.Key() {
-
-		case tcell.KeyEnter:
-			parseInput(field.getText())
-			field.Clear()
-			window.hideInput = !window.hideInput
-			field.HideCursor(window.hideInput)
-			field.EnableCursor(!window.hideInput)
-			return true
-
-		case tcell.KeyBackspace2:
-			if posX > 0 {
-				posX--
-				field.symbols[posX] = 0
-				field.symbols = append(field.symbols[:posX],
-					field.symbols[posX+1:]...)
-			}
-			field.SetContent(string(field.symbols))
-			field.SetCursorX(posX)
-			return true
-
-		case tcell.KeyDelete:
-			if posX < len(field.symbols)-1 {
-				field.symbols[posX] = 0
-				field.symbols = append(field.symbols[:posX],
-					field.symbols[posX+1:]...)
-				posX++
-			}
-			field.SetContent(string(field.symbols))
-			return true
-
-		case tcell.KeyRune:
-			field.symbols = append(field.symbols, 0)
-			copy(field.symbols[posX+1:], field.symbols[posX:])
-			field.symbols[posX] = event.Rune()
-			field.SetContent(string(field.symbols))
-			field.SetCursorX(posX + 1)
-			return true
-		}
-	}
-	return field.TextArea.HandleEvent(event)
-}
-
-func (field *textField) getText() string {
-	for i, r := range field.symbols {
-		// trailing space doesn't need to be in actual input
-		if i == len(field.symbols)-1 {
-			break
-		}
-		fmt.Fprint(&field.sbuilder, string(r))
-	}
-	defer field.sbuilder.Reset()
-
-	return field.sbuilder.String()
-}
-
-func (field *textField) Clear() {
-	field.SetContent(" ")
-	field.symbols = make([]rune, 1)
-	field.symbols[0] = ' '
-	field.SetCursorX(0)
-}
-
 type contentArea struct {
 	views.Text
 }
@@ -267,148 +176,10 @@ func (content *contentArea) Size() (int, int) {
 		window.playerM.endx = window.width - window.artM.endx - 3*window.hMargin
 		window.playerM.endy = window.height - window.vMargin - 2
 	} else {
-		window.playerM.endx = window.width
+		window.playerM.endx = window.width - 2*window.vMargin
 		window.playerM.endy = window.height - 2*window.vMargin - window.artM.endy - 2
 	}
 	return window.playerM.endx, window.playerM.endy
-}
-
-type artModel struct {
-	x           int
-	y           int
-	endx        int
-	endy        int
-	asciiart    [][]ascii.CharPixel
-	style       tcell.Style
-	converter   convert.ImageConverter
-	placeholder image.Image
-	cover       image.Image
-}
-
-func (model *artModel) GetBounds() (int, int) {
-	return model.endx, model.endy
-}
-
-func (model *artModel) MoveCursor(offx, offy int) {
-	return
-}
-
-func (model *artModel) limitCursor() {
-	return
-}
-
-func (model *artModel) GetCursor() (int, int, bool, bool) {
-	return 0, 0, false, true
-}
-
-func (model *artModel) SetCursor(x int, y int) {
-	return
-}
-
-func (model *artModel) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
-	if x > len(model.asciiart[0])-1 || y > len(model.asciiart)-1 {
-		return ' ', model.style, nil, 1
-	}
-	switch window.artDrawingMode {
-	case 1:
-		return rune(model.asciiart[y][x].Char), tcell.StyleDefault.Background(
-			tcell.NewRGBColor(
-				int32(model.asciiart[y][x].R),
-				int32(model.asciiart[y][x].G),
-				int32(model.asciiart[y][x].B))).Foreground(
-			tcell.NewRGBColor(
-				int32(model.asciiart[y][x].R/2),
-				int32(model.asciiart[y][x].G/2),
-				int32(model.asciiart[y][x].B/2))), nil, 1
-	case 2:
-		return rune(model.asciiart[y][x].Char), tcell.StyleDefault.Background(
-			tcell.NewRGBColor(
-				int32(model.asciiart[y][x].R/2),
-				int32(model.asciiart[y][x].G/2),
-				int32(model.asciiart[y][x].B/2))).Foreground(
-			tcell.NewRGBColor(
-				int32(model.asciiart[y][x].R),
-				int32(model.asciiart[y][x].G),
-				int32(model.asciiart[y][x].B))), nil, 1
-	case 3:
-		return rune(model.asciiart[y][x].Char), model.style.Background(
-			tcell.NewRGBColor(
-				int32(model.asciiart[y][x].R),
-				int32(model.asciiart[y][x].G),
-				int32(model.asciiart[y][x].B))).
-			Foreground(window.bgColor), nil, 1
-	case 4:
-		return rune(model.asciiart[y][x].Char), model.style.Background(
-			tcell.NewRGBColor(
-				int32(model.asciiart[y][x].R),
-				int32(model.asciiart[y][x].G),
-				int32(model.asciiart[y][x].B))).
-			Foreground(window.fgColor), nil, 1
-	case 5:
-		return rune(model.asciiart[y][x].Char), model.style.Foreground(
-			tcell.NewRGBColor(
-				int32(model.asciiart[y][x].R),
-				int32(model.asciiart[y][x].G),
-				int32(model.asciiart[y][x].B))), nil, 1
-	default:
-		return ' ', model.style.Background(
-			tcell.NewRGBColor(
-				int32(model.asciiart[y][x].R),
-				int32(model.asciiart[y][x].G),
-				int32(model.asciiart[y][x].B))), nil, 1
-
-	}
-}
-
-type artArea struct {
-	*views.CellView
-}
-
-func (art *artArea) Size() (int, int) {
-	return window.artM.GetBounds()
-}
-
-func (art *artArea) HandleEvent(event tcell.Event) bool {
-	switch event := event.(type) {
-	case *tcell.EventInterrupt:
-		switch i := event.Data().(type) {
-		case eventCoverDownloader:
-			if i < 0 {
-				window.artM.cover = nil
-			}
-			window.artM.refitArt()
-			return true
-		}
-	case *views.EventWidgetResize:
-		if window.hasChangedSize() {
-			window.artM.refitArt()
-			return true
-		}
-	}
-	// don't pass any events to wrapped widget
-	return false
-}
-
-func (model *artModel) refitArt() {
-	options := convert.Options{
-		Ratio:           1.0,
-		FixedWidth:      -1,
-		FixedHeight:     -1,
-		FitScreen:       true,
-		StretchedScreen: false,
-		Colored:         false,
-		Reversed:        false,
-	}
-	if model.cover == nil {
-		model.asciiart = model.converter.Image2CharPixelMatrix(
-			model.placeholder, &options)
-	} else {
-		model.asciiart = model.converter.Image2CharPixelMatrix(
-			model.cover, &options)
-
-	}
-	model.endx, model.endy = len(model.asciiart[0])-1,
-		len(model.asciiart)-1
 }
 
 type playerModel struct {
@@ -416,7 +187,6 @@ type playerModel struct {
 	dummy    *album
 	endx     int
 	endy     int
-	//currentTrack int
 }
 
 func (model *playerModel) updateText() string {
@@ -460,7 +230,7 @@ type spacer struct {
 
 func (s *spacer) Size() (int, int) {
 	if s.dynamic && window.orientation != views.Horizontal {
-		return 0, 0
+		return 1, 1
 	}
 	return window.hMargin, window.vMargin
 }
@@ -493,65 +263,7 @@ func (message *messageBox) Size() (int, int) {
 	if window.orientation == views.Horizontal {
 		return window.width - window.artM.endx - 3*window.hMargin, 1
 	}
-	return window.width, 1
-}
-
-type arguments struct {
-	tags     []string
-	location []string
-	sort     string
-	flag     int
-}
-
-func parseInput(input string) {
-	// FIXME `-t ` incorrectly parsed
-	commands := strings.Split(input, " ")
-	if strings.Contains(commands[0], "http://") || strings.Contains(commands[0], "https://") {
-		player.stop()
-		player.initPlayer()
-		go processMediaPage(commands[0], window.playerM)
-		return
-	} else if commands[0] == "exit" || commands[0] == "q" || commands[0] == "quit" {
-		logFile.WriteString(time.Now().Format(time.ANSIC) + "[ext]:exit with code 0\n")
-		app.Quit()
-		return
-	} else if !strings.HasPrefix(commands[0], "-") {
-		window.sendPlayerEvent("search (not implemented)")
-		return
-	}
-
-	var args arguments
-
-	for i := 0; i < len(commands); i++ {
-		if i <= len(commands)-2 && strings.HasPrefix(commands[i], "-") {
-			switch commands[i] {
-			case "-t", "--tag":
-				args.flag = 1
-			case "-l", "--location":
-				args.flag = 2
-			case "-s", "--sort":
-				args.flag = 3
-			default:
-				args.flag = 0
-			}
-			i++
-		}
-		switch args.flag {
-		case 1:
-			args.tags = append(args.tags, commands[i])
-		case 2:
-			args.location = append(args.location, commands[i])
-		case 3:
-			if commands[i] == "random" || commands[i] == "date" {
-				args.sort = commands[i]
-			}
-		}
-	}
-	if len(args.tags) > 0 {
-		go processTagPage(args)
-	} else {
-		window.sendPlayerEvent("no tags to search")
-	}
+	return window.width - 2*window.vMargin, 1
 }
 
 func getRandomStyle() tcell.Style {
@@ -590,13 +302,12 @@ func init() {
 	window.fgColor = tcell.NewHexColor(0xf9fdff)
 	window.bgColor = tcell.NewHexColor(0x2b2b2b)
 
-	window.artM = &artModel{}
+	/*window.artM = &artModel{}
 	window.artM.placeholder, err = png.Decode(bytes.NewReader(gopherPNG))
 	if err != nil {
 		checkFatalError(err)
 	}
-	window.artM.converter = *convert.NewImageConverter()
-	window.artM.refitArt()
+	window.artM.converter = *convert.NewImageConverter()*/
 
 	window.playerM = &playerModel{}
 	window.playerM.dummy = getDummyData()
@@ -605,7 +316,9 @@ func init() {
 	art := &artArea{views.NewCellView()}
 	art.SetModel(window.artM)
 	spacer2 := &spacer{views.NewText(), false}
-	contentBox := views.NewBoxLayout(views.Vertical)
+	contentBoxH := views.NewBoxLayout(views.Horizontal)
+	contentBoxV1 := views.NewBoxLayout(views.Vertical)
+	contentBoxV2 := views.NewBoxLayout(views.Vertical)
 	spacer3 := &spacer{views.NewText(), true}
 	content := &contentArea{}
 	content.SetText(window.playerM.updateText())
@@ -619,16 +332,17 @@ func init() {
 
 	window.AddWidget(spacer1, 0.0)
 	window.AddWidget(art, 0.0)
-	window.AddWidget(spacer2, 0.0)
-	contentBox.AddWidget(spacer3, 0.0)
-	contentBox.AddWidget(content, 1.0)
-	contentBox.AddWidget(message, 0.0)
-	contentBox.AddWidget(field, 0.0)
-	window.AddWidget(contentBox, 1.0)
-	window.AddWidget(spacer4, 0.0)
+	contentBoxH.AddWidget(spacer3, 0.0)
+	contentBoxV2.AddWidget(content, 1.0)
+	contentBoxV2.AddWidget(message, 0.0)
+	contentBoxV2.AddWidget(field, 0.0)
+	contentBoxH.AddWidget(contentBoxV2, 0.0)
+	contentBoxH.AddWidget(spacer4, 0.0)
+	contentBoxV1.AddWidget(spacer2, 0.0)
+	contentBoxV1.AddWidget(contentBoxH, 0.0)
+	window.AddWidget(contentBoxV1, 1.0)
 	// FIXME: messy
-	window.widgets = window.Widgets()
-	window.widgets = append(window.widgets, contentBox.Widgets()...)
+	window.widgets = []views.Widget{spacer1, art, spacer2, spacer3, content, message, field, spacer4}
 
 	// create new screen to gain access to actual terminal dimensions
 	window.screen, err = tcell.NewScreen()

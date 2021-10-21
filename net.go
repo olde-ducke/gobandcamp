@@ -48,7 +48,8 @@ func download(link string, mobile bool, checkDomain bool) io.ReadCloser {
 
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
-		// images requests over https keep failing for me
+		// https requests fail here because reasons (real certificate is replacced by expired
+		// generic one)
 		window.sendPlayerEvent(err)
 		if strings.Contains(link, "https://") {
 			window.sendPlayerEvent("trying over http://")
@@ -126,6 +127,7 @@ func processMediaPage(link string, model *playerModel) {
 }
 
 func downloadMedia(link string) {
+	var err error
 	track := player.currentTrack
 	if link == "" {
 		window.sendPlayerEvent(fmt.Sprintf("track %d not available for streaming",
@@ -138,9 +140,10 @@ func downloadMedia(link string) {
 			track+1))
 		return
 	}
-	window.sendPlayerEvent(fmt.Sprintf("fetching track %d...", track+1))
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
+	window.sendPlayerEvent(fmt.Sprintf("fetching track %d...", track+1))
+	//defer
 	reader := download(link, false, false)
 	if reader == nil {
 		return // error should be reported on other end already
@@ -148,12 +151,12 @@ func downloadMedia(link string) {
 	defer reader.Close()
 	window.sendPlayerEvent(fmt.Sprintf("downloading track %d...", track+1))
 
-	body, err := io.ReadAll(reader)
+	cache.bytes[track], err = io.ReadAll(reader)
 	if err != nil {
 		window.sendPlayerEvent(err)
 		return
 	}
-	cache.bytes[track] = body
+	//cache.bytes[track] = body
 	window.sendPlayerEvent(eventTrackDownloader(track))
 	window.sendPlayerEvent(fmt.Sprintf("track %d downloaded", track+1))
 	// TODO: replace in-memory cache with saving on disk
