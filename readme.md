@@ -1,6 +1,6 @@
 # gobandcamp
 
-    ![screenshot](/assets/screenshot.png)
+![screenshot](/assets/screenshot.png)
 
 Terminal player for bandcamp, uses [Beep](https://github.com/faiface/beep/) package to play actual sound, [tcell](https://github.com/gdamore/tcell) to display metadata and handle controls, and [image2ascii](https://github.com/qeesung/image2ascii) to convert album cover to colored ASCII-art. WIP
  
@@ -11,10 +11,15 @@ Features:
 - Tag search (WIP, for now only plays one random item from first results page)
 
 Tag search:
+
     -t sometag anothertag third-tag -s random
+
 or
+
     --tag sometag --sort date --tag another three tags
+
 Sorting methods (optional):
+
     ""       - popular
     "random" - random
     "date"   - sort by date
