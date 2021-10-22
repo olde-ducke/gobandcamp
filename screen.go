@@ -101,11 +101,10 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 			}
 		case tcell.KeyCtrlC:
 			window.screen.Fini()
+			fmt.Println("press Ctrl+C again to quit")
 			return true
 		case tcell.KeyCtrlD:
 			for _, widget := range window.widgets {
-				// FIXME: might fail after adding new widgets without
-				// this method
 				widget.(recolorable).SetStyle(getRandomStyle())
 				window.artM.style = getRandomStyle()
 			}
@@ -302,13 +301,6 @@ func init() {
 	window.fgColor = tcell.NewHexColor(0xf9fdff)
 	window.bgColor = tcell.NewHexColor(0x2b2b2b)
 
-	/*window.artM = &artModel{}
-	window.artM.placeholder, err = png.Decode(bytes.NewReader(gopherPNG))
-	if err != nil {
-		checkFatalError(err)
-	}
-	window.artM.converter = *convert.NewImageConverter()*/
-
 	window.playerM = &playerModel{}
 	window.playerM.dummy = getDummyData()
 
@@ -323,7 +315,7 @@ func init() {
 	content := &contentArea{}
 	content.SetText(window.playerM.updateText())
 	message := &messageBox{views.NewText()}
-	message.SetText("press Tab and enter album link:")
+	message.SetText("press Tab to enable input")
 	field := &textField{}
 	field.EnableCursor(!window.hideInput)
 	field.HideCursor(window.hideInput)
@@ -341,8 +333,9 @@ func init() {
 	contentBoxV1.AddWidget(spacer2, 0.0)
 	contentBoxV1.AddWidget(contentBoxH, 0.0)
 	window.AddWidget(contentBoxV1, 1.0)
-	// FIXME: messy
-	window.widgets = []views.Widget{spacer1, art, spacer2, spacer3, content, message, field, spacer4}
+
+	window.widgets = []views.Widget{spacer1, art, spacer2, spacer3, content,
+		message, field, spacer4}
 
 	// create new screen to gain access to actual terminal dimensions
 	window.screen, err = tcell.NewScreen()

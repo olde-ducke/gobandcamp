@@ -32,12 +32,12 @@ func wrapInRSC(index int) *bytesReadSeekCloser {
 	return &bytesReadSeekCloser{bytes.NewReader(cache.bytes[index])}
 }
 
-func download(link string, mobile bool, checkDomain bool) io.ReadCloser {
+func download(link string, mobile bool, checkDomain bool) (io.ReadCloser, string) {
 	window.sendPlayerEvent(eventDebugMessage(link))
 	request, err := http.NewRequest("GET", link, nil)
 	if err != nil {
 		window.sendPlayerEvent(err)
-		return nil
+		return nil, ""
 	}
 	// pretend that we are Chrome on Win10
 	request.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/93.0.4577.82 Safari/537.36")
@@ -56,7 +56,7 @@ func download(link string, mobile bool, checkDomain bool) io.ReadCloser {
 			return download(strings.Replace(link, "https://", "http://", 1),
 				mobile, checkDomain)
 		}
-		return nil
+		return nil, ""
 	}
 	window.sendPlayerEvent(eventDebugMessage(response.Status))
 
@@ -67,15 +67,15 @@ func download(link string, mobile bool, checkDomain bool) io.ReadCloser {
 			"bandcamp.com") {
 			window.sendPlayerEvent(errors.New("response came not from bandcamp.com"))
 			response.Body.Close()
-			return nil
+			return nil, ""
 		}
 	}
-	return response.Body
+	return response.Body, response.Header.Get("content-type")
 }
 
 func processMediaPage(link string, model *playerModel) {
 	window.sendPlayerEvent("fetching page...")
-	reader := download(link, true, true)
+	reader, _ := download(link, true, true)
 	if reader == nil {
 		window.sendPlayerEvent(eventNewItem(-1))
 		return
@@ -108,14 +108,28 @@ func processMediaPage(link string, model *playerModel) {
 			}
 			replacer := strings.NewReplacer(`&quot;`, `"`, `&amp;`, `&`)
 			mediaDataJSON = replacer.Replace(line[start:end])
+		} else if strings.Contains(line, "data-cart=") {
+			start := strings.Index(line, "data-cart=")
+			start += 10
+			end := strings.Index(line[start:], "\"")
+			end += start
+			if start == -1 || end == -1 || end < start {
+				window.sendPlayerEvent(errors.New("unexpected page format"))
+				return
+			}
+			replacer := strings.NewReplacer(`&quot;`, `"`, `&amp;`, `&`, "%2F", "/")
+			mediaDataJSON = replacer.Replace(line[start:end])
 		}
 	}
 
 	if metaDataJSON != "" || mediaDataJSON != "" {
 		if !album {
-			window.sendPlayerEvent("found track data (not implemented)")
-			window.sendPlayerEvent(eventCoverDownloader(-1))
-			window.sendPlayerEvent(eventNewItem(-1))
+			//window.sendPlayerEvent("found track data (not implemented)")
+			//window.sendPlayerEvent(eventCoverDownloader(-1))
+			//window.sendPlayerEvent(eventNewItem(-1))
+			window.sendPlayerEvent("found album data")
+			model.metadata = parseTrackJSON(metaDataJSON, mediaDataJSON)
+			window.sendPlayerEvent(eventNewItem(0))
 		} else {
 			window.sendPlayerEvent("found album data")
 			model.metadata = parseAlbumJSON(metaDataJSON, mediaDataJSON)
@@ -144,7 +158,7 @@ func downloadMedia(link string) {
 	defer cache.mu.Unlock()
 	window.sendPlayerEvent(fmt.Sprintf("fetching track %d...", track+1))
 	//defer
-	reader := download(link, false, false)
+	reader, _ := download(link, false, false)
 	if reader == nil {
 		return // error should be reported on other end already
 	}
@@ -166,7 +180,7 @@ func downloadMedia(link string) {
 
 func downloadCover(link string, model *artModel) {
 	window.sendPlayerEvent("fetching album cover...")
-	reader := download(link, false, false)
+	reader, _ := download(link, false, false)
 	if reader == nil {
 		window.sendPlayerEvent(eventCoverDownloader(-1))
 		return
@@ -209,7 +223,7 @@ func processTagPage(args arguments) {
 		fmt.Fprint(&sbuilder, "&s=", args.sort)
 	}
 
-	reader := download(sbuilder.String(), false, true)
+	reader, _ := download(sbuilder.String(), false, true)
 	if reader == nil {
 		return
 	}
@@ -262,5 +276,8 @@ func processTagPage(args arguments) {
 		processMediaPage(url, window.playerM)
 		return
 	}
-	window.sendPlayerEvent("nothing found")
+	window.sendPlayerEvent("nothing was found")
 }
+
+// TODO: finish whatever has been started here
+// (returning content-type)

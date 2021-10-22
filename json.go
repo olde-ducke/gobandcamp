@@ -51,11 +51,11 @@ func (metadata *album) formatString(n int) string {
 }
 
 type albumJSON struct {
-	ByArtist      map[string]interface{} `json:"byArtist"`      // field "name" contains artist/band name
-	Name          string                 `json:"name"`          // album title
-	DatePublished string                 `json:"datePublished"` // release date
-	Image         string                 `json:"image"`         // link to album art
-	Tags          []string               `json:"keywords"`      // tags/keywords
+	ByArtist      map[string]string `json:"byArtist"`      // field "name" contains artist/band name
+	Name          string            `json:"name"`          // album title
+	DatePublished string            `json:"datePublished"` // release date
+	Image         string            `json:"image"`         // link to album art
+	Tags          []string          `json:"keywords"`      // tags/keywords
 	Tracks        struct {
 		NumberOfItems   int `json:"numberOfItems"` // total number of tracks
 		ItemListElement []struct {
@@ -73,6 +73,18 @@ type albumJSON struct {
 			} `json:"item"` // further container for track data
 		} `json:"itemListElement"` // further container for track data
 	} `json:"track"` // container for track data
+}
+
+type trackJSON struct {
+	Name          string                 `json:"name"`
+	Image         string                 `json:"image"`
+	Tags          []string               `json:"keywords"`
+	DatePublished string                 `json:"datePublished"`
+	ByArtist      map[string]string      `json:"byArtist"`
+	InAlbum       map[string]interface{} `json:"inAlbum"`
+	RecordingOf   struct {
+		Lyrics map[string]string `json:"lyrics"` // field "text" contains actual lyrics
+	} `json:"recordingOf"` // container for lyrics
 }
 
 type mediaJSON struct {
@@ -103,7 +115,7 @@ func parseAlbumJSON(metaDataJSON string, mediaDataJSON string) (albumMetaData *a
 	albumMetaData = &album{
 		imageSrc:    metaData.Image,
 		title:       metaData.Name,
-		artist:      metaData.ByArtist["name"].(string),
+		artist:      metaData.ByArtist["name"],
 		date:        metaData.DatePublished[:11], // TODO: do something with time in parsed date
 		url:         mediaData.URL,
 		tags:        fmt.Sprint(metaData.Tags),
@@ -121,6 +133,38 @@ func parseAlbumJSON(metaDataJSON string, mediaDataJSON string) (albumMetaData *a
 			})
 
 	}
+	return albumMetaData
+}
+
+func parseTrackJSON(metaDataJSON string, mediaDataJSON string) (albumMetaData *album) {
+	var metaData trackJSON
+	var mediaData mediaJSON
+	err := json.Unmarshal([]byte(metaDataJSON), &metaData)
+	// TODO: don't crash?
+	if err != nil {
+		checkFatalError(err)
+	}
+	err = json.Unmarshal([]byte(mediaDataJSON), &mediaData)
+	if err != nil {
+		checkFatalError(err)
+	}
+	albumMetaData = &album{
+		imageSrc:    metaData.Image,
+		title:       metaData.InAlbum["name"].(string),
+		artist:      metaData.ByArtist["name"],
+		date:        metaData.DatePublished[:11], // TODO: do something with time in parsed date
+		url:         mediaData.URL,
+		tags:        fmt.Sprint(metaData.Tags),
+		totalTracks: 1,
+		tracks: []track{{
+			trackNumber: 1,
+			title:       metaData.Name,
+			duration:    mediaData.Trackinfo[0].Duration,
+			lyrics:      metaData.RecordingOf.Lyrics["text"],
+			url:         mediaData.Trackinfo[0].File.MP3,
+		}},
+	}
+
 	return albumMetaData
 }
 
@@ -148,10 +192,10 @@ type tagSearchJSON struct {
 }
 
 type Hubs struct {
-	RelatedTags []map[string]interface{} `json:"related_tags"`
-	Subgenres   []map[string]interface{} `json:"subgenres"`
-	IsSimple    bool                     `json:"is_simple"`
-	Tabs        []Tab                    `json:"tabs"`
+	//RelatedTags []map[string]interface{} `json:"related_tags"`
+	//Subgenres   []map[string]interface{} `json:"subgenres"`
+	IsSimple bool  `json:"is_simple"`
+	Tabs     []Tab `json:"tabs"`
 }
 
 type Tab struct {
@@ -184,10 +228,10 @@ type tagSearchSimple struct {
 }
 
 type HubSimple struct {
-	RelatedTags []map[string]interface{} `json:"related_tags"`
-	Subgenres   []map[string]interface{} `json:"subgenres"`
-	IsSimple    bool                     `json:"is_simple"`
-	Tabs        []TabSimple              `json:"tabs"`
+	//RelatedTags []map[string]interface{} `json:"related_tags"`
+	//Subgenres   []map[string]interface{} `json:"subgenres"`
+	IsSimple bool        `json:"is_simple"`
+	Tabs     []TabSimple `json:"tabs"`
 }
 
 type TabSimple struct {

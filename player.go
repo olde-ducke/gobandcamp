@@ -43,10 +43,9 @@ func (status playbackStatus) String() string {
 
 type playback struct {
 	currentTrack int
-	//albumList    *Album // not a list at the moment
-	totalTracks int
-	stream      *mediaStream
-	format      beep.Format
+	totalTracks  int
+	stream       *mediaStream
+	format       beep.Format
 
 	status         playbackStatus
 	bufferedStatus playbackStatus
