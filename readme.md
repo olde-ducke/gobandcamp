@@ -26,6 +26,7 @@ Sorting methods (optional):
     "highlights" - search in highlights tab of first tag/genre
 
 Formats (optional):
+
     ""           - any
     "cassette"
     "cd"
