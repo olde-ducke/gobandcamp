@@ -16,26 +16,30 @@ type textField struct {
 }
 
 func (field *textField) HandleEvent(event tcell.Event) bool {
-	// FIXME: jank
-	field.HideCursor(window.hideInput)
-	field.EnableCursor(!window.hideInput)
-	if window.hideInput {
-		return true
-	}
-	field.MakeCursorVisible()
-	posX, _, _, _ := field.GetModel().GetCursor()
-
 	switch event := event.(type) {
 
 	case *tcell.EventKey:
-		switch event.Key() {
+		if event.Key() == tcell.KeyTab {
+			window.hideInput = !window.hideInput
+			field.HideCursor(window.hideInput)
+			field.EnableCursor(!window.hideInput)
+		}
 
+		if window.hideInput {
+			return true
+		}
+
+		//field.MakeCursorVisible()
+		posX, _, _, _ := field.GetModel().GetCursor()
+
+		switch event.Key() {
 		case tcell.KeyEnter:
 			parseInput(field.getText())
 			field.Clear()
 			window.hideInput = !window.hideInput
 			field.HideCursor(window.hideInput)
 			field.EnableCursor(!window.hideInput)
+			//field.inverseStyle()
 			return true
 
 		case tcell.KeyBackspace2:
@@ -131,17 +135,21 @@ func parseInput(input string) {
 			}
 			i++
 		}
-		switch args.flag {
-		case 1:
-			args.tags = append(args.tags, commands[i])
-		case 2:
-			args.location = append(args.location, commands[i])
-		case 3:
-			if commands[i] == "random" || commands[i] == "date" {
-				args.sort = commands[i]
+
+		if commands[i] != "" {
+			switch args.flag {
+			case 1:
+				args.tags = append(args.tags, commands[i])
+			case 2:
+				args.location = append(args.location, commands[i])
+			case 3:
+				if commands[i] == "random" || commands[i] == "date" || commands[i] == "highlights" {
+					args.sort = commands[i]
+				}
 			}
 		}
 	}
+
 	if len(args.tags) > 0 {
 		go processTagPage(args)
 	} else {

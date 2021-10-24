@@ -20,9 +20,10 @@ or
 
 Sorting methods (optional):
 
-    ""       - popular
-    "random" - random
-    "date"   - sort by date
+    ""           - popular
+    "random"     - random
+    "date"       - sort by date
+    "highlights" - search in highlights tab of first tag/genre
 
 
 ## Controls

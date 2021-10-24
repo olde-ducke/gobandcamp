@@ -98,8 +98,6 @@ type mediaJSON struct {
 	} `json:"trackinfo"`
 }
 
-// TODO: track and album pages are different,
-// only album pages are implemented
 func parseAlbumJSON(metaDataJSON string, mediaDataJSON string) (albumMetaData *album) {
 	var metaData albumJSON
 	var mediaData mediaJSON
@@ -184,14 +182,28 @@ func getDummyData() *album {
 	}
 }
 
-type tagSearchJSON struct {
-	//FanMeta   map[string]interface{} `json:"fan_meta"`
-	//Languages map[string]string      `json:"languages"`
-	Hub Hubs `json:"hub"`
-	//		Tabs []Tab `json:"tabs"`
+func parseTagSearchHighlights(dataBlobJSON string) (urls []string) {
+	var dataBlob tagSearchJSON
+	err := json.Unmarshal([]byte(dataBlobJSON), &dataBlob)
+	checkFatalError(err)
+	if dataBlob.Hubs.IsSimple {
+		return urls
+	}
+	for _, collection := range dataBlob.Hubs.Tabs[0].Collections {
+		for _, item := range collection.Items {
+			if value, ok := item["tralbum_url"].(string); ok {
+				urls = append(urls, value)
+			}
+		}
+	}
+	return urls
 }
 
-type Hubs struct {
+type tagSearchJSON struct {
+	Hubs Hub `json:"hub"`
+}
+
+type Hub struct {
 	//RelatedTags []map[string]interface{} `json:"related_tags"`
 	//Subgenres   []map[string]interface{} `json:"subgenres"`
 	IsSimple bool  `json:"is_simple"`
@@ -199,7 +211,12 @@ type Hubs struct {
 }
 
 type Tab struct {
+	DigDeeper   Results      `json:"dig_deeper"`
 	Collections []Collection `json:"collections"`
+}
+
+type Results struct {
+	Result map[string]Collection `json:"results"`
 }
 
 type Collection struct {
@@ -210,62 +227,22 @@ func parseTagSearchJSON(dataBlobJSON string) (urls []string) {
 	var dataBlob tagSearchJSON
 	err := json.Unmarshal([]byte(dataBlobJSON), &dataBlob)
 	checkFatalError(err)
-	if dataBlob.Hub.IsSimple {
-		return parseTagSearchSimple(dataBlobJSON)
+	var index int
+	if dataBlob.Hubs.IsSimple {
+		index = 0
+	} else {
+		index = 1
 	}
-	for _, collection := range dataBlob.Hub.Tabs[0].Collections {
+
+	if index > len(dataBlob.Hubs.Tabs)-1 {
+		return urls
+	}
+
+	for _, collection := range dataBlob.Hubs.Tabs[index].DigDeeper.Result {
 		for _, item := range collection.Items {
 			if value, ok := item["tralbum_url"].(string); ok {
 				urls = append(urls, value)
 			}
-		}
-	}
-	return urls
-}
-
-type tagSearchSimple struct {
-	Hub HubSimple `json:"hub"`
-}
-
-type HubSimple struct {
-	//RelatedTags []map[string]interface{} `json:"related_tags"`
-	//Subgenres   []map[string]interface{} `json:"subgenres"`
-	IsSimple bool        `json:"is_simple"`
-	Tabs     []TabSimple `json:"tabs"`
-}
-
-type TabSimple struct {
-	DigDeeper Results `json:"dig_deeper"`
-}
-
-type Results struct {
-	Result map[string]interface{} `json:"results"`
-}
-
-func parseTagSearchSimple(dataBlobJSON string) (urls []string) {
-	var dataBlob tagSearchSimple
-	err := json.Unmarshal([]byte(dataBlobJSON), &dataBlob)
-	checkFatalError(err)
-	for _, results := range dataBlob.Hub.Tabs[0].DigDeeper.Result {
-		if results, ok := results.(map[string]interface{}); ok {
-			if items, ok := results["items"].([]interface{}); ok {
-				for _, item := range items {
-					if item, ok := item.(map[string]interface{}); ok {
-						if value, ok := item["tralbum_url"].(string); ok {
-							urls = append(urls, value)
-						} else {
-							window.sendPlayerEvent(eventDebugMessage("you know the drill"))
-						}
-					} else {
-						window.sendPlayerEvent(eventDebugMessage("type assertion (.[]interface{}]) failed for item"))
-					}
-				}
-				break
-			} else {
-				window.sendPlayerEvent(eventDebugMessage("type assertion (.[]interface{}]) failed for items"))
-			}
-		} else {
-			window.sendPlayerEvent(eventDebugMessage("type assertion (.map[string]interface{}) failed for results"))
 		}
 	}
 	return urls

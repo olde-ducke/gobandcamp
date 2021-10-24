@@ -9,6 +9,7 @@ import (
 	"io"
 	"math/rand"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
@@ -74,7 +75,7 @@ func download(link string, mobile bool, checkDomain bool) (io.ReadCloser, string
 }
 
 func processMediaPage(link string, model *playerModel) {
-	window.sendPlayerEvent("fetching page...")
+	window.sendPlayerEvent("fetching media page...")
 	reader, _ := download(link, true, true)
 	if reader == nil {
 		window.sendPlayerEvent(eventNewItem(-1))
@@ -127,11 +128,11 @@ func processMediaPage(link string, model *playerModel) {
 			//window.sendPlayerEvent("found track data (not implemented)")
 			//window.sendPlayerEvent(eventCoverDownloader(-1))
 			//window.sendPlayerEvent(eventNewItem(-1))
-			window.sendPlayerEvent("found album data")
+			window.sendPlayerEvent(eventDebugMessage("found track data"))
 			model.metadata = parseTrackJSON(metaDataJSON, mediaDataJSON)
 			window.sendPlayerEvent(eventNewItem(0))
 		} else {
-			window.sendPlayerEvent("found album data")
+			window.sendPlayerEvent(eventDebugMessage("found album data"))
 			model.metadata = parseAlbumJSON(metaDataJSON, mediaDataJSON)
 			window.sendPlayerEvent(eventNewItem(0))
 		}
@@ -157,7 +158,6 @@ func downloadMedia(link string) {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 	window.sendPlayerEvent(fmt.Sprintf("fetching track %d...", track+1))
-	//defer
 	reader, _ := download(link, false, false)
 	if reader == nil {
 		return // error should be reported on other end already
@@ -170,7 +170,6 @@ func downloadMedia(link string) {
 		window.sendPlayerEvent(err)
 		return
 	}
-	//cache.bytes[track] = body
 	window.sendPlayerEvent(eventTrackDownloader(track))
 	window.sendPlayerEvent(fmt.Sprintf("track %d downloaded", track+1))
 	// TODO: replace in-memory cache with saving on disk
@@ -179,14 +178,14 @@ func downloadMedia(link string) {
 }
 
 func downloadCover(link string, model *artModel) {
-	window.sendPlayerEvent("fetching album cover...")
+	window.sendPlayerEvent(eventDebugMessage("fetching album cover..."))
 	reader, _ := download(link, false, false)
 	if reader == nil {
 		window.sendPlayerEvent(eventCoverDownloader(-1))
 		return
 	}
 	defer reader.Close()
-	window.sendPlayerEvent("downloading album cover...")
+	window.sendPlayerEvent(eventDebugMessage("downloading album cover..."))
 
 	img, err := jpeg.Decode(reader)
 	if err != nil {
@@ -195,17 +194,15 @@ func downloadCover(link string, model *artModel) {
 		return
 	}
 	model.cover = img
-	window.sendPlayerEvent("album cover downloaded")
+	window.sendPlayerEvent(eventDebugMessage("album cover downloaded"))
 	window.sendPlayerEvent(eventCoverDownloader(0))
 }
 
-// TODO: bandcamp tag request and parser
 func processTagPage(args arguments) {
 	window.sendPlayerEvent("fetching tag search page...")
 
 	sbuilder := strings.Builder{}
 	defer sbuilder.Reset()
-	// TODO: not all tag pages have tabs
 	fmt.Fprint(&sbuilder, "https://bandcamp.com/tag/", args.tags[0], "?tab=all_releases")
 
 	if len(args.tags) > 1 {
@@ -219,8 +216,11 @@ func processTagPage(args arguments) {
 		}
 	}
 
-	if args.sort != "" {
+	var inHighlights bool
+	if args.sort != "" && args.sort != "highlights" {
 		fmt.Fprint(&sbuilder, "&s=", args.sort)
+	} else if args.sort == "highlights" {
+		inHighlights = true
 	}
 
 	reader, _ := download(sbuilder.String(), false, true)
@@ -258,18 +258,23 @@ func processTagPage(args arguments) {
 	}
 	window.sendPlayerEvent("found data")
 
-	rand.Seed(time.Now().UnixNano())
-	urls := parseTagSearchJSON(dataBlobJSON)
+	var urls []string
+	if inHighlights {
+		urls = parseTagSearchHighlights(dataBlobJSON)
+	} else {
+		urls = parseTagSearchJSON(dataBlobJSON)
+	}
 
-	/*file, err := os.Create("temp.html")
+	file, err := os.Create("temp.html")
 	checkFatalError(err)
-	defer file.Close()*/
+	defer file.Close()
 
+	rand.Seed(time.Now().UnixNano())
 	var url string
 	if urls != nil {
-		/*for _, url := range urls {
+		for _, url := range urls {
 			file.WriteString(url + "\n")
-		} */
+		}
 		url = urls[rand.Intn(len(urls))]
 		player.stop()
 		player.initPlayer()

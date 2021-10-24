@@ -137,7 +137,7 @@ func (player *playback) skip(forward bool) {
 			window.sendPlayerEvent(eventNextTrack(player.currentTrack))
 		} else {
 			track := player.currentTrack
-			time.Sleep(time.Second / 3)
+			time.Sleep(time.Second / 2)
 			if track == player.currentTrack {
 				window.sendPlayerEvent(eventNextTrack(player.currentTrack))
 			}

@@ -81,8 +81,6 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 			app.Quit()
 			logFile.WriteString(event.When().Format(time.ANSIC) + "[ext]:exit with code 0\n")
 			return true
-		case tcell.KeyTab:
-			window.hideInput = !window.hideInput
 		case tcell.KeyF5:
 			app.Refresh()
 			return true
