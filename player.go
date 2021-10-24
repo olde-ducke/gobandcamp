@@ -9,6 +9,8 @@ import (
 	"github.com/faiface/beep/speaker"
 )
 
+const defaultSampleRate beep.SampleRate = 48000
+
 type playbackMode int
 
 const (
@@ -172,10 +174,10 @@ func (player *playback) nextTrack() {
 
 func (player *playback) play(track int) {
 	// TODO: update current track for playlist view
-	window.sendPlayerEvent(eventDebugMessage("music play"))
 	// FIXME: it is possible to play two first tracks at the same time, if you input
 	// two queries fast enough, this stops previous playback
 	player.stop()
+	window.sendPlayerEvent(eventDebugMessage("music play"))
 	streamer, format, err := mp3.Decode(wrapInRSC(track))
 	if err != nil {
 		window.sendPlayerEvent(err)
@@ -307,8 +309,7 @@ func (player *playback) handleEvent(key rune) bool {
 		player.playbackMode = (player.playbackMode + 1) % 4
 
 	case 'b', 'B':
-		// FIXME: something weird is going on here
-		if player.getCurrentTrackPosition().Round(time.Second) > time.Second*3 {
+		if player.getCurrentTrackPosition() > time.Second*3 {
 			speaker.Lock()
 			player.resetPosition()
 			speaker.Unlock()

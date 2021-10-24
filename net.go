@@ -50,10 +50,10 @@ func download(link string, mobile bool, checkDomain bool) (io.ReadCloser, string
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
 		// https requests fail here because reasons (real certificate is replacced by expired
-		// generic one)
+		// generic one), only relevant for images at the moment
 		window.sendPlayerEvent(err)
 		if strings.Contains(link, "https://") {
-			window.sendPlayerEvent("trying over http://")
+			window.sendPlayerEvent(eventDebugMessage("trying over http://"))
 			return download(strings.Replace(link, "https://", "http://", 1),
 				mobile, checkDomain)
 		}
@@ -125,14 +125,11 @@ func processMediaPage(link string, model *playerModel) {
 
 	if metaDataJSON != "" || mediaDataJSON != "" {
 		if !album {
-			//window.sendPlayerEvent("found track data (not implemented)")
-			//window.sendPlayerEvent(eventCoverDownloader(-1))
-			//window.sendPlayerEvent(eventNewItem(-1))
-			window.sendPlayerEvent(eventDebugMessage("found track data"))
+			window.sendPlayerEvent("found track data")
 			model.metadata = parseTrackJSON(metaDataJSON, mediaDataJSON)
 			window.sendPlayerEvent(eventNewItem(0))
 		} else {
-			window.sendPlayerEvent(eventDebugMessage("found album data"))
+			window.sendPlayerEvent("found album data")
 			model.metadata = parseAlbumJSON(metaDataJSON, mediaDataJSON)
 			window.sendPlayerEvent(eventNewItem(0))
 		}
@@ -221,6 +218,10 @@ func processTagPage(args arguments) {
 		fmt.Fprint(&sbuilder, "&s=", args.sort)
 	} else if args.sort == "highlights" {
 		inHighlights = true
+	}
+
+	if args.format != "" {
+		fmt.Fprint(&sbuilder, "&f=", args.format)
 	}
 
 	reader, _ := download(sbuilder.String(), false, true)

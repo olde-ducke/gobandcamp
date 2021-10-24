@@ -12,17 +12,12 @@ import (
 
 var app = &views.Application{}
 var window = &windowLayout{}
-var exitCode = 0
 
 type eventNewItem int
 type eventNextTrack int
 type eventCoverDownloader int
 type eventTrackDownloader int
 type eventDebugMessage string
-
-/*func newDebugMessage(message string) eventDebugMessage {
-	return eventDebugMessage(message)
-}*/
 
 func (message *eventDebugMessage) String() string {
 	return string(*message)

@@ -12,11 +12,11 @@ Features:
 
 Tag search:
 
-    -t sometag anothertag third-tag -s random
+    -t sometag anothertag third-tag -s random -f cd
 
 or
 
-    --tag sometag --sort date --tag another three tags
+    --tag sometag --sort date --tag another three tags --format vinyl
 
 Sorting methods (optional):
 
@@ -24,6 +24,12 @@ Sorting methods (optional):
     "random"     - random
     "date"       - sort by date
     "highlights" - search in highlights tab of first tag/genre
+
+Formats (optional):
+    ""           - any
+    "cassette"
+    "cd"
+    "vinyl"
 
 
 ## Controls

@@ -99,11 +99,11 @@ type arguments struct {
 	tags     []string
 	location []string
 	sort     string
+	format   string
 	flag     int
 }
 
 func parseInput(input string) {
-	// FIXME `-t ` incorrectly parsed
 	commands := strings.Split(input, " ")
 	if strings.Contains(commands[0], "http://") || strings.Contains(commands[0], "https://") {
 		player.stop()
@@ -130,6 +130,8 @@ func parseInput(input string) {
 				args.flag = 2
 			case "-s", "--sort":
 				args.flag = 3
+			case "-f", "--format":
+				args.flag = 4
 			default:
 				args.flag = 0
 			}
@@ -145,6 +147,10 @@ func parseInput(input string) {
 			case 3:
 				if commands[i] == "random" || commands[i] == "date" || commands[i] == "highlights" {
 					args.sort = commands[i]
+				}
+			case 4:
+				if commands[i] == "cd" || commands[i] == "cassette" || commands[i] == "vinyl" {
+					args.format = commands[i]
 				}
 			}
 		}

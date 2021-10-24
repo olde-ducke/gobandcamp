@@ -3,6 +3,7 @@ package main
 import (
 	//"encoding/json"
 
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -227,6 +228,7 @@ func parseTagSearchJSON(dataBlobJSON string) (urls []string) {
 	var dataBlob tagSearchJSON
 	err := json.Unmarshal([]byte(dataBlobJSON), &dataBlob)
 	checkFatalError(err)
+	// FIXME: will absolutely fail at some point
 	var index int
 	if dataBlob.Hubs.IsSimple {
 		index = 0
@@ -235,6 +237,7 @@ func parseTagSearchJSON(dataBlobJSON string) (urls []string) {
 	}
 
 	if index > len(dataBlob.Hubs.Tabs)-1 {
+		window.sendPlayerEvent(errors.New("tag page JSON parser: index out of range"))
 		return urls
 	}
 
