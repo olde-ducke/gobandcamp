@@ -187,7 +187,7 @@ func parseTagSearchHighlights(dataBlobJSON string) (urls []string) {
 	var dataBlob tagSearchJSON
 	err := json.Unmarshal([]byte(dataBlobJSON), &dataBlob)
 	checkFatalError(err)
-	if dataBlob.Hubs.IsSimple {
+	if dataBlob.Hubs.IsSimple || len(dataBlob.Hubs.Tabs) == 0 {
 		return urls
 	}
 	for _, collection := range dataBlob.Hubs.Tabs[0].Collections {

@@ -52,6 +52,7 @@ func (model *artModel) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
 		return ' ', model.style, nil, 1
 	}
 	switch window.artDrawingMode {
+
 	case 1:
 		return rune(model.asciiart[y][x].Char), tcell.StyleDefault.Background(
 			tcell.NewRGBColor(
@@ -62,6 +63,7 @@ func (model *artModel) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
 				int32(model.asciiart[y][x].R/2),
 				int32(model.asciiart[y][x].G/2),
 				int32(model.asciiart[y][x].B/2))), nil, 1
+
 	case 2:
 		return rune(model.asciiart[y][x].Char), tcell.StyleDefault.Background(
 			tcell.NewRGBColor(
@@ -72,6 +74,7 @@ func (model *artModel) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
 				int32(model.asciiart[y][x].R),
 				int32(model.asciiart[y][x].G),
 				int32(model.asciiart[y][x].B))), nil, 1
+
 	case 3:
 		return rune(model.asciiart[y][x].Char), model.style.Background(
 			tcell.NewRGBColor(
@@ -79,6 +82,7 @@ func (model *artModel) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
 				int32(model.asciiart[y][x].G),
 				int32(model.asciiart[y][x].B))).
 			Foreground(window.bgColor), nil, 1
+
 	case 4:
 		return rune(model.asciiart[y][x].Char), model.style.Background(
 			tcell.NewRGBColor(
@@ -86,12 +90,14 @@ func (model *artModel) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
 				int32(model.asciiart[y][x].G),
 				int32(model.asciiart[y][x].B))).
 			Foreground(window.fgColor), nil, 1
+
 	case 5:
 		return rune(model.asciiart[y][x].Char), model.style.Foreground(
 			tcell.NewRGBColor(
 				int32(model.asciiart[y][x].R),
 				int32(model.asciiart[y][x].G),
 				int32(model.asciiart[y][x].B))), nil, 1
+
 	default:
 		return ' ', model.style.Background(
 			tcell.NewRGBColor(
@@ -112,6 +118,7 @@ func (art *artArea) Size() (int, int) {
 
 func (art *artArea) HandleEvent(event tcell.Event) bool {
 	switch event := event.(type) {
+
 	case *tcell.EventInterrupt:
 		switch i := event.Data().(type) {
 		case eventCoverDownloader:
@@ -121,6 +128,7 @@ func (art *artArea) HandleEvent(event tcell.Event) bool {
 			window.artM.refitArt()
 			return true
 		}
+
 	case *views.EventWidgetResize:
 		if window.hasChangedSize() {
 			window.artM.refitArt()

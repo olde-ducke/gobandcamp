@@ -106,8 +106,6 @@ type arguments struct {
 func parseInput(input string) {
 	commands := strings.Split(input, " ")
 	if strings.Contains(commands[0], "http://") || strings.Contains(commands[0], "https://") {
-		player.stop()
-		player.initPlayer()
 		go processMediaPage(commands[0], window.playerM)
 		return
 	} else if commands[0] == "exit" || commands[0] == "q" || commands[0] == "quit" {

@@ -13,10 +13,12 @@ import (
 var app = &views.Application{}
 var window = &windowLayout{}
 
+// TODO: move events elsewhere, finish them with more pleasing
+// methods
 type eventNewItem int
 type eventNextTrack int
 type eventCoverDownloader int
-type eventTrackDownloader int
+type eventTrackDownloader string
 type eventDebugMessage string
 
 func (message *eventDebugMessage) String() string {
@@ -29,20 +31,24 @@ type recolorable interface {
 
 type windowLayout struct {
 	views.BoxLayout
-	screen         tcell.Screen
-	hideInput      bool
-	width          int
-	height         int
+	screen tcell.Screen
+
+	width       int
+	height      int
+	orientation int
+	hMargin     int
+	vMargin     int
+
+	hideInput bool
+
+	theme   int
+	widgets []views.Widget
+	bgColor tcell.Color
+	fgColor tcell.Color
+
+	artDrawingMode int
 	artM           *artModel
 	playerM        *playerModel
-	artDrawingMode int
-	orientation    int
-	hMargin        int
-	vMargin        int
-	widgets        []views.Widget
-	bgColor        tcell.Color
-	fgColor        tcell.Color
-	theme          int
 }
 
 func (window *windowLayout) sendPlayerEvent(data interface{}) {
@@ -51,51 +57,67 @@ func (window *windowLayout) sendPlayerEvent(data interface{}) {
 
 func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 	switch event := event.(type) {
+
 	case *tcell.EventInterrupt:
 		switch data := event.Data().(type) {
+
 		// TODO: isn't it silly to send an empty link and check if it's empty only
 		// on other side?
 		case eventNewItem:
 			if data >= 0 {
-				go downloadMedia(window.playerM.metadata.tracks[0].url)
+				player.stop()
+				player.initPlayer()
+				go downloadMedia(window.playerM.metadata.tracks[0].url, player.currentTrack)
 				go downloadCover(window.playerM.metadata.imageSrc, window.artM)
 				player.totalTracks = window.playerM.metadata.totalTracks
 			}
+
 		case eventNextTrack:
-			go downloadMedia(window.playerM.metadata.tracks[data].url)
+			go downloadMedia(window.playerM.metadata.tracks[data].url, player.currentTrack)
+
 		case eventTrackDownloader:
-			if data == eventTrackDownloader(player.currentTrack) && !player.isPlaying() {
-				player.play(int(data))
+			if data == eventTrackDownloader(
+				getTruncatedURL(window.playerM.metadata.tracks[player.currentTrack].url),
+			) && !player.isPlaying() {
+				player.play(player.currentTrack, data)
 				return true
 			}
 			return false
 		}
 	case *tcell.EventKey:
 		switch event.Key() {
+
 		case tcell.KeyEscape:
 			app.Quit()
 			logFile.WriteString(event.When().Format(time.ANSIC) + "[ext]:exit with code 0\n")
 			return true
+
 		case tcell.KeyF5:
 			app.Refresh()
 			return true
+
 		case tcell.KeyRune:
 			if window.hideInput {
 				switch event.Rune() {
+
 				case 'i', 'I':
 					window.artDrawingMode = (window.artDrawingMode + 1) % 6
 					return true
+
 				case 't', 'T':
 					changeTheme()
 					return true
+
 				default:
 					return player.handleEvent(event.Rune())
 				}
 			}
+			// TODO: remove these two
 		case tcell.KeyCtrlC:
 			window.screen.Fini()
 			fmt.Println("press Ctrl+C again to quit")
 			return true
+
 		case tcell.KeyCtrlD:
 			for _, widget := range window.widgets {
 				widget.(recolorable).SetStyle(getRandomStyle())
@@ -138,11 +160,13 @@ type contentArea struct {
 
 func (content *contentArea) HandleEvent(event tcell.Event) bool {
 	switch event := event.(type) {
+
 	case *views.EventWidgetResize:
 		if window.hasChangedSize() {
 			window.checkOrientation()
 			return true
 		}
+
 	case *tcell.EventInterrupt:
 		if event.Data() == nil {
 			content.SetText(window.playerM.updateText())
@@ -150,6 +174,7 @@ func (content *contentArea) HandleEvent(event tcell.Event) bool {
 			return true
 		}
 		switch data := event.Data().(type) {
+
 		case eventNewItem:
 			if data < 0 {
 				window.playerM.metadata = nil
@@ -233,16 +258,20 @@ type messageBox struct {
 
 func (message *messageBox) HandleEvent(event tcell.Event) bool {
 	switch event := event.(type) {
+
 	case *tcell.EventInterrupt:
 		switch data := event.Data().(type) {
+
 		case string:
 			logFile.WriteString(event.When().Format(time.ANSIC) + "[msg]:" + data + "\n")
 			message.SetText(data)
 			return true
+
 		case error:
 			logFile.WriteString(event.When().Format(time.ANSIC) + "[err]:" + data.Error() + "\n")
 			message.SetText(data.Error())
 			return true
+
 		case eventDebugMessage:
 			logFile.WriteString(event.When().Format(time.ANSIC) + "[dbg]:" + data.String() + "\n")
 		}
@@ -272,12 +301,15 @@ func changeTheme() {
 
 	var style tcell.Style
 	switch window.theme {
+
 	case 1:
 		style = tcell.StyleDefault.Background(window.bgColor).
 			Foreground(window.fgColor)
+
 	case 2:
 		style = tcell.StyleDefault.Background(window.fgColor).
 			Foreground(window.bgColor)
+
 	default:
 		style = tcell.StyleDefault
 	}
@@ -335,17 +367,4 @@ func init() {
 	checkFatalError(err)
 	app.SetScreen(window.screen)
 	app.SetRootWidget(window)
-
-	// sometimes doesn't work inside main event loop?
-	//app.PostFunc(func() {
-	go func() {
-		for {
-			time.Sleep(time.Second / 2)
-			window.sendPlayerEvent(nil)
-			if player.status == seekBWD || player.status == seekFWD {
-				player.status = player.bufferedStatus
-			}
-		}
-	}()
-	//})
 }

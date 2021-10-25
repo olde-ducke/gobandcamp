@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"errors"
 	"fmt"
 	"image/jpeg"
@@ -14,24 +13,9 @@ import (
 	"time"
 )
 
-// response.Body doesn't implement Seek() method
-// beep isn't bothered by this, but trying to
-// call Seek() will fail since Len() will always return 0
-// by using bytes.Reader and implementing empty Close() method
-// we get io.ReadSeekCloser, which satisfies requirements of beep streamers
-// (need ReadCloser) and implements Seek() method
-
-type bytesReadSeekCloser struct {
-	*bytes.Reader
-}
-
-func (c bytesReadSeekCloser) Close() error {
-	return nil
-}
-
-func wrapInRSC(index int) *bytesReadSeekCloser {
-	return &bytesReadSeekCloser{bytes.NewReader(cache.bytes[index])}
-}
+// TODO: by default no timeout is set
+// TODO: cancel response body readings for unfinished tracks
+// will solve a lot of problems
 
 func download(link string, mobile bool, checkDomain bool) (io.ReadCloser, string) {
 	window.sendPlayerEvent(eventDebugMessage(link))
@@ -79,12 +63,17 @@ func processMediaPage(link string, model *playerModel) {
 	reader, _ := download(link, true, true)
 	if reader == nil {
 		window.sendPlayerEvent(eventNewItem(-1))
+		window.sendPlayerEvent(eventCoverDownloader(-1))
 		return
 	}
 	defer reader.Close()
 	window.sendPlayerEvent("parsing...")
 
 	scanner := bufio.NewScanner(reader)
+	// NOTE: might fail here
+	// 64k is not enough for all pages apparently
+	var buffer []byte
+	scanner.Buffer(buffer, 131072)
 	var metaDataJSON string
 	var mediaDataJSON string
 	var album bool
@@ -138,22 +127,21 @@ func processMediaPage(link string, model *playerModel) {
 	}
 }
 
-func downloadMedia(link string) {
+func downloadMedia(link string, track int) {
 	var err error
-	track := player.currentTrack
 	if link == "" {
 		window.sendPlayerEvent(fmt.Sprintf("track %d not available for streaming",
 			track+1))
 		return
 	}
-	if _, ok := cache.bytes[track]; ok {
-		window.sendPlayerEvent(eventTrackDownloader(track))
+	key := getTruncatedURL(link)
+
+	if _, ok := cache.get(key); ok {
+		window.sendPlayerEvent(eventTrackDownloader(key))
 		window.sendPlayerEvent(fmt.Sprintf("playing track %d from cache",
 			track+1))
 		return
 	}
-	cache.mu.Lock()
-	defer cache.mu.Unlock()
 	window.sendPlayerEvent(fmt.Sprintf("fetching track %d...", track+1))
 	reader, _ := download(link, false, false)
 	if reader == nil {
@@ -162,16 +150,15 @@ func downloadMedia(link string) {
 	defer reader.Close()
 	window.sendPlayerEvent(fmt.Sprintf("downloading track %d...", track+1))
 
-	cache.bytes[track], err = io.ReadAll(reader)
+	body, err := io.ReadAll(reader)
 	if err != nil {
 		window.sendPlayerEvent(err)
 		return
 	}
-	window.sendPlayerEvent(eventTrackDownloader(track))
+
+	cache.set(getTruncatedURL(link), body)
+	window.sendPlayerEvent(eventTrackDownloader(key))
 	window.sendPlayerEvent(fmt.Sprintf("track %d downloaded", track+1))
-	// TODO: replace in-memory cache with saving on disk
-	// SDL seems to be able to only open local files
-	//_, err = io.Copy(file, response.Body)
 }
 
 func downloadCover(link string, model *artModel) {
@@ -233,6 +220,7 @@ func processTagPage(args arguments) {
 
 	scanner := bufio.NewScanner(reader)
 	var dataBlobJSON string
+	// NOTE: might fail here
 	// 64k is not enough for these pages
 	var buffer []byte
 	scanner.Buffer(buffer, 1048576)
@@ -283,6 +271,11 @@ func processTagPage(args arguments) {
 		return
 	}
 	window.sendPlayerEvent("nothing was found")
+}
+
+func getTruncatedURL(link string) string {
+	index := strings.Index(link, "?p=")
+	return link[:index]
 }
 
 // TODO: finish whatever has been started here

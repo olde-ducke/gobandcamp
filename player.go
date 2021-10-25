@@ -108,16 +108,16 @@ func (player *playback) isReady() bool {
 }
 
 func (player *playback) skip(forward bool) {
-	defer player.stop()
 	window.sendPlayerEvent(eventDebugMessage("skip track"))
 	if player.playbackMode == random {
 		player.nextTrack()
 		return
 	}
-	//player.stop()
 	if player.totalTracks == 0 {
 		return
 	}
+	player.stop()
+	player.clear()
 	if forward {
 		player.currentTrack = (player.currentTrack + 1) %
 			player.totalTracks
@@ -128,57 +128,61 @@ func (player *playback) skip(forward bool) {
 			player.totalTracks
 		player.status = skipBWD
 	}
-	// FIXME: random playback skips this
-	// to prevent downloading every item on fast track switching
-	// probably dumb idea, -race yells with warnings about it
-	//window.sendPlayerEvent(eventNextTrack(player.currentTrack))
-	go func() {
-		//cache.mu.Lock()
-		//defer cache.mu.Unlock()
-		if _, ok := cache.bytes[player.currentTrack]; ok {
-			window.sendPlayerEvent(eventNextTrack(player.currentTrack))
-		} else {
-			track := player.currentTrack
-			time.Sleep(time.Second / 2)
-			if track == player.currentTrack {
-				window.sendPlayerEvent(eventNextTrack(player.currentTrack))
-			}
-		}
-	}()
+	// TODO: remove after response reading cancellation is implemented
+	go player.delaySwitching()
+
 }
 
 func (player *playback) nextTrack() {
-	defer player.stop()
 	window.sendPlayerEvent(eventDebugMessage("next track"))
 	switch player.playbackMode {
+
 	case random:
 		rand.Seed(time.Now().UnixNano())
 		player.currentTrack = rand.Intn(player.totalTracks)
-		window.sendPlayerEvent(eventNextTrack(player.currentTrack))
+		go player.delaySwitching()
+
 	case repeatOne:
-		window.sendPlayerEvent(eventNextTrack(player.currentTrack))
+		//window.sendPlayerEvent(eventNextTrack(player.currentTrack))
+		player.resetPosition()
+		player.restart()
+		player.status = playing
+		return
+
 	case repeat:
 		player.skip(true)
+
 	case normal:
 		if player.currentTrack == player.totalTracks-1 {
-			// can't do anything with speaker when called from callback
-			// added stop to play function, that actually
-			// prevents double playback
 			player.status = stopped
+			player.restart()
+			player.stop()
 			return
 		}
 		player.skip(true)
 	}
+	player.stop()
+	player.clear()
 	player.status = skipFWD
 }
 
-func (player *playback) play(track int) {
+func (player *playback) delaySwitching() {
+	// to prevent downloading every item on fast track switching
+	// probably dumb idea
+	track := player.currentTrack
+	time.Sleep(time.Second / 2)
+	if track == player.currentTrack {
+		window.sendPlayerEvent(eventNextTrack(player.currentTrack))
+	}
+}
+
+func (player *playback) play(track int, key eventTrackDownloader) {
 	// TODO: update current track for playlist view
 	// FIXME: it is possible to play two first tracks at the same time, if you input
 	// two queries fast enough, this stops previous playback
-	player.stop()
+	//player.stop()
 	window.sendPlayerEvent(eventDebugMessage("music play"))
-	streamer, format, err := mp3.Decode(wrapInRSC(track))
+	streamer, format, err := mp3.Decode(wrapInRSC(key))
 	if err != nil {
 		window.sendPlayerEvent(err)
 		return
@@ -191,15 +195,33 @@ func (player *playback) play(track int) {
 	// deadlocks if anything speaker related is done inside callback
 	// since it's locking device itself
 	speaker.Play(beep.Seq(player.stream.volume, beep.Callback(
-		func() { go player.nextTrack() })))
+		func() {
+			go player.nextTrack()
+		})))
+}
+
+func (player *playback) restart() {
+	speaker.Clear()
+	speaker.Play(beep.Seq(player.stream.volume, beep.Callback(
+		func() {
+			go player.nextTrack()
+		})))
 }
 
 func (player *playback) stop() {
 	window.sendPlayerEvent(eventDebugMessage("music stopped"))
+	if player.isReady() {
+		player.resetPosition()
+		speaker.Lock()
+		player.stream.ctrl.Paused = true
+		speaker.Unlock()
+	}
+}
+
+func (player *playback) clear() {
 	speaker.Clear()
 	if player.isReady() {
 		speaker.Lock()
-		player.resetPosition()
 		// FIXME: doesn't really matter if we close streamer or not
 		// method close in underlying data does absolutely nothing
 		err := player.stream.streamer.Close()
@@ -218,36 +240,33 @@ func (player *playback) bufferStatus(newStatus playbackStatus) {
 }
 
 func (player *playback) initPlayer() {
-	//cache.mu.Lock()
-	// main loop might end up in dedlock if locked here
 	window.sendPlayerEvent(eventDebugMessage("player reset"))
-	cache.bytes = make(map[int][]byte)
 	// keeps volume and playback mode from previous playback
 	*player = playback{playbackMode: player.playbackMode, volume: player.volume,
 		muted: player.muted}
-	//cache.mu.Unlock()
 }
 
 func (player *playback) handleEvent(key rune) bool {
 	switch key {
 	// TODO: change controls
 	case ' ':
-		// FIXME ???
+		if !player.isReady() {
+			return false
+		}
+
 		if player.status == seekBWD || player.status == seekFWD {
 			player.status = player.bufferedStatus
 		}
-		if player.status == stopped {
-			player.play(player.currentTrack)
-			return true
-		}
-		if !player.isPlaying() {
+
+		switch player.status {
+		case paused, stopped:
+			player.status = playing
+		case playing:
+			player.status = paused
+		default:
 			return false
 		}
-		if player.status == playing {
-			player.status = paused
-		} else if player.status == paused {
-			player.status = playing
-		}
+
 		speaker.Lock()
 		player.stream.ctrl.Paused = !player.stream.ctrl.Paused
 		speaker.Unlock()
