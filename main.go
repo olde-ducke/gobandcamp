@@ -48,6 +48,7 @@ func main() {
 		checkFatalError(err)
 	}
 
+	// TODO: exit loop
 	go func() {
 		for {
 			time.Sleep(time.Second / 2)

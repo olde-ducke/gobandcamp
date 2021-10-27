@@ -135,11 +135,6 @@ func processMediaPage(link string) {
 
 func downloadMedia(link string, track int) {
 	var err error
-	if link == "" {
-		window.sendInterruptEvent(fmt.Sprintf("track %d not available for streaming",
-			track+1))
-		return
-	}
 	key := getTruncatedURL(link)
 
 	if _, ok := cache.get(key); ok {
@@ -148,6 +143,7 @@ func downloadMedia(link string, track int) {
 			track+1))
 		return
 	}
+
 	window.sendInterruptEvent(fmt.Sprintf("fetching track %d...", track+1))
 	reader, _ := download(link, false, false)
 	if reader == nil {
@@ -265,13 +261,15 @@ func processTagPage(args arguments) {
 
 	rand.Seed(time.Now().UnixNano())
 	var url string
-	if urls != nil {
+	if len(urls) > 0 {
 		/*for _, url := range urls {
 			file.WriteString(url + "\n")
 		}*/
 		url = urls[rand.Intn(len(urls))]
+		// TODO: remove later
 		player.stop()
 		player.initPlayer()
+		//
 		processMediaPage(url)
 		return
 	}
@@ -280,8 +278,12 @@ func processTagPage(args arguments) {
 }
 
 func getTruncatedURL(link string) string {
-	index := strings.Index(link, "?p=")
-	return link[:index]
+	if strings.Contains(link, "?p=") {
+		index := strings.Index(link, "?p=")
+		return link[:index]
+	} else {
+		return ""
+	}
 }
 
 // TODO: finish whatever has been started here

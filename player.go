@@ -38,9 +38,14 @@ const (
 
 // □ ▹ ▯▯ ◃◃ ▹▹ ▯◃ ▹▯
 func (status playbackStatus) String() string {
-	return [7]string{" \u25a1", " \u25b9", "\u25af\u25af",
-		"\u25c3\u25c3", "\u25b9\u25b9", "\u25af\u25c3",
-		"\u25b9\u25af"}[status]
+	if window.asciionly {
+		return [7]string{"[]", " >", "||",
+			"<<", ">>", "|<", ">|"}[status]
+	} else {
+		return [7]string{" \u25a1", " \u25b9", "\u25af\u25af",
+			"\u25c3\u25c3", "\u25b9\u25b9", "\u25af\u25c3",
+			"\u25b9\u25af"}[status]
+	}
 }
 
 type playback struct {

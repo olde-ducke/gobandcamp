@@ -62,15 +62,10 @@ type albumJSON struct {
 		ItemListElement []struct {
 			Position  int `json:"position"` // track number
 			TrackInfo struct {
-				Name string `json:"name"` // track name
-				//Duration           string     `json:"duration"`           // string representation of duration P##H##M##S:
+				Name        string `json:"name"` // track name
 				RecordingOf struct {
 					Lyrics map[string]string `json:"lyrics"` // field "text" contains actual lyrics
 				} `json:"recordingOf"` // container for lyrics
-				/*AdditionalProperty []struct {
-					Name  string      `json:"name"`
-					Value interface{} `json:"value"`
-				} `json:"additionalProperty"` // list of containers for additional info*/
 			} `json:"item"` // further container for track data
 		} `json:"itemListElement"` // further container for track data
 	} `json:"track"` // container for track data
@@ -120,16 +115,19 @@ func parseAlbumJSON(metaDataJSON string, mediaDataJSON string) (*album, error) {
 		totalTracks: metaData.Tracks.NumberOfItems,
 	}
 
-	for i, item := range metaData.Tracks.ItemListElement {
-		albumMetaData.tracks = append(albumMetaData.tracks,
-			track{
-				trackNumber: item.Position,
-				title:       item.TrackInfo.Name,
-				duration:    mediaData.Trackinfo[i].Duration,
-				lyrics:      item.TrackInfo.RecordingOf.Lyrics["text"],
-				url:         mediaData.Trackinfo[i].File.MP3,
-			})
-
+	if len(metaData.Tracks.ItemListElement) == len(mediaData.Trackinfo) {
+		for i, item := range metaData.Tracks.ItemListElement {
+			albumMetaData.tracks = append(albumMetaData.tracks,
+				track{
+					trackNumber: item.Position,
+					title:       item.TrackInfo.Name,
+					duration:    mediaData.Trackinfo[i].Duration,
+					lyrics:      item.TrackInfo.RecordingOf.Lyrics["text"],
+					url:         mediaData.Trackinfo[i].File.MP3,
+				})
+		}
+	} else {
+		return nil, errors.New("not enough data was parsed")
 	}
 	return albumMetaData, nil
 }
@@ -145,6 +143,7 @@ func parseTrackJSON(metaDataJSON string, mediaDataJSON string) (*album, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	albumMetaData := &album{
 		imageSrc:    metaData.Image,
 		title:       metaData.InAlbum["name"].(string),
@@ -153,13 +152,20 @@ func parseTrackJSON(metaDataJSON string, mediaDataJSON string) (*album, error) {
 		url:         mediaData.URL,
 		tags:        fmt.Sprint(metaData.Tags),
 		totalTracks: 1,
-		tracks: []track{{
-			trackNumber: 1,
-			title:       metaData.Name,
-			duration:    mediaData.Trackinfo[0].Duration,
-			lyrics:      metaData.RecordingOf.Lyrics["text"],
-			url:         mediaData.Trackinfo[0].File.MP3,
-		}},
+	}
+
+	if len(mediaData.Trackinfo) > 0 {
+		albumMetaData.tracks = append(albumMetaData.tracks,
+			track{
+				trackNumber: 1,
+				title:       metaData.Name,
+				duration:    mediaData.Trackinfo[0].Duration,
+				lyrics:      metaData.RecordingOf.Lyrics["text"],
+				url:         mediaData.Trackinfo[0].File.MP3,
+			},
+		)
+	} else {
+		return nil, errors.New("not enough data was parsed")
 	}
 
 	return albumMetaData, nil

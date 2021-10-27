@@ -41,10 +41,11 @@ type windowLayout struct {
 
 	hideInput bool
 
-	theme   int
-	widgets []views.Widget
-	bgColor tcell.Color
-	fgColor tcell.Color
+	theme     int
+	widgets   []views.Widget
+	bgColor   tcell.Color
+	fgColor   tcell.Color
+	asciionly bool
 
 	artDrawingMode int
 	artM           *artModel
@@ -55,32 +56,41 @@ func (window *windowLayout) sendInterruptEvent(data interface{}) {
 	window.HandleEvent(tcell.NewEventInterrupt(data))
 }
 
+func getNewTrack(track int) {
+	if url, streamable := window.playerM.getURL(track); streamable {
+		go downloadMedia(url, player.currentTrack)
+	} else {
+		window.sendInterruptEvent(
+			fmt.Sprintf("track %d is not available for streaming", track+1),
+		)
+		player.status = stopped
+	}
+}
+
 func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 	switch event := event.(type) {
 
 	case *tcell.EventInterrupt:
 		switch data := event.Data().(type) {
 
-		// TODO: isn't it silly to send an empty link and check if it's empty only
-		// on other side?
 		case eventNewItem:
 			if data != nil {
 				player.stop()
 				player.clear()
 				player.initPlayer()
 				window.playerM.metadata = data
-				go downloadMedia(window.playerM.metadata.tracks[0].url, player.currentTrack)
-				go downloadCover(window.playerM.metadata.imageSrc, window.artM)
+				getNewTrack(player.currentTrack)
+				go downloadCover(window.playerM.getImageURL(3), window.artM)
 				player.totalTracks = window.playerM.metadata.totalTracks
 			}
 
 		case eventNextTrack:
-			go downloadMedia(window.playerM.metadata.tracks[data].url, player.currentTrack)
+			getNewTrack(player.currentTrack)
 
 		case eventTrackDownloader:
-			if data == eventTrackDownloader(
-				getTruncatedURL(window.playerM.metadata.tracks[player.currentTrack].url),
-			) && !player.isPlaying() {
+			if data == eventTrackDownloader(window.playerM.getCacheID(player.currentTrack)) &&
+				!player.isPlaying() {
+
 				player.play(player.currentTrack, data)
 				return true
 			}
@@ -110,11 +120,15 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 					changeTheme()
 					return true
 
+				case 'e', 'E':
+					window.asciionly = !window.asciionly
+					return true
+
 				default:
 					return player.handleEvent(event.Rune())
 				}
 			}
-			// TODO: remove these two
+			// TODO: remove these two later, for debug
 		case tcell.KeyCtrlC:
 			window.screen.Fini()
 			fmt.Println("press Ctrl+C again to quit")
@@ -204,6 +218,33 @@ type playerModel struct {
 	endy     int
 }
 
+func (model *playerModel) getURL(track int) (string, bool) {
+	if model.metadata.tracks[track].url != "" {
+		return model.metadata.tracks[track].url, true
+	} else {
+		return "", false
+	}
+}
+
+func (model *playerModel) getCacheID(track int) string {
+	return getTruncatedURL(model.metadata.tracks[track].url)
+}
+
+func (model *playerModel) getImageURL(size int) string {
+	var s string
+	switch size {
+	case 3:
+		s = "_16"
+	case 2:
+		s = "_7"
+	case 1:
+		s = "_3"
+	default:
+		return model.metadata.imageSrc
+	}
+	return strings.Replace(model.metadata.imageSrc, "_10", s, 1)
+}
+
 func (model *playerModel) updateText() string {
 	var formatString string
 	var volume string
@@ -229,9 +270,16 @@ func (model *playerModel) updateText() string {
 		volume = fmt.Sprintf("%3.0f", (100 + player.volume*10))
 	}
 
+	var symbol string
+	if window.asciionly {
+		symbol = "="
+	} else {
+		symbol = "\u25b1"
+	}
+
 	return fmt.Sprintf(formatString,
 		player.status.String(),
-		strings.Repeat("\u25b1", repeats),
+		strings.Repeat(symbol, repeats),
 		timeStamp,
 		volume,
 		player.playbackMode.String(),
@@ -325,7 +373,6 @@ func init() {
 	window.bgColor = tcell.NewHexColor(0x2b2b2b)
 
 	window.playerM = &playerModel{}
-	//window.playerM.dummy = getDummyData()
 
 	spacer1 := &spacer{views.NewText(), false}
 	art := &artArea{views.NewCellView()}
