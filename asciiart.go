@@ -16,15 +16,14 @@ import (
 var gopherPNG []byte
 
 type artModel struct {
-	x           int
-	y           int
-	endx        int
-	endy        int
-	asciiart    [][]ascii.CharPixel
-	style       tcell.Style
-	converter   convert.ImageConverter
-	placeholder image.Image
-	cover       image.Image
+	x         int
+	y         int
+	endx      int
+	endy      int
+	asciiart  [][]ascii.CharPixel
+	style     tcell.Style
+	converter convert.ImageConverter
+	cover     image.Image
 }
 
 func (model *artModel) GetBounds() (int, int) {
@@ -150,23 +149,24 @@ func (model *artModel) refitArt() {
 		Reversed:        false,
 	}
 	if model.cover == nil {
-		model.asciiart = model.converter.Image2CharPixelMatrix(
-			model.placeholder, &options)
-	} else {
-		model.asciiart = model.converter.Image2CharPixelMatrix(
-			model.cover, &options)
-
+		model.cover = getPlaceholderImage()
 	}
+	model.asciiart = model.converter.Image2CharPixelMatrix(
+		model.cover, &options)
+
 	model.endx, model.endy = len(model.asciiart[0])-1,
 		len(model.asciiart)-1
 }
 
-func init() {
-	var err error
-	window.artM = &artModel{}
-	window.artM.placeholder, err = png.Decode(bytes.NewReader(gopherPNG))
+func getPlaceholderImage() image.Image {
+	cover, err := png.Decode(bytes.NewReader(gopherPNG))
 	if err != nil {
 		checkFatalError(err)
 	}
+	return cover
+}
+
+func init() {
+	window.artM = &artModel{}
 	window.artM.converter = *convert.NewImageConverter()
 }

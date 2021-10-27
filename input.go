@@ -106,14 +106,14 @@ type arguments struct {
 func parseInput(input string) {
 	commands := strings.Split(input, " ")
 	if strings.Contains(commands[0], "http://") || strings.Contains(commands[0], "https://") {
-		go processMediaPage(commands[0], window.playerM)
+		go processMediaPage(commands[0])
 		return
 	} else if commands[0] == "exit" || commands[0] == "q" || commands[0] == "quit" {
 		logFile.WriteString(time.Now().Format(time.ANSIC) + "[ext]:exit with code 0\n")
 		app.Quit()
 		return
 	} else if !strings.HasPrefix(commands[0], "-") {
-		window.sendPlayerEvent("search (not implemented)")
+		window.sendInterruptEvent("search (not implemented)")
 		return
 	}
 
@@ -157,6 +157,6 @@ func parseInput(input string) {
 	if len(args.tags) > 0 {
 		go processTagPage(args)
 	} else {
-		window.sendPlayerEvent("no tags to search")
+		window.sendInterruptEvent("no tags to search")
 	}
 }

@@ -57,29 +57,36 @@ type playback struct {
 }
 
 func (player *playback) changePosition(pos int) time.Duration {
+	if !player.isPlaying() {
+		return 0
+	}
 	newPos := player.stream.streamer.Position()
 	newPos += pos
 	if newPos < 0 {
 		newPos = 0
 	}
 	if newPos >= player.stream.streamer.Len() {
-		newPos = player.stream.streamer.Len() - 1
+		// FIXME: crashes when seeking past ending of the last track
+		// if offset from end, it doesn't crash
+		// probably triggers second nexttrack() from different goroutine
+		// really janky solution
+		newPos = player.stream.streamer.Len() - 5
 	}
 	if err := player.stream.streamer.Seek(newPos); err != nil {
 		// FIXME:
 		// sometimes reports errors, for example this one:
 		// https://github.com/faiface/beep/issues/116
 		// causes track to skip, again, only sometimes
-		window.sendPlayerEvent(err)
+		window.sendInterruptEvent(err)
 	}
 	return player.format.SampleRate.D(newPos).Round(time.Second)
 }
 
 func (player *playback) resetPosition() {
 	if player.isReady() {
-		window.sendPlayerEvent(eventDebugMessage("reset position"))
+		window.sendInterruptEvent(eventDebugMessage("reset position"))
 		if err := player.stream.streamer.Seek(0); err != nil {
-			window.sendPlayerEvent(err)
+			window.sendInterruptEvent(err)
 		}
 	}
 }
@@ -108,12 +115,12 @@ func (player *playback) isReady() bool {
 }
 
 func (player *playback) skip(forward bool) {
-	window.sendPlayerEvent(eventDebugMessage("skip track"))
-	if player.playbackMode == random {
-		player.nextTrack()
+	if player.totalTracks == 0 {
 		return
 	}
-	if player.totalTracks == 0 {
+	window.sendInterruptEvent(eventDebugMessage("skip track"))
+	if player.playbackMode == random {
+		player.nextTrack()
 		return
 	}
 	player.stop()
@@ -134,7 +141,7 @@ func (player *playback) skip(forward bool) {
 }
 
 func (player *playback) nextTrack() {
-	window.sendPlayerEvent(eventDebugMessage("next track"))
+	window.sendInterruptEvent(eventDebugMessage("next track"))
 	switch player.playbackMode {
 
 	case random:
@@ -146,7 +153,6 @@ func (player *playback) nextTrack() {
 		//window.sendPlayerEvent(eventNextTrack(player.currentTrack))
 		player.resetPosition()
 		player.restart()
-		player.status = playing
 		return
 
 	case repeat:
@@ -154,7 +160,6 @@ func (player *playback) nextTrack() {
 
 	case normal:
 		if player.currentTrack == player.totalTracks-1 {
-			player.status = stopped
 			player.restart()
 			player.stop()
 			return
@@ -172,7 +177,7 @@ func (player *playback) delaySwitching() {
 	track := player.currentTrack
 	time.Sleep(time.Second / 2)
 	if track == player.currentTrack {
-		window.sendPlayerEvent(eventNextTrack(player.currentTrack))
+		window.sendInterruptEvent(eventNextTrack(player.currentTrack))
 	}
 }
 
@@ -181,10 +186,10 @@ func (player *playback) play(track int, key eventTrackDownloader) {
 	// FIXME: it is possible to play two first tracks at the same time, if you input
 	// two queries fast enough, this stops previous playback
 	//player.stop()
-	window.sendPlayerEvent(eventDebugMessage("music play"))
+	window.sendInterruptEvent(eventDebugMessage("music play"))
 	streamer, format, err := mp3.Decode(wrapInRSC(key))
 	if err != nil {
-		window.sendPlayerEvent(err)
+		window.sendInterruptEvent(err)
 		return
 	}
 	speaker.Lock()
@@ -206,10 +211,12 @@ func (player *playback) restart() {
 		func() {
 			go player.nextTrack()
 		})))
+	player.status = playing
 }
 
 func (player *playback) stop() {
-	window.sendPlayerEvent(eventDebugMessage("music stopped"))
+	window.sendInterruptEvent(eventDebugMessage("music stopped"))
+	player.status = stopped
 	if player.isReady() {
 		player.resetPosition()
 		speaker.Lock()
@@ -227,7 +234,7 @@ func (player *playback) clear() {
 		err := player.stream.streamer.Close()
 		speaker.Unlock()
 		if err != nil {
-			window.sendPlayerEvent(err)
+			window.sendInterruptEvent(err)
 		}
 	}
 }
@@ -240,7 +247,7 @@ func (player *playback) bufferStatus(newStatus playbackStatus) {
 }
 
 func (player *playback) initPlayer() {
-	window.sendPlayerEvent(eventDebugMessage("player reset"))
+	window.sendInterruptEvent(eventDebugMessage("player reset"))
 	// keeps volume and playback mode from previous playback
 	*player = playback{playbackMode: player.playbackMode, volume: player.volume,
 		muted: player.muted}
@@ -342,11 +349,12 @@ func (player *playback) handleEvent(key rune) bool {
 	case 'p', 'P':
 		player.stop()
 		player.status = stopped
+
 	default:
 		return false
 	}
 	// nil = just update text on screen
-	window.sendPlayerEvent(nil)
+	window.sendInterruptEvent(nil)
 	return true
 }
 

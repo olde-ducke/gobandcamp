@@ -15,7 +15,7 @@ var window = &windowLayout{}
 
 // TODO: move events elsewhere, finish them with more pleasing
 // methods
-type eventNewItem int
+type eventNewItem *album
 type eventNextTrack int
 type eventCoverDownloader int
 type eventTrackDownloader string
@@ -51,7 +51,7 @@ type windowLayout struct {
 	playerM        *playerModel
 }
 
-func (window *windowLayout) sendPlayerEvent(data interface{}) {
+func (window *windowLayout) sendInterruptEvent(data interface{}) {
 	window.HandleEvent(tcell.NewEventInterrupt(data))
 }
 
@@ -64,9 +64,11 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 		// TODO: isn't it silly to send an empty link and check if it's empty only
 		// on other side?
 		case eventNewItem:
-			if data >= 0 {
+			if data != nil {
 				player.stop()
+				player.clear()
 				player.initPlayer()
+				window.playerM.metadata = data
 				go downloadMedia(window.playerM.metadata.tracks[0].url, player.currentTrack)
 				go downloadCover(window.playerM.metadata.imageSrc, window.artM)
 				player.totalTracks = window.playerM.metadata.totalTracks
@@ -173,12 +175,9 @@ func (content *contentArea) HandleEvent(event tcell.Event) bool {
 			app.Update()
 			return true
 		}
-		switch data := event.Data().(type) {
+		switch event.Data().(type) {
 
 		case eventNewItem:
-			if data < 0 {
-				window.playerM.metadata = nil
-			}
 			window.playerM.updateText()
 			return true
 		}
@@ -201,7 +200,6 @@ func (content *contentArea) Size() (int, int) {
 
 type playerModel struct {
 	metadata *album
-	dummy    *album
 	endx     int
 	endy     int
 }
@@ -213,16 +211,16 @@ func (model *playerModel) updateText() string {
 	timeStamp := player.getCurrentTrackPosition()
 
 	if model.metadata == nil {
-		formatString = model.dummy.formatString(player.currentTrack)
-		repeats = 0
+		model.metadata = getDummyData()
+		// FIXME: not a good place for this
+		player.totalTracks = 0
+	}
+	formatString = model.metadata.formatString(player.currentTrack)
+	duration := model.metadata.tracks[player.currentTrack].duration
+	if duration > 0 {
+		repeats = int((float64(timeStamp) / (duration * 1_000_000_000)) * float64(model.endx))
 	} else {
-		formatString = model.metadata.formatString(player.currentTrack)
-		duration := model.metadata.tracks[player.currentTrack].duration
-		if duration > 0 {
-			repeats = int((float64(timeStamp) / (duration * 1_000_000_000)) * float64(model.endx))
-		} else {
-			repeats = 0
-		}
+		repeats = 0
 	}
 
 	if player.muted {
@@ -327,7 +325,7 @@ func init() {
 	window.bgColor = tcell.NewHexColor(0x2b2b2b)
 
 	window.playerM = &playerModel{}
-	window.playerM.dummy = getDummyData()
+	//window.playerM.dummy = getDummyData()
 
 	spacer1 := &spacer{views.NewText(), false}
 	art := &artArea{views.NewCellView()}

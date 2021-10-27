@@ -51,7 +51,7 @@ func main() {
 	go func() {
 		for {
 			time.Sleep(time.Second / 2)
-			window.sendPlayerEvent(nil)
+			window.sendInterruptEvent(nil)
 			if player.status == seekBWD || player.status == seekFWD {
 				player.status = player.bufferedStatus
 			}

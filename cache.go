@@ -59,7 +59,7 @@ func (fifo *FIFO) dump() {
 			value = enqueue.Value
 			enqueue = enqueue.Next()
 		}
-		window.sendPlayerEvent(eventDebugMessage(value.(string)))
+		window.sendInterruptEvent(eventDebugMessage(value.(string)))
 	}
 }
 

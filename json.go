@@ -99,19 +99,18 @@ type mediaJSON struct {
 	} `json:"trackinfo"`
 }
 
-func parseAlbumJSON(metaDataJSON string, mediaDataJSON string) (albumMetaData *album) {
+func parseAlbumJSON(metaDataJSON string, mediaDataJSON string) (*album, error) {
 	var metaData albumJSON
 	var mediaData mediaJSON
 	err := json.Unmarshal([]byte(metaDataJSON), &metaData)
-	// TODO: don't crash?
 	if err != nil {
-		checkFatalError(err)
+		return nil, err
 	}
 	err = json.Unmarshal([]byte(mediaDataJSON), &mediaData)
 	if err != nil {
-		checkFatalError(err)
+		return nil, err
 	}
-	albumMetaData = &album{
+	albumMetaData := &album{
 		imageSrc:    metaData.Image,
 		title:       metaData.Name,
 		artist:      metaData.ByArtist["name"],
@@ -132,22 +131,21 @@ func parseAlbumJSON(metaDataJSON string, mediaDataJSON string) (albumMetaData *a
 			})
 
 	}
-	return albumMetaData
+	return albumMetaData, nil
 }
 
-func parseTrackJSON(metaDataJSON string, mediaDataJSON string) (albumMetaData *album) {
+func parseTrackJSON(metaDataJSON string, mediaDataJSON string) (*album, error) {
 	var metaData trackJSON
 	var mediaData mediaJSON
 	err := json.Unmarshal([]byte(metaDataJSON), &metaData)
-	// TODO: don't crash?
 	if err != nil {
-		checkFatalError(err)
+		return nil, err
 	}
 	err = json.Unmarshal([]byte(mediaDataJSON), &mediaData)
 	if err != nil {
-		checkFatalError(err)
+		return nil, err
 	}
-	albumMetaData = &album{
+	albumMetaData := &album{
 		imageSrc:    metaData.Image,
 		title:       metaData.InAlbum["name"].(string),
 		artist:      metaData.ByArtist["name"],
@@ -164,7 +162,7 @@ func parseTrackJSON(metaDataJSON string, mediaDataJSON string) (albumMetaData *a
 		}},
 	}
 
-	return albumMetaData
+	return albumMetaData, nil
 }
 
 func getDummyData() *album {
@@ -237,7 +235,7 @@ func parseTagSearchJSON(dataBlobJSON string) (urls []string) {
 	}
 
 	if index > len(dataBlob.Hubs.Tabs)-1 {
-		window.sendPlayerEvent(errors.New("tag page JSON parser: index out of range"))
+		window.sendInterruptEvent(errors.New("tag page JSON parser: index out of range"))
 		return urls
 	}
 
@@ -245,6 +243,8 @@ func parseTagSearchJSON(dataBlobJSON string) (urls []string) {
 		for _, item := range collection.Items {
 			if value, ok := item["tralbum_url"].(string); ok {
 				urls = append(urls, value)
+			} else {
+				return urls
 			}
 		}
 	}
