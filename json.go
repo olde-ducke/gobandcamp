@@ -111,7 +111,7 @@ func parseAlbumJSON(metaDataJSON string, mediaDataJSON string) (*album, error) {
 		artist:      metaData.ByArtist["name"],
 		date:        metaData.DatePublished[:11], // TODO: do something with time in parsed date
 		url:         mediaData.URL,
-		tags:        fmt.Sprint(metaData.Tags),
+		tags:        strings.Join(metaData.Tags, " "),
 		totalTracks: metaData.Tracks.NumberOfItems,
 	}
 
@@ -150,7 +150,7 @@ func parseTrackJSON(metaDataJSON string, mediaDataJSON string) (*album, error) {
 		artist:      metaData.ByArtist["name"],
 		date:        metaData.DatePublished[:11], // TODO: do something with time in parsed date
 		url:         mediaData.URL,
-		tags:        fmt.Sprint(metaData.Tags),
+		tags:        strings.Join(metaData.Tags, " "),
 		totalTracks: 1,
 	}
 
@@ -177,7 +177,7 @@ func getDummyData() *album {
 		artist:      "---",
 		date:        "---",
 		url:         "https://golang.org",
-		tags:        "[gopher music png]",
+		tags:        "gopher music png",
 		totalTracks: 1,
 		tracks: []track{{
 			trackNumber: 1,

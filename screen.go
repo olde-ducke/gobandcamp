@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"image"
 	"math/rand"
 	"strings"
 	"time"
@@ -17,7 +18,7 @@ var window = &windowLayout{}
 // methods
 type eventNewItem *album
 type eventNextTrack int
-type eventCoverDownloader int
+type eventCoverDownloader image.Image
 type eventTrackDownloader string
 type eventDebugMessage string
 
@@ -80,7 +81,7 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 				player.initPlayer()
 				window.playerM.metadata = data
 				getNewTrack(player.currentTrack)
-				go downloadCover(window.playerM.getImageURL(3), window.artM)
+				go downloadCover(window.playerM.getImageURL(3))
 				player.totalTracks = window.playerM.metadata.totalTracks
 			}
 
@@ -105,6 +106,7 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 			return true
 
 		case tcell.KeyF5:
+			// TODO: remove, doesn't do anything really
 			app.Refresh()
 			return true
 
@@ -385,7 +387,7 @@ func init() {
 	content := &contentArea{}
 	content.SetText(window.playerM.updateText())
 	message := &messageBox{views.NewText()}
-	message.SetText("press Tab to enable input")
+	message.SetText("press [Tab] to enable input")
 	field := &textField{}
 	field.EnableCursor(!window.hideInput)
 	field.HideCursor(window.hideInput)

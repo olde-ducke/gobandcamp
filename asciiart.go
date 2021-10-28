@@ -119,11 +119,9 @@ func (art *artArea) HandleEvent(event tcell.Event) bool {
 	switch event := event.(type) {
 
 	case *tcell.EventInterrupt:
-		switch i := event.Data().(type) {
+		switch data := event.Data().(type) {
 		case eventCoverDownloader:
-			if i < 0 {
-				window.artM.cover = nil
-			}
+			window.artM.cover = data
 			window.artM.refitArt()
 			return true
 		}

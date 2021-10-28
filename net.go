@@ -8,6 +8,7 @@ import (
 	"io"
 	"math/rand"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
@@ -62,7 +63,7 @@ func processMediaPage(link string) {
 	reader, _ := download(link, true, true)
 	if reader == nil {
 		window.sendInterruptEvent(eventNewItem(nil))
-		window.sendInterruptEvent(eventCoverDownloader(-1))
+		window.sendInterruptEvent(eventCoverDownloader(nil))
 		return
 	}
 	defer reader.Close()
@@ -163,11 +164,11 @@ func downloadMedia(link string, track int) {
 	window.sendInterruptEvent(fmt.Sprintf("track %d downloaded", track+1))
 }
 
-func downloadCover(link string, model *artModel) {
+func downloadCover(link string) {
 	window.sendInterruptEvent(eventDebugMessage("fetching album cover..."))
 	reader, _ := download(link, false, false)
 	if reader == nil {
-		window.sendInterruptEvent(eventCoverDownloader(-1))
+		window.sendInterruptEvent(eventCoverDownloader(nil))
 		return
 	}
 	defer reader.Close()
@@ -176,12 +177,11 @@ func downloadCover(link string, model *artModel) {
 	img, err := jpeg.Decode(reader)
 	if err != nil {
 		window.sendInterruptEvent(err)
-		window.sendInterruptEvent(eventCoverDownloader(-1))
+		window.sendInterruptEvent(eventCoverDownloader(nil))
 		return
 	}
-	model.cover = img
 	window.sendInterruptEvent(eventDebugMessage("album cover downloaded"))
-	window.sendInterruptEvent(eventCoverDownloader(0))
+	window.sendInterruptEvent(eventCoverDownloader(img))
 }
 
 func processTagPage(args arguments) {
@@ -256,15 +256,15 @@ func processTagPage(args arguments) {
 		urls = parseTagSearchJSON(dataBlobJSON)
 	}
 
-	//file, err := os.Create("temp.html")
-	//checkFatalError(err)
+	file, err := os.Create("temp.html")
+	checkFatalError(err)
 
 	rand.Seed(time.Now().UnixNano())
 	var url string
 	if len(urls) > 0 {
-		/*for _, url := range urls {
+		for _, url := range urls {
 			file.WriteString(url + "\n")
-		}*/
+		}
 		url = urls[rand.Intn(len(urls))]
 		// TODO: remove later
 		player.stop()
