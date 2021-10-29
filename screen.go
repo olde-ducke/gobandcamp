@@ -220,6 +220,8 @@ func (model *playerModel) getCacheID(track int) string {
 }
 
 // a<album_art_id>_nn.jpg
+// other images stored without type prefix?
+// not all sizes are listed here, all up to _16 are existing files
 // _10 - original, whatever size it was
 // _16 - 700x700
 // _7  - 160x160

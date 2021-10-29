@@ -61,9 +61,9 @@ type playback struct {
 	muted          bool
 }
 
-func (player *playback) changePosition(pos int) time.Duration {
+func (player *playback) changePosition(pos int) {
 	if !player.isPlaying() {
-		return 0
+		return
 	}
 	newPos := player.stream.streamer.Position()
 	newPos += pos
@@ -72,19 +72,19 @@ func (player *playback) changePosition(pos int) time.Duration {
 	}
 	if newPos >= player.stream.streamer.Len() {
 		// FIXME: crashes when seeking past ending of the last track
-		// if offset from end, it doesn't crash
-		// probably triggers second nexttrack() from different goroutine
-		// really janky solution
-		newPos = player.stream.streamer.Len() - 5
+		// if offset from end to -5, it doesn't crash
+		// crashes only on len -1, -2, -3, -4
+		// -5 - or less fine, 0 - fine, but errors with EOF
+		// crashes with index out of range in beep sources
+		newPos = player.stream.streamer.Len()
 	}
 	if err := player.stream.streamer.Seek(newPos); err != nil {
 		// FIXME:
 		// sometimes reports errors, for example this one:
 		// https://github.com/faiface/beep/issues/116
 		// causes track to skip, again, only sometimes
-		window.sendEvent(newErrorMessage(err))
+		window.sendEvent(newDebugMessage(err.Error()))
 	}
-	return player.format.SampleRate.D(newPos).Round(time.Second)
 }
 
 func (player *playback) resetPosition() {
@@ -99,9 +99,10 @@ func (player *playback) resetPosition() {
 func (player *playback) getCurrentTrackPosition() time.Duration {
 	if player.isReady() {
 		speaker.Lock()
-		defer speaker.Unlock()
-		return player.format.SampleRate.D(player.stream.
+		position := player.format.SampleRate.D(player.stream.
 			streamer.Position()).Round(time.Second)
+		speaker.Unlock()
+		return position
 	}
 	return 0
 }
@@ -158,18 +159,19 @@ func (player *playback) nextTrack() {
 				player.currentTrack = rand.Intn(player.totalTracks)
 			}
 		}
+		player.status = skipFWD
 		player.stop()
 		player.clear()
 		go player.delaySwitching()
 
 	case repeatOne:
+		speaker.Lock()
 		player.resetPosition()
+		speaker.Unlock()
 		player.restart()
-		return
 
 	case repeat:
 		player.skip(true)
-		return
 
 	case normal:
 		if player.currentTrack == player.totalTracks-1 {
@@ -178,9 +180,7 @@ func (player *playback) nextTrack() {
 			return
 		}
 		player.skip(true)
-		return
 	}
-	player.status = skipFWD
 }
 
 func (player *playback) delaySwitching() {
@@ -196,9 +196,8 @@ func (player *playback) delaySwitching() {
 func (player *playback) play(track int, key string) {
 	// FIXME: it is possible to play two first tracks at the same time, if you input
 	// two queries fast enough, this stops previous playback
-	//player.stop()
+	player.clear()
 	player.currentTrack = track
-	window.sendEvent(newDebugMessage("music play"))
 	streamer, format, err := mp3.Decode(wrapInRSC(key))
 	if err != nil {
 		window.sendEvent(newErrorMessage(err))
@@ -209,35 +208,42 @@ func (player *playback) play(track int, key string) {
 	player.stream = newStream(format.SampleRate, streamer, player.volume, player.muted)
 	player.status = playing
 	speaker.Unlock()
+	window.sendEvent(newDebugMessage("playback started"))
 	// deadlocks if anything speaker related is done inside callback
 	// since it's locking device itself
 	speaker.Play(beep.Seq(player.stream.volume, beep.Callback(
 		func() {
+			window.sendEvent(newDebugMessage("next track callback"))
 			go player.nextTrack()
+			window.sendEvent(newDebugMessage("next track callback exit"))
 		})))
 }
 
 func (player *playback) restart() {
+	window.sendEvent(newDebugMessage("restart playback"))
 	speaker.Clear()
 	speaker.Play(beep.Seq(player.stream.volume, beep.Callback(
 		func() {
+			window.sendEvent(newDebugMessage("restart callback"))
 			go player.nextTrack()
+			window.sendEvent(newDebugMessage("restart callback exit"))
 		})))
 	player.status = playing
 }
 
 func (player *playback) stop() {
-	window.sendEvent(newDebugMessage("music stopped"))
+	window.sendEvent(newDebugMessage("playback stopped"))
 	player.status = stopped
 	if player.isReady() {
-		player.resetPosition()
 		speaker.Lock()
+		player.resetPosition()
 		player.stream.ctrl.Paused = true
 		speaker.Unlock()
 	}
 }
 
 func (player *playback) clear() {
+	window.sendEvent(newDebugMessage("clearing buffer"))
 	speaker.Clear()
 	if player.isReady() {
 		speaker.Lock()
