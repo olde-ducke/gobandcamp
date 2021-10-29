@@ -304,7 +304,7 @@ func (message *messageBox) HandleEvent(event tcell.Event) bool {
 			if !window.hideInput {
 				message.SetText("press [Tab] to enable input")
 			} else {
-				message.SetText("enter command")
+				message.SetText("enter link/command")
 			}
 		}
 
@@ -394,6 +394,8 @@ func init() {
 	field.EnableCursor(!window.hideInput)
 	field.HideCursor(window.hideInput)
 	field.Clear()
+	field.previous = make([]rune, 1)
+	field.previous[0] = ' '
 	spacer4 := &spacer{views.NewText(), true}
 
 	window.AddWidget(spacer1, 0.0)

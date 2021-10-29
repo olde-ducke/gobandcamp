@@ -13,6 +13,7 @@ type textField struct {
 	views.TextArea
 	symbols  []rune
 	sbuilder strings.Builder
+	previous []rune
 }
 
 func (field *textField) HandleEvent(event tcell.Event) bool {
@@ -39,7 +40,17 @@ func (field *textField) HandleEvent(event tcell.Event) bool {
 			window.hideInput = !window.hideInput
 			field.HideCursor(window.hideInput)
 			field.EnableCursor(!window.hideInput)
-			//field.inverseStyle()
+			return true
+
+		case tcell.KeyUp:
+			field.symbols = make([]rune, len(field.previous))
+			copy(field.symbols, field.previous)
+			field.SetContent(string(field.symbols))
+			field.SetCursorX(len(field.symbols))
+			return true
+
+		case tcell.KeyDown:
+			field.Clear()
 			return true
 
 		case tcell.KeyBackspace2:
@@ -83,8 +94,9 @@ func (field *textField) getText() string {
 		}
 		fmt.Fprint(&field.sbuilder, string(r))
 	}
+	field.previous = make([]rune, len(field.symbols))
+	copy(field.previous, field.symbols)
 	defer field.sbuilder.Reset()
-
 	return field.sbuilder.String()
 }
 
@@ -104,6 +116,7 @@ type arguments struct {
 }
 
 func parseInput(input string) {
+	// FIXME: -t<whatever> is passed to tag parsing
 	commands := strings.Split(input, " ")
 	if strings.Contains(commands[0], "http://") || strings.Contains(commands[0], "https://") {
 		go processMediaPage(commands[0])
