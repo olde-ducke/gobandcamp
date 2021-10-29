@@ -82,16 +82,16 @@ func (player *playback) changePosition(pos int) time.Duration {
 		// sometimes reports errors, for example this one:
 		// https://github.com/faiface/beep/issues/116
 		// causes track to skip, again, only sometimes
-		window.sendInterruptEvent(err)
+		window.sendEvent(newErrorMessage(err))
 	}
 	return player.format.SampleRate.D(newPos).Round(time.Second)
 }
 
 func (player *playback) resetPosition() {
 	if player.isReady() {
-		window.sendInterruptEvent(eventDebugMessage("reset position"))
+		window.sendEvent(newDebugMessage("reset position"))
 		if err := player.stream.streamer.Seek(0); err != nil {
-			window.sendInterruptEvent(err)
+			window.sendEvent(newErrorMessage(err))
 		}
 	}
 }
@@ -123,7 +123,7 @@ func (player *playback) skip(forward bool) {
 	if player.totalTracks == 0 {
 		return
 	}
-	window.sendInterruptEvent(eventDebugMessage("skip track"))
+	window.sendEvent(newDebugMessage("skip track"))
 	if player.playbackMode == random {
 		player.nextTrack()
 		return
@@ -146,22 +146,30 @@ func (player *playback) skip(forward bool) {
 }
 
 func (player *playback) nextTrack() {
-	window.sendInterruptEvent(eventDebugMessage("next track"))
+	window.sendEvent(newDebugMessage("next track"))
 	switch player.playbackMode {
 
 	case random:
-		rand.Seed(time.Now().UnixNano())
-		player.currentTrack = rand.Intn(player.totalTracks)
+		if player.totalTracks > 1 {
+			rand.Seed(time.Now().UnixNano())
+			// never play same track again if random
+			temp := player.currentTrack
+			for player.currentTrack == temp {
+				player.currentTrack = rand.Intn(player.totalTracks)
+			}
+		}
+		player.stop()
+		player.clear()
 		go player.delaySwitching()
 
 	case repeatOne:
-		//window.sendPlayerEvent(eventNextTrack(player.currentTrack))
 		player.resetPosition()
 		player.restart()
 		return
 
 	case repeat:
 		player.skip(true)
+		return
 
 	case normal:
 		if player.currentTrack == player.totalTracks-1 {
@@ -170,9 +178,8 @@ func (player *playback) nextTrack() {
 			return
 		}
 		player.skip(true)
+		return
 	}
-	player.stop()
-	player.clear()
 	player.status = skipFWD
 }
 
@@ -182,19 +189,19 @@ func (player *playback) delaySwitching() {
 	track := player.currentTrack
 	time.Sleep(time.Second / 2)
 	if track == player.currentTrack {
-		window.sendInterruptEvent(eventNextTrack(player.currentTrack))
+		window.sendEvent(newTrack(player.currentTrack))
 	}
 }
 
-func (player *playback) play(track int, key eventTrackDownloader) {
-	// TODO: update current track for playlist view
+func (player *playback) play(track int, key string) {
 	// FIXME: it is possible to play two first tracks at the same time, if you input
 	// two queries fast enough, this stops previous playback
 	//player.stop()
-	window.sendInterruptEvent(eventDebugMessage("music play"))
+	player.currentTrack = track
+	window.sendEvent(newDebugMessage("music play"))
 	streamer, format, err := mp3.Decode(wrapInRSC(key))
 	if err != nil {
-		window.sendInterruptEvent(err)
+		window.sendEvent(newErrorMessage(err))
 		return
 	}
 	speaker.Lock()
@@ -220,7 +227,7 @@ func (player *playback) restart() {
 }
 
 func (player *playback) stop() {
-	window.sendInterruptEvent(eventDebugMessage("music stopped"))
+	window.sendEvent(newDebugMessage("music stopped"))
 	player.status = stopped
 	if player.isReady() {
 		player.resetPosition()
@@ -237,9 +244,10 @@ func (player *playback) clear() {
 		// FIXME: doesn't really matter if we close streamer or not
 		// method close in underlying data does absolutely nothing
 		err := player.stream.streamer.Close()
+		player.stream = nil
 		speaker.Unlock()
 		if err != nil {
-			window.sendInterruptEvent(err)
+			window.sendEvent(newErrorMessage(err))
 		}
 	}
 }
@@ -252,7 +260,7 @@ func (player *playback) bufferStatus(newStatus playbackStatus) {
 }
 
 func (player *playback) initPlayer() {
-	window.sendInterruptEvent(eventDebugMessage("player reset"))
+	window.sendEvent(newDebugMessage("player reset"))
 	// keeps volume and playback mode from previous playback
 	*player = playback{playbackMode: player.playbackMode, volume: player.volume,
 		muted: player.muted}
@@ -359,7 +367,7 @@ func (player *playback) handleEvent(key rune) bool {
 		return false
 	}
 	// nil = just update text on screen
-	window.sendInterruptEvent(nil)
+	window.sendEvent(nil)
 	return true
 }
 

@@ -18,10 +18,10 @@ import (
 // will solve a lot of problems
 
 func download(link string, mobile bool, checkDomain bool) (io.ReadCloser, string) {
-	window.sendInterruptEvent(eventDebugMessage(link))
+	window.sendEvent(newDebugMessage(link))
 	request, err := http.NewRequest("GET", link, nil)
 	if err != nil {
-		window.sendInterruptEvent(err)
+		window.sendEvent(newErrorMessage(err))
 		return nil, ""
 	}
 	// pretend that we are Chrome on Win10
@@ -35,22 +35,22 @@ func download(link string, mobile bool, checkDomain bool) (io.ReadCloser, string
 	if err != nil {
 		// https requests fail here because reasons (real certificate is replacced by expired
 		// generic one), only relevant for images at the moment
-		window.sendInterruptEvent(err)
+		window.sendEvent(newErrorMessage(err))
 		if strings.Contains(link, "https://") {
-			window.sendInterruptEvent(eventDebugMessage("trying over http://"))
+			window.sendEvent(newDebugMessage("trying over http://"))
 			return download(strings.Replace(link, "https://", "http://", 1),
 				mobile, checkDomain)
 		}
 		return nil, ""
 	}
-	window.sendInterruptEvent(eventDebugMessage(response.Status))
+	window.sendEvent(newDebugMessage(response.Status))
 
 	// not all artists are hosted on bandname.bandcamp.com,
 	// deal with aliases by reading canonical names from response
 	if checkDomain {
 		if !strings.Contains(response.Header.Get("Link"),
 			"bandcamp.com") {
-			window.sendInterruptEvent(errors.New("response came not from bandcamp.com"))
+			window.sendEvent(newErrorMessage(errors.New("response came not from bandcamp.com")))
 			response.Body.Close()
 			return nil, ""
 		}
@@ -59,15 +59,15 @@ func download(link string, mobile bool, checkDomain bool) (io.ReadCloser, string
 }
 
 func processMediaPage(link string) {
-	window.sendInterruptEvent("fetching media page...")
+	window.sendEvent(newMessage("fetching media page..."))
 	reader, _ := download(link, true, true)
 	if reader == nil {
-		window.sendInterruptEvent(eventNewItem(nil))
-		window.sendInterruptEvent(eventCoverDownloader(nil))
+		window.sendEvent(newItem(nil))
+		window.sendEvent(newCoverDownloaded(nil))
 		return
 	}
 	defer reader.Close()
-	window.sendInterruptEvent("parsing...")
+	window.sendEvent(newMessage("parsing..."))
 
 	scanner := bufio.NewScanner(reader)
 	// NOTE: might fail here
@@ -93,7 +93,7 @@ func processMediaPage(link string) {
 			end := strings.Index(line[start:], "\"")
 			end += start
 			if start == -1 || end == -1 || end < start {
-				window.sendInterruptEvent(errors.New("unexpected page format"))
+				window.sendEvent(newErrorMessage(errors.New("unexpected page format")))
 				return
 			}
 			replacer := strings.NewReplacer(`&quot;`, `"`, `&amp;`, `&`)
@@ -104,7 +104,7 @@ func processMediaPage(link string) {
 			end := strings.Index(line[start:], "\"")
 			end += start
 			if start == -1 || end == -1 || end < start {
-				window.sendInterruptEvent(errors.New("unexpected page format"))
+				window.sendEvent(newErrorMessage(errors.New("unexpected page format")))
 				return
 			}
 			replacer := strings.NewReplacer(`&quot;`, `"`, `&amp;`, `&`, "%2F", "/")
@@ -116,21 +116,21 @@ func processMediaPage(link string) {
 	var err error
 	if metaDataJSON != "" || mediaDataJSON != "" {
 		if !isAlbum {
-			window.sendInterruptEvent("found track data")
+			window.sendEvent(newMessage("found track data"))
 			metadata, err = parseTrackJSON(metaDataJSON, mediaDataJSON)
 		} else {
-			window.sendInterruptEvent("found album data")
+			window.sendEvent(newMessage("found album data"))
 			metadata, err = parseAlbumJSON(metaDataJSON, mediaDataJSON)
 		}
 
 		if err == nil {
-			window.sendInterruptEvent(eventNewItem(metadata))
+			window.sendEvent(newItem(metadata))
 		} else {
-			window.sendInterruptEvent(err)
+			window.sendEvent(newErrorMessage(err))
 		}
 
 	} else {
-		window.sendInterruptEvent(errors.New("unexpected page format"))
+		window.sendEvent(newErrorMessage(errors.New("unexpected page format")))
 	}
 }
 
@@ -139,53 +139,53 @@ func downloadMedia(link string, track int) {
 	key := getTruncatedURL(link)
 
 	if _, ok := cache.get(key); ok {
-		window.sendInterruptEvent(eventTrackDownloader(key))
-		window.sendInterruptEvent(fmt.Sprintf("playing track %d from cache",
-			track+1))
+		window.sendEvent(newTrackDownloaded(key))
+		window.sendEvent(newMessage(fmt.Sprintf("playing track %d from cache",
+			track+1)))
 		return
 	}
 
-	window.sendInterruptEvent(fmt.Sprintf("fetching track %d...", track+1))
+	window.sendEvent(newMessage(fmt.Sprintf("fetching track %d...", track+1)))
 	reader, _ := download(link, false, false)
 	if reader == nil {
 		return // error should be reported on other end already
 	}
 	defer reader.Close()
-	window.sendInterruptEvent(fmt.Sprintf("downloading track %d...", track+1))
+	window.sendEvent(newMessage(fmt.Sprintf("downloading track %d...", track+1)))
 
 	body, err := io.ReadAll(reader)
 	if err != nil {
-		window.sendInterruptEvent(err)
+		window.sendEvent(newErrorMessage(err))
 		return
 	}
 
 	cache.set(getTruncatedURL(link), body)
-	window.sendInterruptEvent(eventTrackDownloader(key))
-	window.sendInterruptEvent(fmt.Sprintf("track %d downloaded", track+1))
+	window.sendEvent(newTrackDownloaded(key))
+	window.sendEvent(newMessage(fmt.Sprintf("track %d downloaded", track+1)))
 }
 
 func downloadCover(link string) {
-	window.sendInterruptEvent(eventDebugMessage("fetching album cover..."))
+	window.sendEvent(newDebugMessage("fetching album cover..."))
 	reader, _ := download(link, false, false)
 	if reader == nil {
-		window.sendInterruptEvent(eventCoverDownloader(nil))
+		window.sendEvent(newCoverDownloaded(nil))
 		return
 	}
 	defer reader.Close()
-	window.sendInterruptEvent(eventDebugMessage("downloading album cover..."))
+	window.sendEvent(newDebugMessage("downloading album cover..."))
 
 	img, err := jpeg.Decode(reader)
 	if err != nil {
-		window.sendInterruptEvent(err)
-		window.sendInterruptEvent(eventCoverDownloader(nil))
+		window.sendEvent(newErrorMessage(err))
+		window.sendEvent(newCoverDownloaded(nil))
 		return
 	}
-	window.sendInterruptEvent(eventDebugMessage("album cover downloaded"))
-	window.sendInterruptEvent(eventCoverDownloader(img))
+	window.sendEvent(newDebugMessage("album cover downloaded"))
+	window.sendEvent(newCoverDownloaded(img))
 }
 
 func processTagPage(args arguments) {
-	window.sendInterruptEvent("fetching tag search page...")
+	window.sendEvent(newMessage("fetching tag search page..."))
 
 	sbuilder := strings.Builder{}
 	defer sbuilder.Reset()
@@ -218,7 +218,7 @@ func processTagPage(args arguments) {
 		return
 	}
 	defer reader.Close()
-	window.sendInterruptEvent("parsing...")
+	window.sendEvent(newMessage("parsing..."))
 
 	scanner := bufio.NewScanner(reader)
 	var dataBlobJSON string
@@ -235,7 +235,7 @@ func processTagPage(args arguments) {
 			end += start
 			end--
 			if start == -1 || end == -1 || end < start {
-				window.sendInterruptEvent(errors.New("unexpected page format"))
+				window.sendEvent(newErrorMessage(errors.New("unexpected page format")))
 				return
 			}
 			replacer := strings.NewReplacer(`&quot;`, `"`, `&amp;`, `&`)
@@ -244,10 +244,10 @@ func processTagPage(args arguments) {
 		}
 	}
 	if dataBlobJSON == "" {
-		window.sendInterruptEvent(errors.New("unexpected page format"))
+		window.sendEvent(newErrorMessage(errors.New("unexpected page format")))
 		return
 	}
-	window.sendInterruptEvent("found data")
+	window.sendEvent(newMessage("found data"))
 
 	var urls []string
 	if inHighlights {
@@ -273,8 +273,8 @@ func processTagPage(args arguments) {
 		processMediaPage(url)
 		return
 	}
-	//file.Close()
-	window.sendInterruptEvent("nothing was found")
+	file.Close()
+	window.sendEvent(newMessage("nothing was found"))
 }
 
 func getTruncatedURL(link string) string {

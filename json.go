@@ -241,7 +241,7 @@ func parseTagSearchJSON(dataBlobJSON string) (urls []string) {
 	}
 
 	if index > len(dataBlob.Hubs.Tabs)-1 {
-		window.sendInterruptEvent(errors.New("tag page JSON parser: index out of range"))
+		window.sendEvent(newErrorMessage(errors.New("tag page JSON parser: index out of range")))
 		return urls
 	}
 

@@ -113,7 +113,7 @@ func parseInput(input string) {
 		app.Quit()
 		return
 	} else if !strings.HasPrefix(commands[0], "-") {
-		window.sendInterruptEvent("search (not implemented)")
+		window.sendEvent(newMessage("search (not implemented)"))
 		return
 	}
 
@@ -157,6 +157,6 @@ func parseInput(input string) {
 	if len(args.tags) > 0 {
 		go processTagPage(args)
 	} else {
-		window.sendInterruptEvent("no tags to search")
+		window.sendEvent(newMessage("no tags to search"))
 	}
 }

@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"image"
 	"math/rand"
 	"strings"
 	"time"
@@ -13,18 +12,6 @@ import (
 
 var app = &views.Application{}
 var window = &windowLayout{}
-
-// TODO: move events elsewhere, finish them with more pleasing
-// methods
-type eventNewItem *album
-type eventNextTrack int
-type eventCoverDownloader image.Image
-type eventTrackDownloader string
-type eventDebugMessage string
-
-func (message *eventDebugMessage) String() string {
-	return string(*message)
-}
 
 type recolorable interface {
 	SetStyle(tcell.Style)
@@ -53,15 +40,15 @@ type windowLayout struct {
 	playerM        *playerModel
 }
 
-func (window *windowLayout) sendInterruptEvent(data interface{}) {
+func (window *windowLayout) sendEvent(data interface{}) {
 	window.HandleEvent(tcell.NewEventInterrupt(data))
 }
 
 func getNewTrack(track int) {
 	if url, streamable := window.playerM.getURL(track); streamable {
-		go downloadMedia(url, player.currentTrack)
+		go downloadMedia(url, track)
 	} else {
-		window.sendInterruptEvent(
+		newMessage(
 			fmt.Sprintf("track %d is not available for streaming", track+1),
 		)
 		player.status = stopped
@@ -74,25 +61,26 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 	case *tcell.EventInterrupt:
 		switch data := event.Data().(type) {
 
-		case eventNewItem:
-			if data != nil {
+		case *eventNewItem:
+			if data.value() != nil {
 				player.stop()
 				player.clear()
 				player.initPlayer()
-				window.playerM.metadata = data
+				window.playerM.metadata = data.value()
 				getNewTrack(player.currentTrack)
 				go downloadCover(window.playerM.getImageURL(3))
-				player.totalTracks = window.playerM.metadata.totalTracks
+				player.totalTracks = data.value().totalTracks
 			}
 
-		case eventNextTrack:
-			getNewTrack(player.currentTrack)
+		case *eventNextTrack:
+			getNewTrack(data.value())
 
-		case eventTrackDownloader:
-			if data == eventTrackDownloader(window.playerM.getCacheID(player.currentTrack)) &&
+		case *eventTrackDownloaded:
+			track := player.currentTrack
+			if data.value() == window.playerM.getCacheID(track) &&
 				!player.isPlaying() {
 
-				player.play(player.currentTrack, data)
+				player.play(track, data.value())
 				return true
 			}
 			return false
@@ -131,12 +119,11 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 				}
 			}
 			// TODO: remove these two later, for debug
-		case tcell.KeyCtrlC:
-			window.screen.Fini()
-			fmt.Println("press Ctrl+C again to quit")
+		case tcell.KeyCtrlD:
+			newDebugMessage(fmt.Sprint(window.playerM.metadata))
 			return true
 
-		case tcell.KeyCtrlD:
+		case tcell.KeyCtrlT:
 			for _, widget := range window.widgets {
 				widget.(recolorable).SetStyle(getRandomStyle())
 				window.artM.style = getRandomStyle()
@@ -232,6 +219,11 @@ func (model *playerModel) getCacheID(track int) string {
 	return getTruncatedURL(model.metadata.tracks[track].url)
 }
 
+// a<album_art_id>_nn.jpg
+// _10 - original, whatever size it was
+// _16 - 700x700
+// _7  - 160x160
+// _3  - 100x100
 func (model *playerModel) getImageURL(size int) string {
 	var s string
 	switch size {
@@ -248,18 +240,18 @@ func (model *playerModel) getImageURL(size int) string {
 }
 
 func (model *playerModel) updateText() string {
-	var formatString string
 	var volume string
 	var repeats int
 	timeStamp := player.getCurrentTrackPosition()
+	track := player.currentTrack
 
 	if model.metadata == nil {
 		model.metadata = getDummyData()
 		// FIXME: not a good place for this
 		player.totalTracks = 0
 	}
-	formatString = model.metadata.formatString(player.currentTrack)
-	duration := model.metadata.tracks[player.currentTrack].duration
+
+	duration := model.metadata.tracks[track].duration
 	if duration > 0 {
 		repeats = int((float64(timeStamp) / (duration * 1_000_000_000)) * float64(model.endx))
 	} else {
@@ -279,7 +271,7 @@ func (model *playerModel) updateText() string {
 		symbol = "\u25b1"
 	}
 
-	return fmt.Sprintf(formatString,
+	return fmt.Sprintf(model.metadata.formatString(track),
 		player.status.String(),
 		strings.Repeat(symbol, repeats),
 		timeStamp,
@@ -307,21 +299,30 @@ type messageBox struct {
 func (message *messageBox) HandleEvent(event tcell.Event) bool {
 	switch event := event.(type) {
 
+	case *tcell.EventKey:
+		if event.Key() == tcell.KeyTab {
+			if !window.hideInput {
+				message.SetText("press [Tab] to enable input")
+			} else {
+				message.SetText("enter command")
+			}
+		}
+
 	case *tcell.EventInterrupt:
 		switch data := event.Data().(type) {
 
-		case string:
-			logFile.WriteString(event.When().Format(time.ANSIC) + "[msg]:" + data + "\n")
-			message.SetText(data)
+		case *eventMessage:
+			logFile.WriteString(event.When().Format(time.ANSIC) + "[msg]:" + data.string() + "\n")
+			message.SetText(data.string())
 			return true
 
-		case error:
-			logFile.WriteString(event.When().Format(time.ANSIC) + "[err]:" + data.Error() + "\n")
-			message.SetText(data.Error())
+		case *eventErrorMessage:
+			logFile.WriteString(event.When().Format(time.ANSIC) + "[err]:" + data.string() + "\n")
+			message.SetText(data.string())
 			return true
 
-		case eventDebugMessage:
-			logFile.WriteString(event.When().Format(time.ANSIC) + "[dbg]:" + data.String() + "\n")
+		case *eventDebugMessage:
+			logFile.WriteString(event.When().Format(time.ANSIC) + "[dbg]:" + data.string() + "\n")
 		}
 		return false
 	}
@@ -350,21 +351,22 @@ func changeTheme() {
 	var style tcell.Style
 	switch window.theme {
 
-	case 1:
+	case 1, 2:
+		window.fgColor, window.bgColor = window.bgColor, window.fgColor
 		style = tcell.StyleDefault.Background(window.bgColor).
 			Foreground(window.fgColor)
-
-	case 2:
-		style = tcell.StyleDefault.Background(window.fgColor).
-			Foreground(window.bgColor)
 
 	default:
 		style = tcell.StyleDefault
 	}
-	for _, widget := range window.widgets {
+	for i, widget := range window.widgets {
+		if i == 5 && window.theme != 0 {
+			widget.(recolorable).SetStyle(style.Foreground(tcell.ColorLightSlateGray))
+			continue
+		}
 		widget.(recolorable).SetStyle(style)
-		window.artM.style = style
 	}
+	window.artM.style = style
 }
 
 func init() {

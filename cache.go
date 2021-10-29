@@ -59,7 +59,7 @@ func (fifo *FIFO) dump() {
 			value = enqueue.Value
 			enqueue = enqueue.Next()
 		}
-		window.sendInterruptEvent(eventDebugMessage(value.(string)))
+		window.sendEvent(newDebugMessage(value.(string)))
 	}
 }
 
@@ -79,8 +79,8 @@ func (c bytesReadSeekCloser) Close() error {
 	return nil
 }
 
-func wrapInRSC(key eventTrackDownloader) *bytesReadSeekCloser {
-	value, ok := cache.get(string(key))
+func wrapInRSC(key string) *bytesReadSeekCloser {
+	value, ok := cache.get(key)
 	if !ok {
 		return &bytesReadSeekCloser{bytes.NewReader([]byte{0})}
 	}
