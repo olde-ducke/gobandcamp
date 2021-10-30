@@ -8,7 +8,6 @@ import (
 	"io"
 	"math/rand"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 )
@@ -256,14 +255,14 @@ func processTagPage(args arguments) {
 		urls = parseTagSearchJSON(dataBlobJSON)
 	}
 
-	file, err := os.Create("temp.html")
-	checkFatalError(err)
-
 	rand.Seed(time.Now().UnixNano())
 	var url string
 	if len(urls) > 0 {
-		for _, url := range urls {
-			file.WriteString(url + "\n")
+		// TODO: remove later
+		for i, url := range urls {
+			window.sendEvent(newDebugMessage(fmt.Sprint(
+				"tag search:", i, " ", url,
+			)))
 		}
 		url = urls[rand.Intn(len(urls))]
 		// TODO: remove later
@@ -273,7 +272,6 @@ func processTagPage(args arguments) {
 		processMediaPage(url)
 		return
 	}
-	file.Close()
 	window.sendEvent(newMessage("nothing was found"))
 }
 

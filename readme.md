@@ -49,5 +49,6 @@ Formats (optional):
 |       <kbd>R</kbd>      | change playback mode                                               |
 |       <kbd>T</kbd>      | switch theme                                                       |
 |       <kbd>I</kbd>      | switch art drawing method                                          |
+|       <kbd>E</kbd>      | switch symbols in status and progressbar to ascii ones             |
 |      <kbd>Tab</kbd>     | enable input                                                       |
 |      <kbd>Esc</kbd>     | quit                                                               |

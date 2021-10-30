@@ -368,13 +368,14 @@ func (player *playback) handleEvent(key rune) bool {
 		player.skip(true)
 
 	case 'p', 'P':
-		player.stop()
-		player.status = stopped
+		if player.isPlaying() {
+			player.stop()
+		}
 
 	default:
 		return false
 	}
-	// nil = just update text on screen
+	// nil = just updates text on screen
 	window.sendEvent(nil)
 	return true
 }
