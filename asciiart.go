@@ -21,8 +21,8 @@ type artModel struct {
 	endx      int
 	endy      int
 	asciiart  [][]ascii.CharPixel
-	style     tcell.Style
 	converter convert.ImageConverter
+	options   convert.Options
 	cover     image.Image
 }
 
@@ -31,10 +31,6 @@ func (model *artModel) GetBounds() (int, int) {
 }
 
 func (model *artModel) MoveCursor(offx, offy int) {
-	return
-}
-
-func (model *artModel) limitCursor() {
 	return
 }
 
@@ -47,9 +43,15 @@ func (model *artModel) SetCursor(x int, y int) {
 }
 
 func (model *artModel) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
+	var ch rune
 	if x > len(model.asciiart[0])-1 || y > len(model.asciiart)-1 {
-		return ' ', model.style, nil, 1
+		return ch, window.style, nil, 1
 	}
+
+	if window.artDrawingMode != 5 {
+		model.options.Reversed = false
+	}
+
 	switch window.artDrawingMode {
 
 	case 1:
@@ -75,7 +77,7 @@ func (model *artModel) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
 				int32(model.asciiart[y][x].B))), nil, 1
 
 	case 3:
-		return rune(model.asciiart[y][x].Char), model.style.Background(
+		return rune(model.asciiart[y][x].Char), window.style.Background(
 			tcell.NewRGBColor(
 				int32(model.asciiart[y][x].R),
 				int32(model.asciiart[y][x].G),
@@ -83,7 +85,7 @@ func (model *artModel) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
 			Foreground(window.bgColor), nil, 1
 
 	case 4:
-		return rune(model.asciiart[y][x].Char), model.style.Background(
+		return rune(model.asciiart[y][x].Char), window.style.Background(
 			tcell.NewRGBColor(
 				int32(model.asciiart[y][x].R),
 				int32(model.asciiart[y][x].G),
@@ -91,14 +93,14 @@ func (model *artModel) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
 			Foreground(window.fgColor), nil, 1
 
 	case 5:
-		return rune(model.asciiart[y][x].Char), model.style.Foreground(
+		return rune(model.asciiart[y][x].Char), window.style.Foreground(
 			tcell.NewRGBColor(
 				int32(model.asciiart[y][x].R),
 				int32(model.asciiart[y][x].G),
 				int32(model.asciiart[y][x].B))), nil, 1
 
 	default:
-		return ' ', model.style.Background(
+		return ' ', window.style.Background(
 			tcell.NewRGBColor(
 				int32(model.asciiart[y][x].R),
 				int32(model.asciiart[y][x].G),
@@ -119,15 +121,10 @@ func (art *artArea) HandleEvent(event tcell.Event) bool {
 	switch event := event.(type) {
 
 	case *tcell.EventInterrupt:
+
 		switch data := event.Data().(type) {
 		case *eventCoverDownloaded:
 			window.artM.cover = data.value()
-			window.artM.refitArt()
-			return true
-		}
-
-	case *views.EventWidgetResize:
-		if window.hasChangedSize() {
 			window.artM.refitArt()
 			return true
 		}
@@ -137,20 +134,11 @@ func (art *artArea) HandleEvent(event tcell.Event) bool {
 }
 
 func (model *artModel) refitArt() {
-	options := convert.Options{
-		Ratio:           1.0,
-		FixedWidth:      -1,
-		FixedHeight:     -1,
-		FitScreen:       true,
-		StretchedScreen: false,
-		Colored:         false,
-		Reversed:        false,
-	}
 	if model.cover == nil {
 		model.cover = getPlaceholderImage()
 	}
 	model.asciiart = model.converter.Image2CharPixelMatrix(
-		model.cover, &options)
+		model.cover, &model.options)
 
 	model.endx, model.endy = len(model.asciiart[0])-1,
 		len(model.asciiart)-1
@@ -167,4 +155,13 @@ func getPlaceholderImage() image.Image {
 func init() {
 	window.artM = &artModel{}
 	window.artM.converter = *convert.NewImageConverter()
+	window.artM.options = convert.Options{
+		Ratio:           1.0,
+		FixedWidth:      -1,
+		FixedHeight:     -1,
+		FitScreen:       true,
+		StretchedScreen: false,
+		Colored:         false,
+		Reversed:        false,
+	}
 }

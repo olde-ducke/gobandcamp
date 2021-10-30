@@ -33,6 +33,8 @@ type windowLayout struct {
 	widgets   []views.Widget
 	bgColor   tcell.Color
 	fgColor   tcell.Color
+	altColor  tcell.Color
+	style     tcell.Style
 	asciionly bool
 
 	artDrawingMode int
@@ -41,6 +43,9 @@ type windowLayout struct {
 }
 
 func (window *windowLayout) sendEvent(data interface{}) {
+	if _, ok := data.(*eventDebugMessage); ok && !*debug {
+		return
+	}
 	window.HandleEvent(tcell.NewEventInterrupt(data))
 }
 
@@ -71,6 +76,7 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 				go downloadCover(window.playerM.getImageURL(3))
 				player.totalTracks = data.value().totalTracks
 			}
+			return true
 
 		case *eventNextTrack:
 			getNewTrack(data.value())
@@ -85,12 +91,12 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 			}
 			return false
 		}
+
 	case *tcell.EventKey:
 		switch event.Key() {
 
 		case tcell.KeyEscape:
 			app.Quit()
-			logFile.WriteString(event.When().Format(time.ANSIC) + "[ext]:exit with code 0\n")
 			return true
 
 		case tcell.KeyF5:
@@ -104,6 +110,7 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 
 				case 'i', 'I':
 					window.artDrawingMode = (window.artDrawingMode + 1) % 6
+					checkDrawingMode()
 					return true
 
 				case 't', 'T':
@@ -118,19 +125,20 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 					return player.handleEvent(event.Rune())
 				}
 			}
-			// TODO: remove these two later, for debug
+			// TODO: remove these later, for debugging
 		case tcell.KeyCtrlD:
-			newDebugMessage(fmt.Sprint(window.playerM.metadata))
+			window.sendEvent(newDebugMessage(fmt.Sprint(window.playerM.metadata)))
 			return true
 
 		case tcell.KeyCtrlT:
 			for _, widget := range window.widgets {
 				widget.(recolorable).SetStyle(getRandomStyle())
-				window.artM.style = getRandomStyle()
+				window.style = getRandomStyle()
 			}
 			return true
 		}
 	}
+
 	return window.BoxLayout.HandleEvent(event)
 }
 
@@ -160,7 +168,7 @@ func (window *windowLayout) hasChangedSize() bool {
 }
 
 type contentArea struct {
-	views.Text
+	*views.CellView
 }
 
 func (content *contentArea) HandleEvent(event tcell.Event) bool {
@@ -169,12 +177,20 @@ func (content *contentArea) HandleEvent(event tcell.Event) bool {
 	case *views.EventWidgetResize:
 		if window.hasChangedSize() {
 			window.checkOrientation()
-			return true
+			window.artM.refitArt()
+			//window.playerM.updateText()
+			//app.Update()
+		}
+		return true
+
+	case *tcell.EventKey:
+		if event.Key() == tcell.KeyCtrlA {
+			content.SetModel(window.artM)
 		}
 
 	case *tcell.EventInterrupt:
 		if event.Data() == nil {
-			content.SetText(window.playerM.updateText())
+			window.playerM.updateText()
 			app.Update()
 			return true
 		}
@@ -184,9 +200,9 @@ func (content *contentArea) HandleEvent(event tcell.Event) bool {
 			window.playerM.updateText()
 			return true
 		}
-		return false
+		//return false
 	}
-	return content.Text.HandleEvent(event)
+	return false
 }
 
 // TODO: change back later
@@ -203,10 +219,45 @@ func (content *contentArea) Size() (int, int) {
 
 type playerModel struct {
 	metadata *album
+	x        int
+	y        int
 	endx     int
 	endy     int
+	count    int
+	text     [][]rune
 }
 
+func (model *playerModel) GetBounds() (int, int) {
+	return model.endx, model.endy
+}
+
+func (model *playerModel) MoveCursor(offx, offy int) {
+	return
+}
+
+func (model *playerModel) GetCursor() (int, int, bool, bool) {
+	return 0, 0, false, true
+}
+
+func (model *playerModel) SetCursor(x int, y int) {
+	return
+}
+
+func (model *playerModel) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
+	var ch rune
+	if y < len(model.text) {
+		if x < len(model.text[y]) {
+			// draw "by" and tags in alt color
+			if ((x == 1 || x == 2) && y == 1) || y == 3 {
+				return model.text[y][x], window.style.Foreground(window.altColor), nil, 1
+			}
+			return model.text[y][x], window.style, nil, 1
+		}
+	}
+	return ch, tcell.StyleDefault, nil, 1
+}
+
+// returns true and url if any streamable media was found
 func (model *playerModel) getURL(track int) (string, bool) {
 	if model.metadata.tracks[track].url != "" {
 		return model.metadata.tracks[track].url, true
@@ -215,6 +266,7 @@ func (model *playerModel) getURL(track int) (string, bool) {
 	}
 }
 
+// cache key = media url without any parameters
 func (model *playerModel) getCacheID(track int) string {
 	return getTruncatedURL(model.metadata.tracks[track].url)
 }
@@ -241,7 +293,7 @@ func (model *playerModel) getImageURL(size int) string {
 	return strings.Replace(model.metadata.imageSrc, "_10", s, 1)
 }
 
-func (model *playerModel) updateText() string {
+func (model *playerModel) updateText() {
 	var volume string
 	var repeats int
 	timeStamp := player.getCurrentTrackPosition()
@@ -255,8 +307,12 @@ func (model *playerModel) updateText() string {
 
 	duration := model.metadata.tracks[track].duration
 	if duration > 0 {
-		repeats = int((float64(timeStamp) / (duration * 1_000_000_000)) * float64(model.endx))
+		repeats = int(timeStamp) * 100 / (int(duration) * 1_000_000_000) * model.endx / 100
 	} else {
+		repeats = 0
+	}
+
+	if repeats < 0 {
 		repeats = 0
 	}
 
@@ -273,13 +329,33 @@ func (model *playerModel) updateText() string {
 		symbol = "\u25b1"
 	}
 
-	return fmt.Sprintf(model.metadata.formatString(track),
+	text := fmt.Sprintf(model.metadata.formatString(track),
 		player.status.String(),
 		strings.Repeat(symbol, repeats),
 		timeStamp,
 		volume,
-		player.playbackMode.String(),
-	)
+		player.playbackMode.String())
+
+	// NOTE: hardcoded length
+	model.text = make([][]rune, 14)
+	x, y := 0, 0
+	for _, r := range text {
+		if r == '\n' {
+			y++
+			x = 0
+			continue
+		}
+		if x > model.endx-1 {
+			for i := 1; model.endx-i >= 0 && i < 4; i++ {
+				model.text[y][x-i] = '.'
+			}
+			//y++
+			//x = 0
+			//continue
+		}
+		x++
+		model.text[y] = append(model.text[y], r)
+	}
 }
 
 type spacer struct {
@@ -301,34 +377,34 @@ type messageBox struct {
 func (message *messageBox) HandleEvent(event tcell.Event) bool {
 	switch event := event.(type) {
 
-	case *tcell.EventKey:
-		if event.Key() == tcell.KeyTab {
-			if !window.hideInput {
-				message.SetText("press [Tab] to enable input")
-			} else {
-				message.SetText("enter link/command")
+	case *tcell.EventInterrupt:
+		if *debug {
+			switch data := event.Data().(type) {
+
+			case *eventMessage:
+				logFile.WriteString(event.When().Format(time.ANSIC) + "[msg]:" + data.string() + "\n")
+				message.SetText(data.string())
+				return true
+
+			case *eventErrorMessage:
+				logFile.WriteString(event.When().Format(time.ANSIC) + "[err]:" + data.string() + "\n")
+				message.SetText(data.string())
+				return true
+
+			case *eventDebugMessage:
+				logFile.WriteString(event.When().Format(time.ANSIC) + "[dbg]:" + data.string() + "\n")
+				return true
+			}
+		} else {
+			switch data := event.Data().(type) {
+
+			case textEvents:
+				message.SetText(data.string())
+				return true
 			}
 		}
-
-	case *tcell.EventInterrupt:
-		switch data := event.Data().(type) {
-
-		case *eventMessage:
-			logFile.WriteString(event.When().Format(time.ANSIC) + "[msg]:" + data.string() + "\n")
-			message.SetText(data.string())
-			return true
-
-		case *eventErrorMessage:
-			logFile.WriteString(event.When().Format(time.ANSIC) + "[err]:" + data.string() + "\n")
-			message.SetText(data.string())
-			return true
-
-		case *eventDebugMessage:
-			logFile.WriteString(event.When().Format(time.ANSIC) + "[dbg]:" + data.string() + "\n")
-		}
-		return false
 	}
-	return message.Text.HandleEvent(event)
+	return false //message.Text.HandleEvent(event)
 }
 
 func (message *messageBox) Size() (int, int) {
@@ -350,25 +426,45 @@ func getRandomStyle() tcell.Style {
 func changeTheme() {
 	window.theme = (window.theme + 1) % 3
 
-	var style tcell.Style
 	switch window.theme {
 
 	case 1, 2:
 		window.fgColor, window.bgColor = window.bgColor, window.fgColor
-		style = tcell.StyleDefault.Background(window.bgColor).
+		window.style = tcell.StyleDefault.Background(window.bgColor).
 			Foreground(window.fgColor)
+		window.altColor = tcell.ColorLightSlateGray
 
 	default:
-		style = tcell.StyleDefault
+		window.style = tcell.StyleDefault
+		window.altColor = 0
 	}
+
 	for i, widget := range window.widgets {
+		// TODO: delete later
 		if i == 5 && window.theme != 0 {
-			widget.(recolorable).SetStyle(style.Foreground(tcell.ColorLightSlateGray))
+			widget.(recolorable).SetStyle(window.style.Foreground(window.altColor))
 			continue
 		}
-		widget.(recolorable).SetStyle(style)
+		widget.(recolorable).SetStyle(window.style)
 	}
-	window.artM.style = style
+	checkDrawingMode()
+}
+
+func checkDrawingMode() {
+	// if light theme and colored symbols on background color drawing mode
+	// selected, reverse color drawing option (by default black is basically
+	// treated as transparent) and redraw image, if any other mode selected
+	// and reversing is still enabled, reverse to default and redraw,
+	// looks bad on white either way, but at least is more recognisable
+	if window.theme == 1 && window.artDrawingMode == 5 {
+		if !window.artM.options.Reversed {
+			window.artM.options.Reversed = true
+			window.artM.refitArt()
+		}
+	} else if window.artM.options.Reversed {
+		window.artM.options.Reversed = false
+		window.artM.refitArt()
+	}
 }
 
 func init() {
@@ -388,10 +484,11 @@ func init() {
 	contentBoxV1 := views.NewBoxLayout(views.Vertical)
 	contentBoxV2 := views.NewBoxLayout(views.Vertical)
 	spacer3 := &spacer{views.NewText(), true}
-	content := &contentArea{}
-	content.SetText(window.playerM.updateText())
+	content := &contentArea{views.NewCellView()}
+	content.SetModel(window.playerM)
+	window.playerM.updateText()
 	message := &messageBox{views.NewText()}
-	message.SetText("press [Tab] to enable input")
+	message.SetText("[Tab] enable input [H] display help")
 	field := &textField{}
 	field.EnableCursor(!window.hideInput)
 	field.HideCursor(window.hideInput)

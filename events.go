@@ -4,6 +4,10 @@ import (
 	"image"
 )
 
+type textEvents interface {
+	string() string
+}
+
 // new media item data, if null, previous playback will continue
 type eventNewItem struct {
 	album *album

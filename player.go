@@ -83,7 +83,11 @@ func (player *playback) changePosition(pos int) {
 		// sometimes reports errors, for example this one:
 		// https://github.com/faiface/beep/issues/116
 		// causes track to skip, again, only sometimes
-		window.sendEvent(newDebugMessage(err.Error()))
+		// NOTE: ignore EOF entirely, jumping straight to the end
+		// doesn't seem to break anything and fixes problem above
+		if err.Error() != "mp3: EOF" {
+			window.sendEvent(newErrorMessage(err))
+		}
 	}
 }
 
@@ -194,9 +198,7 @@ func (player *playback) delaySwitching() {
 }
 
 func (player *playback) play(track int, key string) {
-	// FIXME: it is possible to play two first tracks at the same time, if you input
-	// two queries fast enough, this stops previous playback
-	player.clear()
+	//player.clear()
 	player.currentTrack = track
 	streamer, format, err := mp3.Decode(wrapInRSC(key))
 	if err != nil {
@@ -303,7 +305,7 @@ func (player *playback) handleEvent(key rune) bool {
 		}
 		player.bufferStatus(seekBWD)
 		speaker.Lock()
-		player.changePosition(-player.format.SampleRate.N(time.Second * 3))
+		player.changePosition(-player.format.SampleRate.N(time.Second * 2))
 		speaker.Unlock()
 
 	case 'd', 'D':
@@ -312,7 +314,7 @@ func (player *playback) handleEvent(key rune) bool {
 		}
 		player.bufferStatus(seekFWD)
 		speaker.Lock()
-		player.changePosition(player.format.SampleRate.N(time.Second * 3))
+		player.changePosition(player.format.SampleRate.N(time.Second * 2))
 		speaker.Unlock()
 
 	case 's', 'S':

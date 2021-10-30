@@ -63,7 +63,7 @@ func processMediaPage(link string) {
 	reader, _ := download(link, true, true)
 	if reader == nil {
 		window.sendEvent(newItem(nil))
-		window.sendEvent(newCoverDownloaded(nil))
+		//window.sendEvent(newCoverDownloaded(nil))
 		return
 	}
 	defer reader.Close()

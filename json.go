@@ -105,11 +105,19 @@ func parseAlbumJSON(metaDataJSON string, mediaDataJSON string) (*album, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	/*date, err := time.Parse("02 Jan 2006 00:00:00 GMT", metaData.DatePublished)
+	if err != nil {
+		window.sendEvent(newErrorMessage(err))
+	}
+	y, m, d := date.Date()
+	strDate := fmt.Sprint(d, " ", strings.ToLower(m.String()), " ", y)*/
+
 	albumMetaData := &album{
 		imageSrc:    metaData.Image,
 		title:       metaData.Name,
 		artist:      metaData.ByArtist["name"],
-		date:        metaData.DatePublished[:11], // TODO: do something with time in parsed date
+		date:        strings.ToLower(metaData.DatePublished[:11]),
 		url:         mediaData.URL,
 		tags:        strings.Join(metaData.Tags, " "),
 		totalTracks: metaData.Tracks.NumberOfItems,
@@ -148,7 +156,7 @@ func parseTrackJSON(metaDataJSON string, mediaDataJSON string) (*album, error) {
 		imageSrc:    metaData.Image,
 		title:       metaData.InAlbum["name"].(string),
 		artist:      metaData.ByArtist["name"],
-		date:        metaData.DatePublished[:11], // TODO: do something with time in parsed date
+		date:        strings.ToLower(metaData.DatePublished[:11]),
 		url:         mediaData.URL,
 		tags:        strings.Join(metaData.Tags, " "),
 		totalTracks: 1,

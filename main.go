@@ -19,7 +19,9 @@ var logFile *os.File
 func checkFatalError(err error) {
 	if err != nil {
 		app.Quit()
-		logFile.WriteString(time.Now().Format(time.ANSIC) + "[err]:" + err.Error())
+		if *debug {
+			logFile.WriteString(time.Now().Format(time.ANSIC) + "[err]:" + err.Error())
+		}
 		// FIXME: can't print while app is finishing
 		// sometimes does print though
 		fmt.Fprintln(os.Stderr, err)
@@ -28,18 +30,25 @@ func checkFatalError(err error) {
 }
 
 func init() {
-	var err error
-	logFile, err = os.Create("dump.log")
-	checkFatalError(err)
 	cache = newCache(4)
 }
 
+// TODO: combine with input args
 var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to `file`")
 var memprofile = flag.String("memprofile", "", "write memory profile to `file`")
+var debug = flag.Bool("debug", false, "write debug output to 'dump.log'")
 
 func main() {
 
 	flag.Parse()
+
+	if *debug {
+		var err error
+		logFile, err = os.Create("dump.log")
+		checkFatalError(err)
+		defer logFile.Close()
+	}
+
 	if *cpuprofile != "" {
 		file, err := os.Create(*cpuprofile)
 		checkFatalError(err)
@@ -51,7 +60,7 @@ func main() {
 	// TODO: exit loop
 	go func() {
 		for {
-			time.Sleep(time.Second / 2)
+			time.Sleep(time.Second)
 			window.sendEvent(nil)
 			if player.status == seekBWD || player.status == seekFWD {
 				player.status = player.bufferedStatus
@@ -66,8 +75,6 @@ func main() {
 	err := app.Run()
 	checkFatalError(err)
 
-	logFile.Close()
-
 	if *memprofile != "" {
 		file, err := os.Create(*memprofile)
 		checkFatalError(err)
@@ -77,5 +84,6 @@ func main() {
 		checkFatalError(err)
 	}
 	pprof.StopCPUProfile()
+
 	os.Exit(exitCode)
 }
