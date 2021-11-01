@@ -276,8 +276,8 @@ func processTagPage(args arguments) {
 }
 
 func getTruncatedURL(link string) string {
-	if strings.Contains(link, "?p=") {
-		index := strings.Index(link, "?p=")
+	if strings.Contains(link, "?") {
+		index := strings.Index(link, "?")
 		return link[:index]
 	} else {
 		return ""

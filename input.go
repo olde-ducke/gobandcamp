@@ -59,7 +59,9 @@ func (field *textField) HandleEvent(event tcell.Event) bool {
 			field.Clear()
 			return true
 
-		case tcell.KeyBackspace2:
+			// NOTE: don't know why, but only backspace2 works on
+			// this system, only regular one works on windows
+		case tcell.KeyBackspace2, tcell.KeyBackspace:
 			if posX > 0 {
 				posX--
 				field.symbols[posX] = 0

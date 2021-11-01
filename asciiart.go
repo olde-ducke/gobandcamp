@@ -44,7 +44,7 @@ func (model *artModel) SetCursor(x int, y int) {
 
 func (model *artModel) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
 	var ch rune
-	if x > len(model.asciiart[0])-1 || y > len(model.asciiart)-1 {
+	if x > model.endx || y > model.endy {
 		return ch, window.style, nil, 1
 	}
 
@@ -137,6 +137,23 @@ func (model *artModel) refitArt() {
 	if model.cover == nil {
 		model.cover = getPlaceholderImage()
 	}
+
+	// FIXME: janky fix for windows
+	// ascii2image can't get terminal dimensions on windows and uses
+	// zeroes as fixed width/height, which is equivalent to original
+	// image size, recalculateBounds() calculates negative dimensions
+	// and clamps them to 0
+	// this assumes that font roughly 1/2 (height to width) ratio
+	// which is not necessarily like that in all cases?
+	// works fine with default fonts on both systems
+	if window.orientation == views.Horizontal {
+		model.options.FixedHeight = window.height
+		model.options.FixedWidth = window.height * 2
+	} else {
+		model.options.FixedWidth = window.width
+		model.options.FixedHeight = window.width / 2
+	}
+
 	model.asciiart = model.converter.Image2CharPixelMatrix(
 		model.cover, &model.options)
 
@@ -157,9 +174,9 @@ func init() {
 	window.artM.converter = *convert.NewImageConverter()
 	window.artM.options = convert.Options{
 		Ratio:           1.0,
-		FixedWidth:      -1,
-		FixedHeight:     -1,
-		FitScreen:       true,
+		FixedWidth:      10,
+		FixedHeight:     10,
+		FitScreen:       false,
 		StretchedScreen: false,
 		Colored:         false,
 		Reversed:        false,

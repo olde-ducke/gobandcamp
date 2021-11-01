@@ -36,9 +36,13 @@ type windowLayout struct {
 	style     tcell.Style
 	asciionly bool
 
-	artDrawingMode int
+	boundx, boundy int
+	playlist       *album
+	currentModel   int
 	artM           *artModel
 	playerM        *playerModel
+	textM          *textModel
+	artDrawingMode int
 }
 
 func (window *windowLayout) sendEvent(data interface{}) {
@@ -49,7 +53,7 @@ func (window *windowLayout) sendEvent(data interface{}) {
 }
 
 func getNewTrack(track int) {
-	if url, streamable := window.playerM.getURL(track); streamable {
+	if url, streamable := window.playlist.getURL(track); streamable {
 		go downloadMedia(url, track)
 	} else {
 		window.sendEvent((fmt.Sprintf("track %d is not available for streaming", track+1)))
@@ -69,21 +73,22 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 				player.clear()
 				player.initPlayer()
 
-				window.playerM.metadata = data.value()
+				window.playlist = data.value()
 				window.playerM.updateText()
 
 				getNewTrack(player.currentTrack)
-				go downloadCover(window.playerM.getImageURL(3))
+				go downloadCover(window.playlist.getImageURL(3))
 				player.totalTracks = data.value().totalTracks
 			}
-			return true
+			//return true
 
 		case *eventNextTrack:
 			getNewTrack(data.value())
+			//return true
 
 		case *eventTrackDownloaded:
 			track := player.currentTrack
-			if data.value() == window.playerM.getCacheID(track) &&
+			if data.value() == window.playlist.getCacheID(track) &&
 				!player.isPlaying() {
 
 				player.play(track, data.value())
@@ -99,9 +104,30 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 			app.Quit()
 			return true
 
-		case tcell.KeyF5:
-			// TODO: remove, doesn't do anything really
-			app.Refresh()
+			// dumps all parsed metadata to logfile
+		case tcell.KeyCtrlD:
+			window.sendEvent(newDebugMessage(fmt.Sprint(window.playlist)))
+			return true
+
+		// recolor everything in random colors
+		// if debug flag is not set everything in one random style
+		case tcell.KeyCtrlT:
+			window.altColor = getRandomColor()
+			if *debug {
+				for _, widget := range window.widgets {
+					widget.(recolorable).SetStyle(getRandomStyle())
+				}
+				window.style = getRandomStyle()
+			} else {
+				window.style = getRandomStyle()
+				for i, widget := range window.widgets {
+					if i == 5 {
+						widget.(recolorable).SetStyle(window.style.Foreground(window.altColor))
+					} else {
+						widget.(recolorable).SetStyle(window.style)
+					}
+				}
+			}
 			return true
 
 		case tcell.KeyRune:
@@ -125,24 +151,8 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 					return player.handleEvent(event.Rune())
 				}
 			}
-
-		// dumps all parsed metadata to logfile
-		case tcell.KeyCtrlD:
-			window.sendEvent(newDebugMessage(fmt.Sprint(window.playerM.metadata)))
-			return true
-
-		// recolor everything in random colors
-		case tcell.KeyCtrlT:
-			if *debug {
-				for _, widget := range window.widgets {
-					widget.(recolorable).SetStyle(getRandomStyle())
-					window.style = getRandomStyle()
-				}
-			}
-			return true
 		}
 	}
-
 	return window.BoxLayout.HandleEvent(event)
 }
 
@@ -169,6 +179,30 @@ func (window *windowLayout) hasChangedSize() bool {
 		return true
 	}
 	return false
+}
+
+func (window *windowLayout) recalculateBounds() {
+
+	if window.orientation == views.Horizontal {
+		window.boundx = window.width - window.artM.endx - 3*window.hMargin
+		window.boundy = window.height - window.vMargin - 2
+	} else {
+		window.boundx = window.width - 2*window.vMargin
+		window.boundy = window.height - 2*window.vMargin - window.artM.endy - 2
+	}
+
+	// clamp to zero, otherwise can lead to negative indices
+	if window.boundx < 0 {
+		window.boundx = 0
+	}
+
+	if window.boundy < 0 {
+		window.boundy = 0
+	}
+}
+
+func (window *windowLayout) getBounds() (int, int) {
+	return window.boundx, window.boundy
 }
 
 type spacer struct {
@@ -228,12 +262,14 @@ func (message *messageBox) Size() (int, int) {
 }
 
 func getRandomStyle() tcell.Style {
-	rand.Seed(time.Now().UnixNano())
 	return tcell.StyleDefault.Foreground(
-		tcell.NewHexColor(
-			int32(rand.Intn(2_147_483_647)))).Background(
-		tcell.NewHexColor(
-			int32(rand.Intn(2_147_483_647))))
+		getRandomColor()).Background(getRandomColor())
+}
+
+func getRandomColor() tcell.Color {
+	rand.Seed(time.Now().UnixNano())
+	return tcell.NewHexColor(
+		int32(rand.Intn(2_147_483_647)))
 }
 
 func changeTheme() {
@@ -265,7 +301,7 @@ func changeTheme() {
 
 func checkDrawingMode() {
 	// if light theme and colored symbols on background color drawing mode
-	// selected, reverse color drawing option (by default black is basically
+	// selected, reverse color drawing option (by defauplayerult black is basically
 	// treated as transparent) and redraw image, if any other mode selected
 	// and reversing is still enabled, reverse to default and redraw,
 	// looks bad on white either way, but at least is more recognisable
@@ -288,6 +324,7 @@ func init() {
 	window.bgColor = tcell.NewHexColor(0x2b2b2b)
 
 	window.playerM = &playerModel{}
+	window.textM = &textModel{}
 
 	spacer1 := &spacer{views.NewText(), false}
 	art := &artArea{views.NewCellView()}

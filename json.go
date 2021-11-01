@@ -31,24 +31,60 @@ type track struct {
 	url         string
 }
 
-func (metadata *album) formatString(n int) string {
+func (album *album) formatString(n int) string {
 	sbuilder := strings.Builder{}
 	fmt.Fprintf(&sbuilder, "%s\n by %s\nreleased %s\n%s\n\n%s %2d/%d - %s\n%s\n%s/%s\nvolume %s mode %s\n\n\n\n\n%s",
-		metadata.title,
-		metadata.artist,
-		metadata.date,
-		metadata.tags,
+		album.title,
+		album.artist,
+		album.date,
+		album.tags,
 		`%2s`,
 		n+1,
-		metadata.totalTracks,
-		metadata.tracks[n].title,
+		album.totalTracks,
+		album.tracks[n].title,
 		`%s`, `%s`,
-		(time.Duration(metadata.tracks[n].duration) * time.Second).Round(time.Second),
+		(time.Duration(album.tracks[n].duration) * time.Second).Round(time.Second),
 		`%4s`, `%s`,
-		metadata.url,
+		album.url,
 	)
 	defer sbuilder.Reset()
 	return sbuilder.String()
+}
+
+// returns true and url if any streamable media was found
+func (album *album) getURL(track int) (string, bool) {
+	if album.tracks[track].url != "" {
+		return album.tracks[track].url, true
+	} else {
+		return "", false
+	}
+}
+
+// cache key = media url without any parameters
+func (album *album) getCacheID(track int) string {
+	return getTruncatedURL(album.tracks[track].url)
+}
+
+// a<album_art_id>_nn.jpg
+// other images stored without type prefix?
+// not all sizes are listed here, all up to _16 are existing files
+// _10 - original, whatever size it was
+// _16 - 700x700
+// _7  - 160x160
+// _3  - 100x100
+func (album *album) getImageURL(size int) string {
+	var s string
+	switch size {
+	case 3:
+		s = "_16"
+	case 2:
+		s = "_7"
+	case 1:
+		s = "_3"
+	default:
+		return album.imageSrc
+	}
+	return strings.Replace(album.imageSrc, "_10", s, 1)
 }
 
 type albumJSON struct {
@@ -106,18 +142,11 @@ func parseAlbumJSON(metaDataJSON string, mediaDataJSON string) (*album, error) {
 		return nil, err
 	}
 
-	/*date, err := time.Parse("02 Jan 2006 00:00:00 GMT", metaData.DatePublished)
-	if err != nil {
-		window.sendEvent(newErrorMessage(err))
-	}
-	y, m, d := date.Date()
-	strDate := fmt.Sprint(d, " ", strings.ToLower(m.String()), " ", y)*/
-
 	albumMetaData := &album{
 		imageSrc:    metaData.Image,
 		title:       metaData.Name,
 		artist:      metaData.ByArtist["name"],
-		date:        strings.ToLower(metaData.DatePublished[:11]),
+		date:        parseDate(metaData.DatePublished),
 		url:         mediaData.URL,
 		tags:        strings.Join(metaData.Tags, " "),
 		totalTracks: metaData.Tracks.NumberOfItems,
@@ -156,7 +185,7 @@ func parseTrackJSON(metaDataJSON string, mediaDataJSON string) (*album, error) {
 		imageSrc:    metaData.Image,
 		title:       metaData.InAlbum["name"].(string),
 		artist:      metaData.ByArtist["name"],
-		date:        strings.ToLower(metaData.DatePublished[:11]),
+		date:        parseDate(metaData.DatePublished),
 		url:         mediaData.URL,
 		tags:        strings.Join(metaData.Tags, " "),
 		totalTracks: 1,
@@ -177,6 +206,18 @@ func parseTrackJSON(metaDataJSON string, mediaDataJSON string) (*album, error) {
 	}
 
 	return albumMetaData, nil
+}
+
+func parseDate(input string) (strDate string) {
+	date, err := time.Parse("02 Jan 2006 00:00:00 GMT", input)
+	if err != nil {
+		window.sendEvent(newErrorMessage(err))
+		strDate = "---"
+	} else {
+		y, m, d := date.Date()
+		strDate = fmt.Sprintf("%02d %s %4d", d, strings.ToLower(m.String()[:3]), y)
+	}
+	return strDate
 }
 
 func getDummyData() *album {

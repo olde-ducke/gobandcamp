@@ -50,5 +50,6 @@ Formats (optional):
 |       <kbd>T</kbd>      | switch theme                                                       |
 |       <kbd>I</kbd>      | switch art drawing method                                          |
 |       <kbd>E</kbd>      | switch symbols in status and progressbar to ascii ones             |
+|    <kbd>Ctrl+L</kbd>    | display lyrics                                                     |
 |      <kbd>Tab</kbd>     | enable input                                                       |
 |      <kbd>Esc</kbd>     | quit                                                               |
