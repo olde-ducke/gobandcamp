@@ -142,7 +142,7 @@ func (model *artModel) refitArt() {
 	// ascii2image can't get terminal dimensions on windows and uses
 	// zeroes as fixed width/height, which is equivalent to original
 	// image size, recalculateBounds() calculates negative dimensions
-	// and clamps them to 0
+	// and clamps them to 0, this leads to empty terminal
 	// this assumes that font roughly 1/2 (height to width) ratio
 	// which is not necessarily like that in all cases?
 	// works fine with default fonts on both systems

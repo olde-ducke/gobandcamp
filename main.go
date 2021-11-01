@@ -33,6 +33,21 @@ func init() {
 	cache = newCache(4)
 }
 
+// TODO: exit loop
+func updater(quit chan bool, update <-chan time.Time) {
+	for {
+		select {
+		case <-quit:
+			return
+		case <-update:
+			window.sendEvent(nil)
+			if player.status == seekBWD || player.status == seekFWD {
+				player.status = player.bufferedStatus
+			}
+		}
+	}
+}
+
 // TODO: combine with input args
 var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to `file`")
 var memprofile = flag.String("memprofile", "", "write memory profile to `file`")
@@ -40,13 +55,17 @@ var debug = flag.Bool("debug", false, "write debug output to 'dump.log'")
 
 func main() {
 
+	ticker := time.NewTicker(time.Second)
+	quit := make(chan bool)
+	update := ticker.C
+	go updater(quit, update)
+
 	flag.Parse()
 
 	if *debug {
 		var err error
 		logFile, err = os.Create("dump.log")
 		checkFatalError(err)
-		defer logFile.Close()
 	}
 
 	if *cpuprofile != "" {
@@ -57,21 +76,12 @@ func main() {
 		checkFatalError(err)
 	}
 
-	// TODO: exit loop
-	go func() {
-		for {
-			time.Sleep(time.Second)
-			window.sendEvent(nil)
-			if player.status == seekBWD || player.status == seekFWD {
-				player.status = player.bufferedStatus
-			}
-		}
-	}()
 	// FIXME: behaves weird after coming from suspend (high CPU load)
 	// FIXME: device does not reinitialize after suspend
 	// FIXME: takes device to itself, doesn't allow any other program to use it, and can't use it, if device is already being used
 	// just switch to SDL, it doesn't have any of these problems
 	// FIXME: can't tell orientation on the start for whatever reason
+
 	err := app.Run()
 	checkFatalError(err)
 
@@ -83,7 +93,14 @@ func main() {
 		err = pprof.WriteHeapProfile(file)
 		checkFatalError(err)
 	}
-	pprof.StopCPUProfile()
 
+	quit <- true
+	ticker.Stop()
+	time.Sleep(time.Second / 2)
+
+	if *debug {
+		logFile.Close()
+		pprof.StopCPUProfile()
+	}
 	os.Exit(exitCode)
 }
