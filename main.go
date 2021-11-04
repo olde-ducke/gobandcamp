@@ -95,12 +95,14 @@ func main() {
 	}
 
 	quit <- true
+	close(quit)
 	ticker.Stop()
-	time.Sleep(time.Second / 2)
+	time.Sleep(time.Second / 3)
 
 	if *debug {
 		logFile.Close()
 		pprof.StopCPUProfile()
 	}
+
 	os.Exit(exitCode)
 }

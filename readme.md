@@ -51,5 +51,6 @@ Formats (optional):
 |       <kbd>I</kbd>      | switch art drawing method                                          |
 |       <kbd>E</kbd>      | switch symbols in status and progressbar to ascii ones             |
 |    <kbd>Ctrl+L</kbd>    | display lyrics                                                     |
+|    <kbd>Ctrl+P</kbd>    | display playlist                                                   |
 |      <kbd>Tab</kbd>     | enable input                                                       |
 |      <kbd>Esc</kbd>     | quit                                                               |

@@ -31,6 +31,7 @@ type track struct {
 	url         string
 }
 
+// TODO: move these methods away from json, they have nothing to do with it
 func (album *album) formatString(n int) string {
 	sbuilder := strings.Builder{}
 	fmt.Fprintf(&sbuilder, "%s\n by %s\nreleased %s\n%s\n\n%s %2d/%d - %s\n%s\n%s/%s\nvolume %s mode %s\n\n\n\n\n%s",
@@ -87,6 +88,7 @@ func (album *album) getImageURL(size int) string {
 	return strings.Replace(album.imageSrc, "_10", s, 1)
 }
 
+// TODO: unwrap all types back, it's painfull to look at this thing below
 type albumJSON struct {
 	ByArtist      map[string]string `json:"byArtist"`      // field "name" contains artist/band name
 	Name          string            `json:"name"`          // album title

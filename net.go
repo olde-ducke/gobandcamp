@@ -15,7 +15,7 @@ import (
 // TODO: by default no timeout is set
 // TODO: cancel response body readings for unfinished tracks
 // will solve a lot of problems
-
+// TODO: maybe it is a good idea to check domain everytime, just in case?
 func download(link string, mobile bool, checkDomain bool) (io.ReadCloser, string) {
 	window.sendEvent(newDebugMessage(link))
 	request, err := http.NewRequest("GET", link, nil)
@@ -50,6 +50,7 @@ func download(link string, mobile bool, checkDomain bool) (io.ReadCloser, string
 		if !strings.Contains(response.Header.Get("Link"),
 			"bandcamp.com") {
 			window.sendEvent(newErrorMessage(errors.New("response came not from bandcamp.com")))
+			window.sendEvent(newDebugMessage(fmt.Sprint(response)))
 			response.Body.Close()
 			return nil, ""
 		}
@@ -62,7 +63,6 @@ func processMediaPage(link string) {
 	reader, _ := download(link, true, true)
 	if reader == nil {
 		window.sendEvent(newItem(nil))
-		//window.sendEvent(newCoverDownloaded(nil))
 		return
 	}
 	defer reader.Close()
@@ -71,12 +71,16 @@ func processMediaPage(link string) {
 	scanner := bufio.NewScanner(reader)
 	// NOTE: might fail here
 	// 64k is not enough for all pages apparently
+	// failed on a page with 43 tracks
 	var buffer []byte
 	scanner.Buffer(buffer, 131072)
 	var metaDataJSON string
 	var mediaDataJSON string
 	var isAlbum bool
 
+	// TODO: expects only album/track pages and artist page with pinned item
+	// if artist page is discography, will try to parse it as album/track
+	// doesn't crash, but doesn't need to get there in the first place
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.Contains(line, "og:type") {
@@ -223,6 +227,7 @@ func processTagPage(args arguments) {
 	var dataBlobJSON string
 	// NOTE: might fail here
 	// 64k is not enough for these pages
+	// 1048576 loads pages with 178 items on them
 	var buffer []byte
 	scanner.Buffer(buffer, 1048576)
 	for scanner.Scan() {
@@ -265,10 +270,7 @@ func processTagPage(args arguments) {
 			)))
 		}
 		url = urls[rand.Intn(len(urls))]
-		// TODO: remove later
-		player.stop()
-		player.initPlayer()
-		//
+
 		processMediaPage(url)
 		return
 	}

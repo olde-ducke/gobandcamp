@@ -8,8 +8,8 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/gdamore/tcell/v2/views"
-	"github.com/qeesung/image2ascii/ascii"
-	"github.com/qeesung/image2ascii/convert"
+	"github.com/olde-ducke/image2ascii/ascii"
+	"github.com/olde-ducke/image2ascii/convert"
 )
 
 //go:embed assets/gopher.png
@@ -52,60 +52,65 @@ func (model *artModel) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
 		model.options.Reversed = false
 	}
 
-	switch window.artDrawingMode {
+	if model.asciiart[y][x].A > 72 {
 
-	case 1:
-		return rune(model.asciiart[y][x].Char), tcell.StyleDefault.Background(
-			tcell.NewRGBColor(
-				int32(model.asciiart[y][x].R),
-				int32(model.asciiart[y][x].G),
-				int32(model.asciiart[y][x].B))).Foreground(
-			tcell.NewRGBColor(
-				int32(model.asciiart[y][x].R/2),
-				int32(model.asciiart[y][x].G/2),
-				int32(model.asciiart[y][x].B/2))), nil, 1
+		switch window.artDrawingMode {
 
-	case 2:
-		return rune(model.asciiart[y][x].Char), tcell.StyleDefault.Background(
-			tcell.NewRGBColor(
-				int32(model.asciiart[y][x].R/2),
-				int32(model.asciiart[y][x].G/2),
-				int32(model.asciiart[y][x].B/2))).Foreground(
-			tcell.NewRGBColor(
-				int32(model.asciiart[y][x].R),
-				int32(model.asciiart[y][x].G),
-				int32(model.asciiart[y][x].B))), nil, 1
+		case 1:
+			return rune(model.asciiart[y][x].Char), tcell.StyleDefault.Background(
+				tcell.NewRGBColor(
+					int32(model.asciiart[y][x].R),
+					int32(model.asciiart[y][x].G),
+					int32(model.asciiart[y][x].B))).Foreground(
+				tcell.NewRGBColor(
+					int32(model.asciiart[y][x].R/2),
+					int32(model.asciiart[y][x].G/2),
+					int32(model.asciiart[y][x].B/2))), nil, 1
 
-	case 3:
-		return rune(model.asciiart[y][x].Char), window.style.Background(
-			tcell.NewRGBColor(
-				int32(model.asciiart[y][x].R),
-				int32(model.asciiart[y][x].G),
-				int32(model.asciiart[y][x].B))).
-			Foreground(window.bgColor), nil, 1
+		case 2:
+			return rune(model.asciiart[y][x].Char), tcell.StyleDefault.Background(
+				tcell.NewRGBColor(
+					int32(model.asciiart[y][x].R/2),
+					int32(model.asciiart[y][x].G/2),
+					int32(model.asciiart[y][x].B/2))).Foreground(
+				tcell.NewRGBColor(
+					int32(model.asciiart[y][x].R),
+					int32(model.asciiart[y][x].G),
+					int32(model.asciiart[y][x].B))), nil, 1
 
-	case 4:
-		return rune(model.asciiart[y][x].Char), window.style.Background(
-			tcell.NewRGBColor(
-				int32(model.asciiart[y][x].R),
-				int32(model.asciiart[y][x].G),
-				int32(model.asciiart[y][x].B))).
-			Foreground(window.fgColor), nil, 1
+		case 3:
+			return rune(model.asciiart[y][x].Char), window.style.Background(
+				tcell.NewRGBColor(
+					int32(model.asciiart[y][x].R),
+					int32(model.asciiart[y][x].G),
+					int32(model.asciiart[y][x].B))).
+				Foreground(window.bgColor), nil, 1
 
-	case 5:
-		return rune(model.asciiart[y][x].Char), window.style.Foreground(
-			tcell.NewRGBColor(
-				int32(model.asciiart[y][x].R),
-				int32(model.asciiart[y][x].G),
-				int32(model.asciiart[y][x].B))), nil, 1
+		case 4:
+			return rune(model.asciiart[y][x].Char), window.style.Background(
+				tcell.NewRGBColor(
+					int32(model.asciiart[y][x].R),
+					int32(model.asciiart[y][x].G),
+					int32(model.asciiart[y][x].B))).
+				Foreground(window.fgColor), nil, 1
 
-	default:
-		return ' ', window.style.Background(
-			tcell.NewRGBColor(
-				int32(model.asciiart[y][x].R),
-				int32(model.asciiart[y][x].G),
-				int32(model.asciiart[y][x].B))), nil, 1
+		case 5:
+			return rune(model.asciiart[y][x].Char), window.style.Foreground(
+				tcell.NewRGBColor(
+					int32(model.asciiart[y][x].R),
+					int32(model.asciiart[y][x].G),
+					int32(model.asciiart[y][x].B))), nil, 1
 
+		default:
+			return ' ', window.style.Background(
+				tcell.NewRGBColor(
+					int32(model.asciiart[y][x].R),
+					int32(model.asciiart[y][x].G),
+					int32(model.asciiart[y][x].B))), nil, 1
+
+		}
+	} else {
+		return ' ', window.style, nil, 1
 	}
 }
 

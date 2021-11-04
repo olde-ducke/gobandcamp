@@ -38,10 +38,10 @@ type windowLayout struct {
 
 	boundx, boundy int
 	playlist       *album
-	currentModel   int
 	artM           *artModel
 	playerM        *playerModel
 	textM          *textModel
+	playlistM      *model
 	artDrawingMode int
 }
 
@@ -56,7 +56,7 @@ func getNewTrack(track int) {
 	if url, streamable := window.playlist.getURL(track); streamable {
 		go downloadMedia(url, track)
 	} else {
-		window.sendEvent((fmt.Sprintf("track %d is not available for streaming", track+1)))
+		window.sendEvent(newMessage("track is not available for streaming"))
 		player.status = stopped
 	}
 }
@@ -67,15 +67,15 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 	case *tcell.EventInterrupt:
 		switch data := event.Data().(type) {
 
+		// FIXME: for now do not consume these two event types and
+		// pass them to child widget, works? but tcell docs say you
+		// SHOULD always either return true or false
 		case *eventNewItem:
 			if data.value() != nil {
 				player.stop()
-				player.clear()
-				player.initPlayer()
-
+				player.clearStream()
 				window.playlist = data.value()
-				window.playerM.updateText()
-
+				player.currentTrack = 0
 				getNewTrack(player.currentTrack)
 				go downloadCover(window.playlist.getImageURL(3))
 				player.totalTracks = data.value().totalTracks
@@ -83,15 +83,18 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 			//return true
 
 		case *eventNextTrack:
+			//track := data.value()
 			getNewTrack(data.value())
 			//return true
 
 		case *eventTrackDownloaded:
 			track := player.currentTrack
-			if data.value() == window.playlist.getCacheID(track) &&
-				!player.isPlaying() {
-
-				player.play(track, data.value())
+			if data.value() == window.playlist.getCacheID(track) {
+				if player.status == playing {
+					player.stop()
+					player.clearStream()
+				}
+				player.play(data.value())
 				return true
 			}
 			return false
@@ -156,7 +159,7 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 	return window.BoxLayout.HandleEvent(event)
 }
 
-// FIXME ?
+// FIXME: this assumes that font is 1/2 height to width
 func (window *windowLayout) checkOrientation() {
 	if window.width > 2*window.height {
 		window.SetOrientation(views.Horizontal)
@@ -325,6 +328,7 @@ func init() {
 
 	window.playerM = &playerModel{}
 	window.textM = &textModel{}
+	window.playlistM = &model{enab: true, hide: true}
 
 	spacer1 := &spacer{views.NewText(), false}
 	art := &artArea{views.NewCellView()}
@@ -334,9 +338,10 @@ func init() {
 	contentBoxV1 := views.NewBoxLayout(views.Vertical)
 	contentBoxV2 := views.NewBoxLayout(views.Vertical)
 	spacer3 := &spacer{views.NewText(), true}
-	content := &contentArea{views.NewCellView()}
+	content := &contentArea{views.NewCellView(), 0}
 	content.SetModel(window.playerM)
-	window.playerM.updateText()
+	// TODO: clean up this mess
+	//window.playerM.updateModel()
 	message := &messageBox{views.NewText()}
 	message.SetText("[Tab] enable input [H] display help")
 	field := &textField{}
@@ -363,6 +368,7 @@ func init() {
 		message, field, spacer4}
 
 	// create new screen to gain access to actual terminal dimensions
+	// works on unix and windows, unlike ascii2image dependency
 	window.screen, err = tcell.NewScreen()
 	checkFatalError(err)
 	app.SetScreen(window.screen)

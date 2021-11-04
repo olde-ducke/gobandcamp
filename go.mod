@@ -6,7 +6,7 @@ require (
 	github.com/faiface/beep v1.1.0
 	github.com/gdamore/tcell/v2 v2.4.0
 	github.com/json-iterator/go v1.1.12
-	github.com/qeesung/image2ascii v1.0.1
+	github.com/olde-ducke/image2ascii v1.0.2-0.20211102142453-03a47afa90e2
 )
 
 require (

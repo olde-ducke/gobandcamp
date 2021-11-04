@@ -134,7 +134,7 @@ func (player *playback) skip(forward bool) {
 		return
 	}
 	player.stop()
-	player.clear()
+	player.clearStream()
 	if forward {
 		player.currentTrack = (player.currentTrack + 1) %
 			player.totalTracks
@@ -165,7 +165,7 @@ func (player *playback) nextTrack() {
 		}
 		player.status = skipFWD
 		player.stop()
-		player.clear()
+		player.clearStream()
 		go player.delaySwitching()
 
 	case repeatOne:
@@ -197,9 +197,17 @@ func (player *playback) delaySwitching() {
 	}
 }
 
-func (player *playback) play(track int, key string) {
-	//player.clear()
+func (player *playback) setTrack(track int) {
 	player.currentTrack = track
+	player.stop()
+	player.clearStream()
+	player.status = skipFWD
+	player.delaySwitching()
+}
+
+func (player *playback) play(key string) {
+	//player.clear()
+	//player.currentTrack = track
 	streamer, format, err := mp3.Decode(wrapInRSC(key))
 	if err != nil {
 		window.sendEvent(newErrorMessage(err))
@@ -244,13 +252,11 @@ func (player *playback) stop() {
 	}
 }
 
-func (player *playback) clear() {
+func (player *playback) clearStream() {
 	window.sendEvent(newDebugMessage("clearing buffer"))
 	speaker.Clear()
 	if player.isReady() {
 		speaker.Lock()
-		// FIXME: doesn't really matter if we close streamer or not
-		// method close in underlying data does absolutely nothing
 		err := player.stream.streamer.Close()
 		player.stream = nil
 		speaker.Unlock()
@@ -265,13 +271,6 @@ func (player *playback) bufferStatus(newStatus playbackStatus) {
 		player.bufferedStatus = player.status
 		player.status = newStatus
 	}
-}
-
-func (player *playback) initPlayer() {
-	window.sendEvent(newDebugMessage("player reset"))
-	// keeps volume and playback mode from previous playback
-	*player = playback{playbackMode: player.playbackMode, volume: player.volume,
-		muted: player.muted}
 }
 
 func (player *playback) handleEvent(key rune) bool {
@@ -318,39 +317,45 @@ func (player *playback) handleEvent(key rune) bool {
 		speaker.Unlock()
 
 	case 's', 'S':
-		if !player.isReady() || player.volume < -9.6 {
-			return false
-		}
 		player.volume -= 0.5
-		speaker.Lock()
-		if !player.muted && player.volume < -9.6 {
-			player.muted = true
-			player.stream.volume.Silent = player.muted
+		if player.volume < -10.0 {
+			player.volume = -10.0
 		}
-		player.stream.volume.Volume = player.volume
-		speaker.Unlock()
+
+		if player.volume < -9.6 {
+			player.muted = true
+		}
+
+		if player.isReady() {
+			speaker.Lock()
+			player.stream.volume.Silent = player.muted
+			player.stream.volume.Volume = player.volume
+			speaker.Unlock()
+		}
 
 	case 'w', 'W':
-		if !player.isReady() || player.volume > -0.4 {
-			return false
-		}
 		player.volume += 0.5
-		speaker.Lock()
-		if player.muted {
-			player.muted = false
-			player.stream.volume.Silent = player.muted
+
+		if player.volume > 0.0 {
+			player.volume = 0.0
 		}
-		player.stream.volume.Volume = player.volume
-		speaker.Unlock()
+
+		player.muted = false
+
+		if player.isReady() {
+			speaker.Lock()
+			player.stream.volume.Silent = player.muted
+			player.stream.volume.Volume = player.volume
+			speaker.Unlock()
+		}
 
 	case 'm', 'M':
-		if !player.isReady() {
-			return false
-		}
 		player.muted = !player.muted
-		speaker.Lock()
-		player.stream.volume.Silent = player.muted
-		speaker.Unlock()
+		if player.isReady() {
+			speaker.Lock()
+			player.stream.volume.Silent = player.muted
+			speaker.Unlock()
+		}
 
 	case 'r', 'R':
 		player.playbackMode = (player.playbackMode + 1) % 4
