@@ -32,25 +32,6 @@ type track struct {
 }
 
 // TODO: move these methods away from json, they have nothing to do with it
-func (album *album) formatString(n int) string {
-	sbuilder := strings.Builder{}
-	fmt.Fprintf(&sbuilder, "%s\n by %s\nreleased %s\n%s\n\n%s %2d/%d - %s\n%s\n%s/%s\nvolume %s mode %s\n\n\n\n\n%s",
-		album.title,
-		album.artist,
-		album.date,
-		album.tags,
-		`%2s`,
-		n+1,
-		album.totalTracks,
-		album.tracks[n].title,
-		`%s`, `%s`,
-		(time.Duration(album.tracks[n].duration) * time.Second).Round(time.Second),
-		`%4s`, `%s`,
-		album.url,
-	)
-	defer sbuilder.Reset()
-	return sbuilder.String()
-}
 
 // returns true and url if any streamable media was found
 func (album *album) getURL(track int) (string, bool) {
@@ -62,7 +43,7 @@ func (album *album) getURL(track int) (string, bool) {
 }
 
 // cache key = media url without any parameters
-func (album *album) getCacheID(track int) string {
+func (album *album) getTruncatedURL(track int) string {
 	return getTruncatedURL(album.tracks[track].url)
 }
 
@@ -211,7 +192,7 @@ func parseTrackJSON(metaDataJSON string, mediaDataJSON string) (*album, error) {
 }
 
 func parseDate(input string) (strDate string) {
-	date, err := time.Parse("02 Jan 2006 00:00:00 GMT", input)
+	date, err := time.Parse("02 Jan 2006 15:04:05 GMT", input)
 	if err != nil {
 		window.sendEvent(newErrorMessage(err))
 		strDate = "---"
@@ -220,22 +201,6 @@ func parseDate(input string) (strDate string) {
 		strDate = fmt.Sprintf("%02d %s %4d", d, strings.ToLower(m.String()[:3]), y)
 	}
 	return strDate
-}
-
-func getDummyData() *album {
-	return &album{
-		title:       "---",
-		artist:      "---",
-		date:        "---",
-		url:         "https://golang.org",
-		tags:        "gopher music png",
-		totalTracks: 1,
-		tracks: []track{{
-			trackNumber: 1,
-			title:       "---",
-			duration:    0.0,
-		}},
-	}
 }
 
 func parseTagSearchHighlights(dataBlobJSON string) (urls []string) {

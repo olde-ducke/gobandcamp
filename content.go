@@ -12,23 +12,13 @@ import (
 type contentArea struct {
 	*views.CellView
 	currentModel int
+	playerM      *playerModel
+	textM        *textModel
+	playlistM    *model
 }
 
 func (content *contentArea) HandleEvent(event tcell.Event) bool {
 	switch event := event.(type) {
-
-	// FIXME: only suitable place found for resize events
-	// main widget doesn't recognise them for whatever reason
-	case *views.EventWidgetResize:
-		if window.hasChangedSize() {
-			window.checkOrientation()
-			window.artM.refitArt()
-			window.recalculateBounds()
-			if model, ok := content.GetModel().(updatedOnTimer); ok {
-				model.updateModel()
-			}
-		}
-		return true
 
 	case *tcell.EventKey:
 		switch event.Key() {
@@ -67,6 +57,8 @@ func (content *contentArea) HandleEvent(event tcell.Event) bool {
 			content.switchModel(content.currentModel)
 			return true
 		}
+
+		return false
 	}
 
 	if content.currentModel == 0 || !window.hideInput {
@@ -89,18 +81,18 @@ func (content *contentArea) switchModel(model int) {
 	switch content.currentModel {
 
 	case 0:
-		content.SetModel(window.playerM)
-		window.playerM.updateModel()
+		content.SetModel(content.playerM)
+		content.playerM.updateModel()
 
 	case 1:
-		window.textM.updateText()
-		content.SetModel(window.textM)
 		// TODO: reset position of view, currently gets stuck wherever
 		// it was
+		content.textM.updateText()
+		content.SetModel(content.textM)
 
 	case 2:
-		window.playlistM.updateModel()
-		content.SetModel(window.playlistM)
+		content.playlistM.updateModel()
+		content.SetModel(content.playlistM)
 		content.SetCursorY(player.currentTrack * 3)
 	}
 	app.Update()
@@ -110,19 +102,34 @@ func (content *contentArea) Size() (int, int) {
 	return window.getBounds()
 }
 
+//func (content *contentArea) GetModel() *contentModel {
+//	return content.CellView.GetModel()
+//}
+
+type contentModel interface {
+	views.CellModel
+	updateModel()
+	updateText()
+	getItem()
+}
+
 // TODO: finish or remove
 type updatedOnTimer interface {
+	views.CellModel
 	updateModel()
 }
 
 type selectable interface {
+	views.CellModel
 	getItem() int
 }
 
 type playerModel struct {
-	endx int
-	endy int
-	text [][]rune
+	endx         int
+	endy         int
+	text         [][]rune
+	formatString string
+	sbuilder     strings.Builder
 }
 
 func (model *playerModel) GetBounds() (int, int) {
@@ -145,67 +152,59 @@ func (model *playerModel) SetCursor(x int, y int) {
 // FIXME: truncated dots not in the same style
 func (model *playerModel) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
 	var ch rune
+	style := window.style
 	if y < len(model.text) {
 		if x < len(model.text[y]) {
 
-			// truncate tail of any string that's out of bounds to ...
-			if len(model.text[y]) > model.endx && x > model.endx-4 {
-				return '.', window.style, nil, 1
-			}
 			// draw "by" and tags in alt color
 			if ((x == 1 || x == 2) && y == 1) || y == 3 {
-				return model.text[y][x], window.style.Foreground(window.altColor), nil, 1
+				style = window.style.Foreground(window.altColor)
 			}
 
-			return model.text[y][x], window.style, nil, 1
+			// truncate tail of any string that's out of bounds to ...
+			if len(model.text[y]) > model.endx && x > model.endx-4 {
+				return '.', style, nil, 1
+			}
+
+			return model.text[y][x], style, nil, 1
 		}
 	}
 	return ch, window.style, nil, 1
 }
 
 func (model *playerModel) updateModel() {
-	var volume string
-	var repeats int
-	timeStamp := player.getCurrentTrackPosition()
+	window.verifyData()
 	track := player.currentTrack
-
+	timeStamp := player.getCurrentTrackPosition()
 	model.endx, model.endy = window.getBounds()
+	repeats := progressbarLength(window.playlist.tracks[track].duration,
+		timeStamp, model.endx)
 
-	// FIXME: terrible place for this
-	// if for whatever reason we end up with empty playlist
-	// go back to initial state
-	if window.playlist == nil {
-		window.playlist = getDummyData()
-		player.totalTracks = 0
-		window.artM.cover = nil
-	}
-
-	duration := window.playlist.tracks[track].duration
-	if duration > 0 {
-		repeats = int(timeStamp) * 100 / (int(duration) * 1_000_000_000) * model.endx / 100
-	} else {
-		repeats = 0
-	}
-
+	var volume string
 	if player.muted {
 		volume = "mute"
 	} else {
 		volume = fmt.Sprintf("%3.0f", (100 + player.volume*10))
 	}
 
-	var symbol string
-	if window.asciionly {
-		symbol = "="
-	} else {
-		symbol = "\u25b1"
-	}
-
-	text := fmt.Sprintf(window.playlist.formatString(track),
-		player.status.String(),
-		strings.Repeat(symbol, repeats),
+	fmt.Fprintf(&model.sbuilder, model.formatString,
+		window.playlist.title,
+		window.playlist.artist,
+		window.playlist.date,
+		window.playlist.tags,
+		window.getPlayerStatus(),
+		track+1,
+		window.playlist.totalTracks,
+		window.playlist.tracks[track].title,
+		strings.Repeat(window.getProgressbarSymbol(), repeats),
 		timeStamp,
-		volume,
-		player.playbackMode.String())
+		(time.Duration(window.playlist.tracks[track].duration) * time.Second).Round(time.Second),
+		volume, player.playbackMode,
+		window.playlist.url,
+	)
+
+	text := model.sbuilder.String()
+	model.sbuilder.Reset()
 
 	// NOTE: hardcoded length
 	model.text = make([][]rune, 14)
@@ -272,6 +271,7 @@ func (model *textModel) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
 }
 
 func (model *textModel) updateText() {
+	window.verifyData()
 	track := player.currentTrack
 
 	if window.playlist.tracks[track].lyrics == "" {
@@ -291,16 +291,18 @@ func (model *textModel) updateText() {
 }
 
 type model struct {
-	x        int
-	y        int
-	onBottom bool
-	item     int
-	endx     int
-	endy     int
-	hide     bool
-	enab     bool
-	loc      string
-	text     [][]rune
+	x            int
+	y            int
+	onBottom     bool
+	item         int
+	endx         int
+	endy         int
+	hide         bool
+	enab         bool
+	loc          string
+	text         [][]rune
+	formatString string
+	sbuilder     strings.Builder
 }
 
 func (m *model) GetBounds() (int, int) {
@@ -313,6 +315,8 @@ func (model *model) MoveCursor(offx, offy int) {
 		return
 	}
 
+	// FIXME: probably it's better to reimplement viewport
+	// and its logic from scratch than move fake cursor
 	var offset int
 	if offy < 0 {
 		if model.onBottom {
@@ -340,14 +344,14 @@ func (model *model) limitCursor() {
 	if model.y <= 0 {
 		model.y = 0
 		model.item = 0
-		//model.onBottom = false
 	}
 	if model.y >= model.endy-1 {
 		model.y = model.endy - 1
 		model.item = window.playlist.totalTracks - 1
-		//model.onBottom = true
 	}
-	window.sendEvent(newDebugMessage(fmt.Sprintf("Cursor is %d,%d, selected:%d, onbottom:%v", model.x, model.y, model.item, model.onBottom)))
+	window.sendEvent(newDebugMessage(fmt.Sprintf(
+		"playlist cursor is %d,%d, onbottom:%v selected item:%d",
+		model.x, model.y, model.onBottom, model.item)))
 }
 
 func (m *model) GetCursor() (int, int, bool, bool) {
@@ -404,49 +408,33 @@ func (model *model) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
 }
 
 func (model *model) updateModel() {
-	currentTrack := player.currentTrack
-
-	sbuilder := strings.Builder{}
-
 	//    1 - title
 	//
 	//    0m0s
-	//  ▹ 2 - title
+	//  ▹ 2 - active title
 	// ▱▱▱
 	// 3s/2m3s
 	//    3 - title
 	//
 	//    0m0s
-
-	var repeats int
-	var symbol string
-	formatString := "%s %2d - %s\n%s\n%s%s%s\n"
+	window.verifyData()
+	trackn := player.currentTrack
 	timeStamp := player.getCurrentTrackPosition()
-
-	duration := window.playlist.tracks[currentTrack].duration
-	if duration > 0 {
-		repeats = int(timeStamp) * 100 / (int(duration) * 1_000_000_000) * model.endx / 100
-	} else {
-		repeats = 0
-	}
-
-	if window.asciionly {
-		symbol = "="
-	} else {
-		symbol = "\u25b1"
-	}
+	repeats := progressbarLength(window.playlist.tracks[trackn].duration,
+		timeStamp, model.endx)
 
 	for n, track := range window.playlist.tracks {
-		if n == currentTrack {
-			fmt.Fprintf(&sbuilder, formatString,
-				player.status,
+		if n == trackn {
+			fmt.Fprintf(&model.sbuilder, model.formatString,
+				window.getPlayerStatus(),
 				n+1,
 				track.title,
-				strings.Repeat(symbol, repeats), timeStamp, "/",
+				strings.Repeat(window.getProgressbarSymbol(), repeats),
+				timeStamp, "/",
 				(time.Duration(track.duration) * time.Second).Round(time.Second),
 			)
 		} else {
-			fmt.Fprintf(&sbuilder, formatString,
+			fmt.Fprintf(&model.sbuilder, model.formatString,
 				"  ",
 				n+1,
 				track.title,
@@ -456,15 +444,47 @@ func (model *model) updateModel() {
 		}
 	}
 
-	text := sbuilder.String()
-	sbuilder.Reset()
+	text := model.sbuilder.String()
+	model.sbuilder.Reset()
 
 	model.text = make([][]rune, strings.Count(text, "\n"))
 	generateCharMatrix(text, model.text)
+
 	model.endx, _ = window.getBounds()
 	model.endy = len(model.text)
 }
 
 func (model *model) getItem() int {
+	if model.item < 0 {
+		model.item = 0
+	}
+
+	if model.item > window.playlist.totalTracks-1 {
+		model.item = 0
+	}
+
 	return model.item
+}
+
+func progressbarLength(duration float64, pos time.Duration, width int) int {
+	if duration > 0 {
+		return int(pos) * 100 / (int(duration) * 1_000_000_000) * width / 100
+	} else {
+		return 0
+	}
+}
+
+func init() {
+	playerM := &playerModel{
+		formatString: "%s\n by %s\nreleased %s\n%s\n\n%2s %2d/%d - %s\n%s" +
+			"\n%s/%s\nvolume %4s mode %s\n\n\n\n\n%s",
+	}
+	textM := &textModel{}
+	playlistM := &model{enab: true, hide: true,
+		formatString: "%s %2d - %s\n%s\n%s%s%s\n"}
+
+	contentWidget := &contentArea{
+		views.NewCellView(), 0, playerM, textM, playlistM}
+	contentWidget.SetModel(contentWidget.playerM)
+	window.widgets[content] = contentWidget
 }

@@ -36,7 +36,6 @@ func (field *textField) HandleEvent(event tcell.Event) bool {
 			return false
 		}
 
-		//field.MakeCursorVisible()
 		posX, _, _, _ := field.GetModel().GetCursor()
 
 		switch event.Key() {
@@ -180,4 +179,13 @@ func parseInput(input string) {
 	} else {
 		window.sendEvent(newMessage("no tags to search"))
 	}
+}
+
+// initialize widget
+func init() {
+	textField := &textField{}
+	textField.Clear()
+	textField.previous = make([]rune, 1)
+	textField.previous[0] = ' '
+	window.widgets[field] = textField
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"math/rand"
 	"time"
@@ -12,7 +13,22 @@ import (
 var app = &views.Application{}
 var window = &windowLayout{}
 
+// active widgets that might be recolored
+// default widget interface doesn't have .SetStyle()
+// spasers named after their position in horizontal layout
+const (
+	spacerV1 int = iota
+	art
+	spacerH1
+	spacerV2
+	content
+	message
+	field
+	spacerV3
+)
+
 type recolorable interface {
+	views.Widget
 	SetStyle(tcell.Style)
 }
 
@@ -28,21 +44,39 @@ type windowLayout struct {
 
 	hideInput bool
 
-	theme     int
-	widgets   []views.Widget
-	bgColor   tcell.Color
-	fgColor   tcell.Color
-	altColor  tcell.Color
-	style     tcell.Style
-	asciionly bool
+	theme       int
+	widgets     [8]recolorable
+	bgColor     tcell.Color
+	fgColor     tcell.Color
+	altColor    tcell.Color
+	altColorBuf tcell.Color
+	style       tcell.Style
+	asciionly   bool
 
 	boundx, boundy int
 	playlist       *album
-	artM           *artModel
-	playerM        *playerModel
-	textM          *textModel
-	playlistM      *model
-	artDrawingMode int
+}
+
+// TODO: finish, but not sure if even needed
+// if for whatever reason we end up with empty playlist,
+// go back to initial state, if called, then something gone
+// horribly wrong
+func (window *windowLayout) verifyData() (err error) {
+	if window.playlist == nil {
+		err = errors.New("something went wrong")
+		window.sendEvent(newErrorMessage(err))
+		window.playlist = getDummyData()
+		// player should ignore any sensitive command with 0 tracks
+		// window won't load anything, since all links
+		// in dummy data are empty
+		player.totalTracks = 0
+		player.currentTrack = 0
+		window.sendEvent(newCoverDownloaded(nil))
+		player.stop()
+		player.clearStream()
+		return err
+	}
+	return nil
 }
 
 func (window *windowLayout) sendEvent(data interface{}) {
@@ -53,12 +87,27 @@ func (window *windowLayout) sendEvent(data interface{}) {
 }
 
 func getNewTrack(track int) {
+	if err := window.verifyData(); err != nil {
+		return
+	}
 	if url, streamable := window.playlist.getURL(track); streamable {
 		go downloadMedia(url, track)
 	} else {
 		window.sendEvent(newMessage("track is not available for streaming"))
 		player.status = stopped
 	}
+}
+
+// TODO: finish this function
+func (window *windowLayout) Resize() {
+	window.width, window.height = window.screen.Size()
+	window.checkOrientation()
+	window.widgets[art].(*artArea).model.refitArt()
+	window.recalculateBounds()
+	if model, ok := window.widgets[content].(*contentArea).GetModel().(updatedOnTimer); ok {
+		model.updateModel()
+	}
+	window.BoxLayout.Resize()
 }
 
 func (window *windowLayout) HandleEvent(event tcell.Event) bool {
@@ -82,14 +131,17 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 			}
 			//return true
 
+			// TODO: isn't it possible to call next track on
+			// album change? (and get out of range)
 		case *eventNextTrack:
-			//track := data.value()
 			getNewTrack(data.value())
-			//return true
 
 		case *eventTrackDownloaded:
+			if err := window.verifyData(); err != nil {
+				return false
+			}
 			track := player.currentTrack
-			if data.value() == window.playlist.getCacheID(track) {
+			if data.value() == window.playlist.getTruncatedURL(track) {
 				if player.status == playing {
 					player.stop()
 					player.clearStream()
@@ -107,10 +159,15 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 			app.Quit()
 			return true
 
-			// dumps all parsed metadata to logfile
+		// dumps all parsed metadata from playlist to logfile
 		case tcell.KeyCtrlD:
 			window.sendEvent(newDebugMessage(fmt.Sprint(window.playlist)))
 			return true
+
+		case tcell.KeyCtrlS:
+			if *debug {
+				window.playlist = nil
+			}
 
 		// recolor everything in random colors
 		// if debug flag is not set everything in one random style
@@ -118,18 +175,12 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 			window.altColor = getRandomColor()
 			if *debug {
 				for _, widget := range window.widgets {
-					widget.(recolorable).SetStyle(getRandomStyle())
+					widget.SetStyle(getRandomStyle())
 				}
 				window.style = getRandomStyle()
+				window.altColor = getRandomColor()
 			} else {
-				window.style = getRandomStyle()
-				for i, widget := range window.widgets {
-					if i == 5 {
-						widget.(recolorable).SetStyle(window.style.Foreground(window.altColor))
-					} else {
-						widget.(recolorable).SetStyle(window.style)
-					}
-				}
+				window.setTheme(4)
 			}
 			return true
 
@@ -137,17 +188,14 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 			if window.hideInput {
 				switch event.Rune() {
 
-				case 'i', 'I':
-					window.artDrawingMode = (window.artDrawingMode + 1) % 6
-					checkDrawingMode()
-					return true
-
 				case 't', 'T':
-					changeTheme()
+					window.changeTheme()
 					return true
 
 				case 'e', 'E':
 					window.asciionly = !window.asciionly
+					// RegisterRuneFallback(r rune, subst string)
+					// doesn't do anything for me, even in tty
 					return true
 
 				default:
@@ -170,31 +218,39 @@ func (window *windowLayout) checkOrientation() {
 	}
 }
 
-// FIXME: on the start ~64 resize events are captured, every actual
-// screen resize captures 36, evey key press captures 14
-// don't know what's happening here, this prevents unnecessary
-// redraws and image conversion
-func (window *windowLayout) hasChangedSize() bool {
-	width, height := window.screen.Size()
-	if window.width != width || window.height != height {
-		window.width = width
-		window.height = height
-		return true
+func (window *windowLayout) getProgressbarSymbol() string {
+	if window.asciionly {
+		return "="
+	} else {
+		return "\u25b1"
 	}
-	return false
+}
+
+func (window *windowLayout) getPlayerStatus() string {
+	if window.asciionly {
+		return [7]string{"[]", " >", "||",
+			"<<", ">>", "|<",
+			">|"}[player.status]
+	} else {
+		return player.status.String()
+	}
 }
 
 func (window *windowLayout) recalculateBounds() {
-
+	artWidth, artHeight := window.widgets[art].Size()
 	if window.orientation == views.Horizontal {
-		window.boundx = window.width - window.artM.endx - 3*window.hMargin
+		window.boundx = window.width - artWidth - 3*window.hMargin
 		window.boundy = window.height - window.vMargin - 2
 	} else {
 		window.boundx = window.width - 2*window.vMargin
-		window.boundy = window.height - 2*window.vMargin - window.artM.endy - 2
+		window.boundy = window.height - 2*window.vMargin - artHeight - 2
 	}
 
 	// clamp to zero, otherwise can lead to negative indices
+	// in widgets that use these values
+	// FIXME: if image not loaded or rather bigger than screen
+	// this will not allow anything else to be drawn, to be precise
+	// only 1 row will be visible after resizing
 	if window.boundx < 0 {
 		window.boundx = 0
 	}
@@ -208,62 +264,6 @@ func (window *windowLayout) getBounds() (int, int) {
 	return window.boundx, window.boundy
 }
 
-type spacer struct {
-	*views.Text
-	dynamic bool
-}
-
-func (s *spacer) Size() (int, int) {
-	if s.dynamic && window.orientation != views.Horizontal {
-		return 1, 1
-	}
-	return window.hMargin, window.vMargin
-}
-
-type messageBox struct {
-	*views.Text
-}
-
-func (message *messageBox) HandleEvent(event tcell.Event) bool {
-	switch event := event.(type) {
-
-	case *tcell.EventInterrupt:
-		if *debug {
-			switch data := event.Data().(type) {
-
-			case *eventMessage:
-				logFile.WriteString(event.When().Format(time.ANSIC) + "[msg]:" + data.string() + "\n")
-				message.SetText(data.string())
-				return true
-
-			case *eventErrorMessage:
-				logFile.WriteString(event.When().Format(time.ANSIC) + "[err]:" + data.string() + "\n")
-				message.SetText(data.string())
-				return true
-
-			case *eventDebugMessage:
-				logFile.WriteString(event.When().Format(time.ANSIC) + "[dbg]:" + data.string() + "\n")
-				return true
-			}
-		} else {
-			switch data := event.Data().(type) {
-
-			case textEvents:
-				message.SetText(data.string())
-				return true
-			}
-		}
-	}
-	return false //message.Text.HandleEvent(event)
-}
-
-func (message *messageBox) Size() (int, int) {
-	if window.orientation == views.Horizontal {
-		return window.width - window.artM.endx - 3*window.hMargin, 1
-	}
-	return window.width - 2*window.vMargin, 1
-}
-
 func getRandomStyle() tcell.Style {
 	return tcell.StyleDefault.Foreground(
 		getRandomColor()).Background(getRandomColor())
@@ -271,43 +271,66 @@ func getRandomStyle() tcell.Style {
 
 func getRandomColor() tcell.Color {
 	rand.Seed(time.Now().UnixNano())
-	return tcell.NewHexColor(
-		int32(rand.Intn(2_147_483_647)))
+	return tcell.NewHexColor(int32(rand.Intn(maxInt32)))
 }
 
-func changeTheme() {
+func (window *windowLayout) changeTheme() {
 	window.theme = (window.theme + 1) % 3
+	window.setTheme(window.theme)
+}
 
-	switch window.theme {
+// TODO: there is app.SetStyle(), but it seems to work as
+// expected only on start? look into that one more time
+// NOTE: does work for the spacers, but again, only
+// first time, after that they get stuck with whatever style was
+// set before
+func (window *windowLayout) setTheme(theme int) {
+	switch theme {
 
 	case 1, 2:
 		window.fgColor, window.bgColor = window.bgColor, window.fgColor
 		window.style = tcell.StyleDefault.Background(window.bgColor).
 			Foreground(window.fgColor)
-		window.altColor = tcell.ColorLightSlateGray
+		window.altColor = window.altColorBuf
+
+	// TODO: theme based on colors from cover
+	// case 3:
+
+	// only triggered by pressing Ctrl+T
+	case 4:
+		window.style = getRandomStyle()
+		window.altColor = getRandomColor()
 
 	default:
 		window.style = tcell.StyleDefault
 		window.altColor = 0
 	}
 
-	for i, widget := range window.widgets {
-		// TODO: delete later
-		if i == 5 && window.theme != 0 {
-			widget.(recolorable).SetStyle(window.style.Foreground(window.altColor))
-			continue
-		}
-		widget.(recolorable).SetStyle(window.style)
+	for _, widget := range window.widgets {
+		widget.SetStyle(window.style)
 	}
-	checkDrawingMode()
+	//checkDrawingMode()
 }
 
-func checkDrawingMode() {
-	// if light theme and colored symbols on background color drawing mode
-	// selected, reverse color drawing option (by defauplayerult black is basically
-	// treated as transparent) and redraw image, if any other mode selected
-	// and reversing is still enabled, reverse to default and redraw,
-	// looks bad on white either way, but at least is more recognisable
+type spacer struct {
+	*views.Text
+	dynamic bool
+}
+
+func (s *spacer) Size() (int, int) {
+	if s.dynamic && window.orientation != views.Horizontal {
+		return window.vMargin, window.vMargin
+	}
+	return window.hMargin, window.vMargin
+}
+
+// TODO: move to art drawer
+// if light theme and colored symbols on background color drawing mode
+// selected, reverse color drawing option (by default black is basically
+// treated as transparent) and redraw image, if any other mode selected
+// and reversing is still enabled, reverse to default and redraw,
+// looks bad on white either way, but at least is more recognisable
+/*func checkDrawingMode() {
 	if window.theme == 1 && window.artDrawingMode == 5 {
 		if !window.artM.options.Reversed {
 			window.artM.options.Reversed = true
@@ -317,55 +340,67 @@ func checkDrawingMode() {
 		window.artM.options.Reversed = false
 		window.artM.refitArt()
 	}
+}*/
+
+func getDummyData() *album {
+	return &album{
+		title:       "---",
+		artist:      "---",
+		date:        "---",
+		url:         "https://golang.org",
+		tags:        "gopher music png",
+		totalTracks: 3,
+		tracks: []track{{
+			trackNumber: 1,
+			title:       "---",
+			duration:    0.0,
+		},
+			{
+				trackNumber: 2,
+				title:       "---",
+				duration:    0.0,
+			},
+			{
+				trackNumber: 3,
+				title:       "---",
+				duration:    0.0,
+			}},
+	}
 }
 
 func init() {
 	var err error
 	window.hideInput = true
 	window.hMargin, window.vMargin = 3, 1
+	// by default none of the colors are used, to keep default terminal look
+	// only used for light/dark themes
 	window.fgColor = tcell.NewHexColor(0xf9fdff)
 	window.bgColor = tcell.NewHexColor(0x2b2b2b)
+	// actual bandcamp color (one of) is 0x61929c, but windows for some reason
+	// gave 0x5f8787 instead of something something grey, which looks
+	// rather nice
+	window.altColorBuf = tcell.NewHexColor(0x5f8787)
+	window.playlist = getDummyData()
 
-	window.playerM = &playerModel{}
-	window.textM = &textModel{}
-	window.playlistM = &model{enab: true, hide: true}
+	window.widgets[spacerV1] = &spacer{views.NewText(), false}
+	window.widgets[spacerH1] = &spacer{views.NewText(), false}
+	window.widgets[spacerV2] = &spacer{views.NewText(), true}
+	window.widgets[spacerV3] = &spacer{views.NewText(), true}
+	contentHLayout := views.NewBoxLayout(views.Horizontal)
+	contentVLayoutOuter := views.NewBoxLayout(views.Vertical)
+	contentVLayoutInner := views.NewBoxLayout(views.Vertical)
 
-	spacer1 := &spacer{views.NewText(), false}
-	art := &artArea{views.NewCellView()}
-	art.SetModel(window.artM)
-	spacer2 := &spacer{views.NewText(), false}
-	contentBoxH := views.NewBoxLayout(views.Horizontal)
-	contentBoxV1 := views.NewBoxLayout(views.Vertical)
-	contentBoxV2 := views.NewBoxLayout(views.Vertical)
-	spacer3 := &spacer{views.NewText(), true}
-	content := &contentArea{views.NewCellView(), 0}
-	content.SetModel(window.playerM)
-	// TODO: clean up this mess
-	//window.playerM.updateModel()
-	message := &messageBox{views.NewText()}
-	message.SetText("[Tab] enable input [H] display help")
-	field := &textField{}
-	field.EnableCursor(!window.hideInput)
-	field.HideCursor(window.hideInput)
-	field.Clear()
-	field.previous = make([]rune, 1)
-	field.previous[0] = ' '
-	spacer4 := &spacer{views.NewText(), true}
-
-	window.AddWidget(spacer1, 0.0)
-	window.AddWidget(art, 0.0)
-	contentBoxH.AddWidget(spacer3, 0.0)
-	contentBoxV2.AddWidget(content, 1.0)
-	contentBoxV2.AddWidget(message, 0.0)
-	contentBoxV2.AddWidget(field, 0.0)
-	contentBoxH.AddWidget(contentBoxV2, 0.0)
-	contentBoxH.AddWidget(spacer4, 0.0)
-	contentBoxV1.AddWidget(spacer2, 0.0)
-	contentBoxV1.AddWidget(contentBoxH, 0.0)
-	window.AddWidget(contentBoxV1, 1.0)
-
-	window.widgets = []views.Widget{spacer1, art, spacer2, spacer3, content,
-		message, field, spacer4}
+	window.AddWidget(window.widgets[spacerV1], 0.0)
+	window.AddWidget(window.widgets[art], 0.0)
+	contentHLayout.AddWidget(window.widgets[spacerV2], 0.0)
+	contentVLayoutInner.AddWidget(window.widgets[content], 1.0)
+	contentVLayoutInner.AddWidget(window.widgets[message], 0.0)
+	contentVLayoutInner.AddWidget(window.widgets[field], 0.0)
+	contentHLayout.AddWidget(contentVLayoutInner, 0.0)
+	contentHLayout.AddWidget(window.widgets[spacerV3], 0.0)
+	contentVLayoutOuter.AddWidget(window.widgets[spacerH1], 0.0)
+	contentVLayoutOuter.AddWidget(contentHLayout, 0.0)
+	window.AddWidget(contentVLayoutOuter, 1.0)
 
 	// create new screen to gain access to actual terminal dimensions
 	// works on unix and windows, unlike ascii2image dependency

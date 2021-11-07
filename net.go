@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"image"
 	"image/jpeg"
+	"image/png"
 	"io"
 	"math/rand"
 	"net/http"
@@ -12,7 +14,8 @@ import (
 	"time"
 )
 
-// TODO: by default no timeout is set
+var client = http.Client{Timeout: 60 * time.Second}
+
 // TODO: cancel response body readings for unfinished tracks
 // will solve a lot of problems
 // TODO: maybe it is a good idea to check domain everytime, just in case?
@@ -24,13 +27,13 @@ func download(link string, mobile bool, checkDomain bool) (io.ReadCloser, string
 		return nil, ""
 	}
 	// pretend that we are Chrome on Win10
-	request.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/93.0.4577.82 Safari/537.36")
+	request.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 12_0_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/95.0.4638.69 Safari/537.36")
 	// set mobile view, html weights a bit less than desktop version
 	if mobile {
 		request.Header.Set("Cookie", "mvp=p")
 	}
 
-	response, err := http.DefaultClient.Do(request)
+	response, err := client.Do(request)
 	if err != nil {
 		// https requests fail here because reasons (real certificate is replacced by expired
 		// generic one), only relevant for images at the moment
@@ -149,6 +152,8 @@ func downloadMedia(link string, track int) {
 	}
 
 	window.sendEvent(newMessage(fmt.Sprintf("fetching track %d...", track+1)))
+	// NOTE: media location suggests that there is always only mp3 files on server
+	// for now ignore type of media
 	reader, _ := download(link, false, false)
 	if reader == nil {
 		return // error should be reported on other end already
@@ -169,7 +174,7 @@ func downloadMedia(link string, track int) {
 
 func downloadCover(link string) {
 	window.sendEvent(newDebugMessage("fetching album cover..."))
-	reader, _ := download(link, false, false)
+	reader, format := download(link, false, false)
 	if reader == nil {
 		window.sendEvent(newCoverDownloaded(nil))
 		return
@@ -177,12 +182,27 @@ func downloadCover(link string) {
 	defer reader.Close()
 	window.sendEvent(newDebugMessage("downloading album cover..."))
 
-	img, err := jpeg.Decode(reader)
+	var img image.Image
+	var err error
+	switch format {
+
+	case "image/jpeg":
+		img, err = jpeg.Decode(reader)
+
+	// in case there is png somewhere for whatever reason
+	case "image/png":
+		img, err = png.Decode(reader)
+
+	default:
+		img, err = nil, errors.New("unexpected image format")
+	}
+
 	if err != nil {
 		window.sendEvent(newErrorMessage(err))
 		window.sendEvent(newCoverDownloaded(nil))
 		return
 	}
+
 	window.sendEvent(newDebugMessage("album cover downloaded"))
 	window.sendEvent(newCoverDownloaded(img))
 }
@@ -227,7 +247,7 @@ func processTagPage(args arguments) {
 	var dataBlobJSON string
 	// NOTE: might fail here
 	// 64k is not enough for these pages
-	// 1048576 loads pages with 178 items on them
+	// buffer with size 1048576 reads json with 178 items
 	var buffer []byte
 	scanner.Buffer(buffer, 1048576)
 	for scanner.Scan() {
@@ -285,6 +305,3 @@ func getTruncatedURL(link string) string {
 		return ""
 	}
 }
-
-// TODO: finish whatever has been started here
-// (returning content-type)

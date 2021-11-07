@@ -48,8 +48,8 @@ Formats (optional):
 |       <kbd>B</kbd>      | previous track                                                     |
 |       <kbd>R</kbd>      | change playback mode                                               |
 |       <kbd>T</kbd>      | switch theme                                                       |
-|       <kbd>I</kbd>      | switch art drawing method                                          |
 |       <kbd>E</kbd>      | switch symbols in status and progressbar to ascii ones             |
+|    <kbd>Ctrl+A</kbd>    | switch art drawing method                                          |
 |    <kbd>Ctrl+L</kbd>    | display lyrics                                                     |
 |    <kbd>Ctrl+P</kbd>    | display playlist                                                   |
 |      <kbd>Tab</kbd>     | enable input                                                       |

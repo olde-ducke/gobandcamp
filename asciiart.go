@@ -4,6 +4,7 @@ import (
 	"bytes"
 	_ "embed"
 	"image"
+	"image/color"
 	"image/png"
 
 	"github.com/gdamore/tcell/v2"
@@ -16,14 +17,15 @@ import (
 var gopherPNG []byte
 
 type artModel struct {
-	x         int
-	y         int
-	endx      int
-	endy      int
-	asciiart  [][]ascii.CharPixel
-	converter convert.ImageConverter
-	options   convert.Options
-	cover     image.Image
+	x              int
+	y              int
+	endx           int
+	endy           int
+	asciiart       [][]ascii.CharPixel
+	converter      convert.ImageConverter
+	options        convert.Options
+	cover          image.Image
+	artDrawingMode int
 }
 
 func (model *artModel) GetBounds() (int, int) {
@@ -48,78 +50,95 @@ func (model *artModel) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
 		return ch, window.style, nil, 1
 	}
 
-	if window.artDrawingMode != 5 {
+	if model.artDrawingMode != 5 {
 		model.options.Reversed = false
 	}
 
 	if model.asciiart[y][x].A > 72 {
 
-		switch window.artDrawingMode {
+		switch model.artDrawingMode {
 
 		case 1:
 			return rune(model.asciiart[y][x].Char), tcell.StyleDefault.Background(
-				tcell.NewRGBColor(
-					int32(model.asciiart[y][x].R),
-					int32(model.asciiart[y][x].G),
-					int32(model.asciiart[y][x].B))).Foreground(
-				tcell.NewRGBColor(
-					int32(model.asciiart[y][x].R/2),
-					int32(model.asciiart[y][x].G/2),
-					int32(model.asciiart[y][x].B/2))), nil, 1
+				tcell.FromImageColor(
+					color.RGBA{
+						model.asciiart[y][x].R,
+						model.asciiart[y][x].G,
+						model.asciiart[y][x].B,
+						0})).Foreground(
+				tcell.FromImageColor(
+					color.RGBA{
+						model.asciiart[y][x].R / 2,
+						model.asciiart[y][x].G / 2,
+						model.asciiart[y][x].B / 2,
+						0})), nil, 1
 
 		case 2:
 			return rune(model.asciiart[y][x].Char), tcell.StyleDefault.Background(
-				tcell.NewRGBColor(
-					int32(model.asciiart[y][x].R/2),
-					int32(model.asciiart[y][x].G/2),
-					int32(model.asciiart[y][x].B/2))).Foreground(
-				tcell.NewRGBColor(
-					int32(model.asciiart[y][x].R),
-					int32(model.asciiart[y][x].G),
-					int32(model.asciiart[y][x].B))), nil, 1
+				tcell.FromImageColor(
+					color.RGBA{
+						model.asciiart[y][x].R / 2,
+						model.asciiart[y][x].G / 2,
+						model.asciiart[y][x].B / 2,
+						0})).Foreground(
+				tcell.FromImageColor(
+					color.RGBA{
+						model.asciiart[y][x].R,
+						model.asciiart[y][x].G,
+						model.asciiart[y][x].B,
+						0})), nil, 1
 
 		case 3:
 			return rune(model.asciiart[y][x].Char), window.style.Background(
-				tcell.NewRGBColor(
-					int32(model.asciiart[y][x].R),
-					int32(model.asciiart[y][x].G),
-					int32(model.asciiart[y][x].B))).
+				tcell.FromImageColor(
+					color.RGBA{
+						model.asciiart[y][x].R,
+						model.asciiart[y][x].G,
+						model.asciiart[y][x].B,
+						0})).
 				Foreground(window.bgColor), nil, 1
 
 		case 4:
 			return rune(model.asciiart[y][x].Char), window.style.Background(
-				tcell.NewRGBColor(
-					int32(model.asciiart[y][x].R),
-					int32(model.asciiart[y][x].G),
-					int32(model.asciiart[y][x].B))).
+				tcell.FromImageColor(
+					color.RGBA{
+						model.asciiart[y][x].R,
+						model.asciiart[y][x].G,
+						model.asciiart[y][x].B,
+						0})).
 				Foreground(window.fgColor), nil, 1
 
 		case 5:
 			return rune(model.asciiart[y][x].Char), window.style.Foreground(
-				tcell.NewRGBColor(
-					int32(model.asciiart[y][x].R),
-					int32(model.asciiart[y][x].G),
-					int32(model.asciiart[y][x].B))), nil, 1
+				tcell.FromImageColor(
+					color.RGBA{
+						model.asciiart[y][x].R,
+						model.asciiart[y][x].G,
+						model.asciiart[y][x].B,
+						0})), nil, 1
 
 		default:
 			return ' ', window.style.Background(
-				tcell.NewRGBColor(
-					int32(model.asciiart[y][x].R),
-					int32(model.asciiart[y][x].G),
-					int32(model.asciiart[y][x].B))), nil, 1
+				tcell.FromImageColor(
+					color.RGBA{
+						model.asciiart[y][x].R,
+						model.asciiart[y][x].G,
+						model.asciiart[y][x].B,
+						0})), nil, 1
 
 		}
 	} else {
-		return ' ', window.style, nil, 1
+		return ch, window.style, nil, 1
 	}
 }
 
 type artArea struct {
 	*views.CellView
+	model *artModel
 }
 
 func (art *artArea) Size() (int, int) {
-	return window.artM.GetBounds()
+	return art.model.GetBounds()
 }
 
 func (art *artArea) HandleEvent(event tcell.Event) bool {
@@ -129,10 +148,21 @@ func (art *artArea) HandleEvent(event tcell.Event) bool {
 
 		switch data := event.Data().(type) {
 		case *eventCoverDownloaded:
-			window.artM.cover = data.value()
-			window.artM.refitArt()
+			art.model.cover = data.value()
+			art.model.refitArt()
+			window.recalculateBounds()
 			return true
 		}
+
+	case *tcell.EventKey:
+		switch event.Key() {
+
+		case tcell.KeyCtrlA:
+			art.model.artDrawingMode = (art.model.artDrawingMode + 1) % 6
+			//checkDrawingMode()
+			return true
+		}
+
 	}
 	// don't pass any events to wrapped widget
 	return false
@@ -153,10 +183,12 @@ func (model *artModel) refitArt() {
 	// works fine with default fonts on both systems
 	if window.orientation == views.Horizontal {
 		model.options.FixedHeight = window.height
-		model.options.FixedWidth = window.height * 2
+		model.options.FixedWidth = window.height * 2 * model.cover.Bounds().Dx() /
+			model.cover.Bounds().Dy()
 	} else {
 		model.options.FixedWidth = window.width
-		model.options.FixedHeight = window.width / 2
+		model.options.FixedHeight = window.width / 2 * model.cover.Bounds().Dy() /
+			model.cover.Bounds().Dx()
 	}
 
 	model.asciiart = model.converter.Image2CharPixelMatrix(
@@ -175,9 +207,9 @@ func getPlaceholderImage() image.Image {
 }
 
 func init() {
-	window.artM = &artModel{}
-	window.artM.converter = *convert.NewImageConverter()
-	window.artM.options = convert.Options{
+	model := &artModel{}
+	model.converter = *convert.NewImageConverter()
+	model.options = convert.Options{
 		Ratio:           1.0,
 		FixedWidth:      10,
 		FixedHeight:     10,
@@ -186,4 +218,10 @@ func init() {
 		Colored:         false,
 		Reversed:        false,
 	}
+	coverArt := &artArea{
+		views.NewCellView(),
+		model,
+	}
+	coverArt.SetModel(model)
+	window.widgets[art] = coverArt
 }
