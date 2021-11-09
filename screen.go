@@ -13,6 +13,22 @@ import (
 var app = &views.Application{}
 var window = &windowLayout{}
 
+// TODO: test if has any effect on windows
+type screen struct {
+	tcell.Screen
+}
+
+var counter int
+
+func (screen *screen) Show() {
+	if window.screen.HasPendingEvent() {
+		counter++
+		window.sendEvent(newDebugMessage(fmt.Sprint("skipped show calls:", counter)))
+		return
+	}
+	screen.Screen.Show()
+}
+
 // active widgets that might be recolored
 // default widget interface doesn't have .SetStyle()
 // spasers named after their position in horizontal layout
@@ -57,7 +73,7 @@ type windowLayout struct {
 	playlist       *album
 }
 
-// TODO: finish, but not sure if even needed
+// TODO: finish, less braindead check,
 // if for whatever reason we end up with empty playlist,
 // go back to initial state, if called, then something gone
 // horribly wrong
@@ -79,11 +95,11 @@ func (window *windowLayout) verifyData() (err error) {
 	return nil
 }
 
-func (window *windowLayout) sendEvent(data interface{}) {
-	if _, ok := data.(*eventDebugMessage); ok && !*debug {
+func (window *windowLayout) sendEvent(event tcell.Event) {
+	if _, ok := event.(*eventDebugMessage); ok && !*debug {
 		return
 	}
-	window.HandleEvent(tcell.NewEventInterrupt(data))
+	window.HandleEvent(event)
 }
 
 func getNewTrack(track int) {
@@ -98,58 +114,48 @@ func getNewTrack(track int) {
 	}
 }
 
-// TODO: finish this function
 func (window *windowLayout) Resize() {
 	window.width, window.height = window.screen.Size()
 	window.checkOrientation()
-	window.widgets[art].(*artArea).model.refitArt()
-	window.recalculateBounds()
-	if model, ok := window.widgets[content].(*contentArea).GetModel().(updatedOnTimer); ok {
-		model.updateModel()
-	}
+	window.sendEvent(&eventRefitArt{})
+	window.sendEvent(&eventUpdate{})
 	window.BoxLayout.Resize()
 }
 
 func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 	switch event := event.(type) {
 
-	case *tcell.EventInterrupt:
-		switch data := event.Data().(type) {
+	case *eventNewItem:
+		if event.value() != nil {
+			player.stop()
+			player.clearStream()
+			window.playlist = event.value()
+			player.currentTrack = 0
+			getNewTrack(player.currentTrack)
+			go downloadCover(window.playlist.getImageURL(3))
+			player.totalTracks = event.value().totalTracks
+			return window.widgets[content].HandleEvent(event)
+		}
+		return true
 
-		// FIXME: for now do not consume these two event types and
-		// pass them to child widget, works? but tcell docs say you
-		// SHOULD always either return true or false
-		case *eventNewItem:
-			if data.value() != nil {
+		// TODO: isn't it possible to call next track on
+		// album change? (and get out of range)
+	case *eventNextTrack:
+		getNewTrack(event.value())
+		return window.widgets[content].HandleEvent(event)
+
+	case *eventTrackDownloaded:
+		if err := window.verifyData(); err != nil {
+			return false
+		}
+		track := player.currentTrack
+		if event.value() == window.playlist.getTruncatedURL(track) {
+			if player.status == playing {
 				player.stop()
 				player.clearStream()
-				window.playlist = data.value()
-				player.currentTrack = 0
-				getNewTrack(player.currentTrack)
-				go downloadCover(window.playlist.getImageURL(3))
-				player.totalTracks = data.value().totalTracks
 			}
-			//return true
-
-			// TODO: isn't it possible to call next track on
-			// album change? (and get out of range)
-		case *eventNextTrack:
-			getNewTrack(data.value())
-
-		case *eventTrackDownloaded:
-			if err := window.verifyData(); err != nil {
-				return false
-			}
-			track := player.currentTrack
-			if data.value() == window.playlist.getTruncatedURL(track) {
-				if player.status == playing {
-					player.stop()
-					player.clearStream()
-				}
-				player.play(data.value())
-				return true
-			}
-			return false
+			player.play(event.value())
+			return true
 		}
 
 	case *tcell.EventKey:
@@ -193,9 +199,9 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 					return true
 
 				case 'e', 'E':
-					window.asciionly = !window.asciionly
 					// RegisterRuneFallback(r rune, subst string)
 					// doesn't do anything for me, even in tty
+					window.asciionly = !window.asciionly
 					return true
 
 				default:
@@ -309,7 +315,7 @@ func (window *windowLayout) setTheme(theme int) {
 	for _, widget := range window.widgets {
 		widget.SetStyle(window.style)
 	}
-	//checkDrawingMode()
+	window.sendEvent(&eventCheckDrawMode{})
 }
 
 type spacer struct {
@@ -323,24 +329,6 @@ func (s *spacer) Size() (int, int) {
 	}
 	return window.hMargin, window.vMargin
 }
-
-// TODO: move to art drawer
-// if light theme and colored symbols on background color drawing mode
-// selected, reverse color drawing option (by default black is basically
-// treated as transparent) and redraw image, if any other mode selected
-// and reversing is still enabled, reverse to default and redraw,
-// looks bad on white either way, but at least is more recognisable
-/*func checkDrawingMode() {
-	if window.theme == 1 && window.artDrawingMode == 5 {
-		if !window.artM.options.Reversed {
-			window.artM.options.Reversed = true
-			window.artM.refitArt()
-		}
-	} else if window.artM.options.Reversed {
-		window.artM.options.Reversed = false
-		window.artM.refitArt()
-	}
-}*/
 
 func getDummyData() *album {
 	return &album{
@@ -404,7 +392,8 @@ func init() {
 
 	// create new screen to gain access to actual terminal dimensions
 	// works on unix and windows, unlike ascii2image dependency
-	window.screen, err = tcell.NewScreen()
+	s, err := tcell.NewScreen()
+	window.screen = &screen{s}
 	checkFatalError(err)
 	app.SetScreen(window.screen)
 	app.SetRootWidget(window)

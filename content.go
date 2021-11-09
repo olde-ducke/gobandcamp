@@ -9,12 +9,20 @@ import (
 	"github.com/gdamore/tcell/v2/views"
 )
 
+const (
+	playerModel int = iota
+	helpModel
+	lyricsModel
+	playlistModel
+	resultsModel
+)
+
 type contentArea struct {
 	*views.CellView
 	currentModel int
-	playerM      *playerModel
-	textM        *textModel
-	playlistM    *model
+	player       *defaultModel
+	lyrics       *textModel
+	playlist     *menuModel
 }
 
 func (content *contentArea) HandleEvent(event tcell.Event) bool {
@@ -24,44 +32,33 @@ func (content *contentArea) HandleEvent(event tcell.Event) bool {
 		switch event.Key() {
 
 		case tcell.KeyCtrlL:
-			content.toggleModel(1)
+			content.toggleModel(lyricsModel)
 			return true
 
 		case tcell.KeyCtrlP:
-			content.toggleModel(2)
+			content.toggleModel(playlistModel)
 			return true
 
 		case tcell.KeyEnter:
 			if !window.hideInput {
 				return false
-			}
-
-			if model, ok := content.GetModel().(selectable); ok {
-				player.setTrack(model.getItem())
+			} else if content.currentModel == playlistModel {
+				player.setTrack(content.GetModel().getItem())
 				return true
 			}
-
 		}
 
-	case *tcell.EventInterrupt:
-		if event.Data() == nil {
-			if model, ok := content.GetModel().(updatedOnTimer); ok {
-				model.updateModel()
-			}
-			app.Update()
-			return true
-		}
+	case *eventUpdate:
+		content.GetModel().update()
+		app.Update()
+		return true
 
-		switch event.Data().(type) {
-		case *eventNewItem, *eventNextTrack:
-			content.switchModel(content.currentModel)
-			return true
-		}
-
-		return false
+	case *eventNewItem, *eventNextTrack:
+		content.switchModel(content.currentModel)
+		return true
 	}
 
-	if content.currentModel == 0 || !window.hideInput {
+	if content.currentModel == playerModel || !window.hideInput {
 		return false
 	}
 	return content.CellView.HandleEvent(event)
@@ -71,28 +68,31 @@ func (content *contentArea) toggleModel(model int) {
 	if content.currentModel != model {
 		content.switchModel(model)
 	} else {
-		content.switchModel(0)
+		content.switchModel(playerModel)
 	}
 }
 
 func (content *contentArea) switchModel(model int) {
 	content.currentModel = model
-
 	switch content.currentModel {
 
-	case 0:
-		content.SetModel(content.playerM)
-		content.playerM.updateModel()
+	// FIXME: player on some occasions does scroll past end coordinates,
+	// FIXME: text position does not reset on track change,
+	// FIXME menu on model switch in some cases will only highlight
+	// real cursor position, two other rows will be out of view
+	// all of these are probably can be fixed by reimplementing
+	// viewport from scratch
+	case playerModel:
+		content.SetModel(content.player)
+		content.player.update()
 
-	case 1:
-		// TODO: reset position of view, currently gets stuck wherever
-		// it was
-		content.textM.updateText()
-		content.SetModel(content.textM)
+	case lyricsModel:
+		content.lyrics.create()
+		content.SetModel(content.lyrics)
 
-	case 2:
-		content.playlistM.updateModel()
-		content.SetModel(content.playlistM)
+	case playlistModel:
+		content.playlist.update()
+		content.SetModel(content.playlist)
 		content.SetCursorY(player.currentTrack * 3)
 	}
 	app.Update()
@@ -102,29 +102,18 @@ func (content *contentArea) Size() (int, int) {
 	return window.getBounds()
 }
 
-//func (content *contentArea) GetModel() *contentModel {
-//	return content.CellView.GetModel()
-//}
+func (content *contentArea) GetModel() contentModel {
+	return content.CellView.GetModel().(contentModel)
+}
 
 type contentModel interface {
 	views.CellModel
-	updateModel()
-	updateText()
-	getItem()
-}
-
-// TODO: finish or remove
-type updatedOnTimer interface {
-	views.CellModel
-	updateModel()
-}
-
-type selectable interface {
-	views.CellModel
+	update()
+	create()
 	getItem() int
 }
 
-type playerModel struct {
+type defaultModel struct {
 	endx         int
 	endy         int
 	text         [][]rune
@@ -132,25 +121,25 @@ type playerModel struct {
 	sbuilder     strings.Builder
 }
 
-func (model *playerModel) GetBounds() (int, int) {
+func (model *defaultModel) GetBounds() (int, int) {
 	return model.endx, model.endy
 }
 
-func (model *playerModel) MoveCursor(offx, offy int) {
+func (model *defaultModel) MoveCursor(offx, offy int) {
 	return
 }
 
-func (model *playerModel) GetCursor() (int, int, bool, bool) {
+func (model *defaultModel) GetCursor() (int, int, bool, bool) {
 	return 0, 0, false, true
 }
 
-func (model *playerModel) SetCursor(x int, y int) {
+func (model *defaultModel) SetCursor(x int, y int) {
 	return
 }
 
 // TODO: styling based on some kind of control symbol? might break with some weird unicode combination
 // FIXME: truncated dots not in the same style
-func (model *playerModel) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
+func (model *defaultModel) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
 	var ch rune
 	style := window.style
 	if y < len(model.text) {
@@ -172,7 +161,7 @@ func (model *playerModel) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
 	return ch, window.style, nil, 1
 }
 
-func (model *playerModel) updateModel() {
+func (model *defaultModel) update() {
 	window.verifyData()
 	track := player.currentTrack
 	timeStamp := player.getCurrentTrackPosition()
@@ -210,6 +199,14 @@ func (model *playerModel) updateModel() {
 	model.text = make([][]rune, 14)
 	generateCharMatrix(text, model.text)
 
+}
+
+func (model *defaultModel) create() {
+	model.update()
+}
+
+func (model *defaultModel) getItem() int {
+	return -1
 }
 
 func generateCharMatrix(text string, matrix [][]rune) (maxx int, maxy int) {
@@ -270,7 +267,7 @@ func (model *textModel) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
 	return ch, tcell.StyleDefault, nil, 1
 }
 
-func (model *textModel) updateText() {
+func (model *textModel) create() {
 	window.verifyData()
 	track := player.currentTrack
 
@@ -290,7 +287,15 @@ func (model *textModel) updateText() {
 	model.endx, model.endy = generateCharMatrix(text, model.text)
 }
 
-type model struct {
+func (model *textModel) update() {
+	return
+}
+
+func (model *textModel) getItem() int {
+	return -1
+}
+
+type menuModel struct {
 	x            int
 	y            int
 	onBottom     bool
@@ -305,11 +310,11 @@ type model struct {
 	sbuilder     strings.Builder
 }
 
-func (m *model) GetBounds() (int, int) {
+func (m *menuModel) GetBounds() (int, int) {
 	return m.endx, m.endy
 }
 
-func (model *model) MoveCursor(offx, offy int) {
+func (model *menuModel) MoveCursor(offx, offy int) {
 
 	if offx != 0 {
 		return
@@ -339,7 +344,7 @@ func (model *model) MoveCursor(offx, offy int) {
 	model.limitCursor()
 }
 
-func (model *model) limitCursor() {
+func (model *menuModel) limitCursor() {
 
 	if model.y <= 0 {
 		model.y = 0
@@ -349,16 +354,16 @@ func (model *model) limitCursor() {
 		model.y = model.endy - 1
 		model.item = window.playlist.totalTracks - 1
 	}
-	window.sendEvent(newDebugMessage(fmt.Sprintf(
-		"playlist cursor is %d,%d, onbottom:%v selected item:%d",
-		model.x, model.y, model.onBottom, model.item)))
+	/*window.sendEvent(newDebugMessage(fmt.Sprintf(
+	"playlist cursor is %d,%d, onbottom:%v selected item:%d",
+	model.x, model.y, model.onBottom, model.item)))*/
 }
 
-func (m *model) GetCursor() (int, int, bool, bool) {
+func (m *menuModel) GetCursor() (int, int, bool, bool) {
 	return m.x, m.y, m.enab, !m.hide
 }
 
-func (model *model) SetCursor(x int, y int) {
+func (model *menuModel) SetCursor(x int, y int) {
 
 	var offset int
 	if y > model.y {
@@ -372,7 +377,7 @@ func (model *model) SetCursor(x int, y int) {
 	model.limitCursor()
 }
 
-func (model *model) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
+func (model *menuModel) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
 	var ch rune
 	var style = window.style
 	var returnWholeLine bool
@@ -407,7 +412,7 @@ func (model *model) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
 	return ch, style, nil, 1
 }
 
-func (model *model) updateModel() {
+func (model *menuModel) update() {
 	//    1 - title
 	//
 	//    0m0s
@@ -454,7 +459,11 @@ func (model *model) updateModel() {
 	model.endy = len(model.text)
 }
 
-func (model *model) getItem() int {
+func (model *menuModel) create() {
+	model.update()
+}
+
+func (model *menuModel) getItem() int {
 	if model.item < 0 {
 		model.item = 0
 	}
@@ -475,16 +484,18 @@ func progressbarLength(duration float64, pos time.Duration, width int) int {
 }
 
 func init() {
-	playerM := &playerModel{
+	player := &defaultModel{
 		formatString: "%s\n by %s\nreleased %s\n%s\n\n%2s %2d/%d - %s\n%s" +
 			"\n%s/%s\nvolume %4s mode %s\n\n\n\n\n%s",
 	}
-	textM := &textModel{}
-	playlistM := &model{enab: true, hide: true,
+
+	lyrics := &textModel{}
+
+	playlist := &menuModel{enab: true, hide: true,
 		formatString: "%s %2d - %s\n%s\n%s%s%s\n"}
 
 	contentWidget := &contentArea{
-		views.NewCellView(), 0, playerM, textM, playlistM}
-	contentWidget.SetModel(contentWidget.playerM)
+		views.NewCellView(), 0, player, lyrics, playlist}
+	contentWidget.SetModel(contentWidget.player)
 	window.widgets[content] = contentWidget
 }

@@ -12,33 +12,30 @@ type messageBox struct {
 }
 
 func (message *messageBox) HandleEvent(event tcell.Event) bool {
-	switch event := event.(type) {
 
-	case *tcell.EventInterrupt:
-		if *debug {
-			switch data := event.Data().(type) {
+	if *debug {
+		switch event := event.(type) {
 
-			case *eventMessage:
-				logFile.WriteString(event.When().Format(time.ANSIC) + "[msg]:" + data.string() + "\n")
-				message.SetText(data.string())
-				return true
+		case *eventMessage:
+			logFile.WriteString(event.When().Format(time.ANSIC) + "[msg]:" + event.String() + "\n")
+			message.SetText(event.String())
+			return true
 
-			case *eventErrorMessage:
-				logFile.WriteString(event.When().Format(time.ANSIC) + "[err]:" + data.string() + "\n")
-				message.SetText(data.string())
-				return true
+		case *eventErrorMessage:
+			logFile.WriteString(event.When().Format(time.ANSIC) + "[err]:" + event.String() + "\n")
+			message.SetText(event.String())
+			return true
 
-			case *eventDebugMessage:
-				logFile.WriteString(event.When().Format(time.ANSIC) + "[dbg]:" + data.string() + "\n")
-				return true
-			}
-		} else {
-			switch data := event.Data().(type) {
+		case *eventDebugMessage:
+			logFile.WriteString(event.When().Format(time.ANSIC) + "[dbg]:" + event.String() + "\n")
+			return true
+		}
+	} else {
+		switch event := event.(type) {
 
-			case textEvents:
-				message.SetText(data.string())
-				return true
-			}
+		case textEvents:
+			message.SetText(event.String())
+			return true
 		}
 	}
 	return false //message.Text.HandleEvent(event)

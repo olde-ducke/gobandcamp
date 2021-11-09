@@ -2,19 +2,34 @@ package main
 
 import (
 	"image"
+
+	"github.com/gdamore/tcell/v2"
 )
 
+type eventUpdate struct {
+	tcell.EventTime
+}
+
+type eventRefitArt struct {
+	tcell.EventTime
+}
+
+type eventCheckDrawMode struct {
+	tcell.EventTime
+}
+
 type textEvents interface {
-	string() string
+	String() string
 }
 
 // new media item data, if null, previous playback will continue
 type eventNewItem struct {
+	tcell.EventTime
 	album *album
 }
 
 func newItem(album *album) *eventNewItem {
-	return &eventNewItem{album}
+	return &eventNewItem{album: album}
 }
 
 func (event *eventNewItem) value() *album {
@@ -23,11 +38,12 @@ func (event *eventNewItem) value() *album {
 
 // value unused
 type eventNextTrack struct {
+	tcell.EventTime
 	track int
 }
 
 func newTrack(trackNumber int) *eventNextTrack {
-	return &eventNextTrack{trackNumber}
+	return &eventNextTrack{track: trackNumber}
 }
 
 func (event *eventNextTrack) value() int {
@@ -35,11 +51,12 @@ func (event *eventNextTrack) value() int {
 }
 
 type eventCoverDownloaded struct {
+	tcell.EventTime
 	cover image.Image
 }
 
 func newCoverDownloaded(cover image.Image) *eventCoverDownloaded {
-	return &eventCoverDownloaded{cover}
+	return &eventCoverDownloaded{cover: cover}
 }
 
 func (event *eventCoverDownloaded) value() image.Image {
@@ -48,51 +65,59 @@ func (event *eventCoverDownloaded) value() image.Image {
 
 // cache key = track url
 type eventTrackDownloaded struct {
+	tcell.EventTime
 	key string
 }
 
 func newTrackDownloaded(key string) *eventTrackDownloaded {
-	return &eventTrackDownloaded{key}
+	return &eventTrackDownloaded{key: key}
 }
 
 func (event *eventTrackDownloaded) value() string {
 	return event.key
 }
 
-// simple wrapper for string, debug mesages are not displayed on screen,
-// unlike error or info mesages, which use default error and string types
 type eventDebugMessage struct {
+	tcell.EventTime
 	message string
 }
 
 func newDebugMessage(text string) *eventDebugMessage {
-	return &eventDebugMessage{text}
+	var event tcell.EventTime
+	event.SetEventNow()
+	return &eventDebugMessage{event, text}
 }
 
-func (event *eventDebugMessage) string() string {
+func (event *eventDebugMessage) String() string {
 	return event.message
 }
 
 type eventMessage struct {
+	tcell.EventTime
 	message string
 }
 
 func newMessage(text string) *eventMessage {
-	return &eventMessage{text}
+	var event tcell.EventTime
+	event.SetEventNow()
+	return &eventMessage{event, text}
 }
 
-func (event *eventMessage) string() string {
+func (event *eventMessage) String() string {
 	return event.message
 }
 
 type eventErrorMessage struct {
+	tcell.EventTime
 	message error
 }
 
 func newErrorMessage(err error) *eventErrorMessage {
-	return &eventErrorMessage{err}
+	var event tcell.EventTime
+	event.SetEventNow()
+	return &eventErrorMessage{event, err}
 }
 
-func (event *eventErrorMessage) string() string {
+func (event *eventErrorMessage) String() string {
 	return event.message.Error()
 }

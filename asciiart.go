@@ -54,6 +54,7 @@ func (model *artModel) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
 		model.options.Reversed = false
 	}
 
+	// magic number
 	if model.asciiart[y][x].A > 72 {
 
 		switch model.artDrawingMode {
@@ -144,28 +145,49 @@ func (art *artArea) Size() (int, int) {
 func (art *artArea) HandleEvent(event tcell.Event) bool {
 	switch event := event.(type) {
 
-	case *tcell.EventInterrupt:
+	case *eventCoverDownloaded:
+		art.model.cover = event.value()
+		art.model.refitArt()
+		window.recalculateBounds()
+		return true
 
-		switch data := event.Data().(type) {
-		case *eventCoverDownloaded:
-			art.model.cover = data.value()
-			art.model.refitArt()
-			window.recalculateBounds()
-			return true
-		}
+	case *eventRefitArt:
+		art.model.refitArt()
+		window.recalculateBounds()
+		return true
+
+	case *eventCheckDrawMode:
+		art.model.checkDrawingMode()
 
 	case *tcell.EventKey:
 		switch event.Key() {
 
 		case tcell.KeyCtrlA:
 			art.model.artDrawingMode = (art.model.artDrawingMode + 1) % 6
-			//checkDrawingMode()
+			art.model.checkDrawingMode()
 			return true
 		}
 
 	}
 	// don't pass any events to wrapped widget
 	return false
+}
+
+// if light theme and colored symbols on background color drawing mode
+// selected, reverse color drawing option (by default black is basically
+// treated as transparent) and redraw image, if any other mode selected
+// and reversing is still enabled, reverse to default and redraw,
+// looks bad on white either way, but at least is more recognisable
+func (model *artModel) checkDrawingMode() {
+	if window.theme == 1 && model.artDrawingMode == 5 {
+		if !model.options.Reversed {
+			model.options.Reversed = true
+			model.refitArt()
+		}
+	} else if model.options.Reversed {
+		model.options.Reversed = false
+		model.refitArt()
+	}
 }
 
 func (model *artModel) refitArt() {
