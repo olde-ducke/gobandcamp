@@ -204,6 +204,11 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 					window.asciionly = !window.asciionly
 					return true
 
+				case 'h', 'H':
+					return window.widgets[content].HandleEvent(event)
+
+				// TODO: handle player events here, right now all runes go
+				// to player
 				default:
 					return player.handleEvent(event.Rune())
 				}
@@ -337,22 +342,12 @@ func getDummyData() *album {
 		date:        "---",
 		url:         "https://golang.org",
 		tags:        "gopher music png",
-		totalTracks: 3,
+		totalTracks: 1,
 		tracks: []track{{
 			trackNumber: 1,
 			title:       "---",
 			duration:    0.0,
-		},
-			{
-				trackNumber: 2,
-				title:       "---",
-				duration:    0.0,
-			},
-			{
-				trackNumber: 3,
-				title:       "---",
-				duration:    0.0,
-			}},
+		}},
 	}
 }
 

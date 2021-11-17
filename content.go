@@ -1,28 +1,358 @@
 package main
 
 import (
+	_ "embed"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/gdamore/tcell/v2/views"
 )
 
+//go:embed assets/help
+var helpText []byte
+
 const (
-	playerModel int = iota
-	helpModel
+	welcomeModel int = iota
+	playerModel
 	lyricsModel
 	playlistModel
-	resultsModel
+	helpModel
+	// resultsModel
 )
 
 type contentArea struct {
-	*views.CellView
 	currentModel int
-	player       *defaultModel
-	lyrics       *textModel
-	playlist     *menuModel
+	models       [5]contentModel
+	port         *views.ViewPort
+	view         views.View
+	//content views.Widget
+	//contentV *views.ViewPort
+	style tcell.Style
+	//lines    []string
+	//model views.CellModel
+	once sync.Once
+
+	views.WidgetWatchers
+}
+
+// Draw draws the content.
+func (content *contentArea) Draw() {
+
+	port := content.port
+	model := content.GetModel()
+	port.Fill(' ', content.style)
+
+	if content.view == nil {
+		return
+	}
+	if model == nil {
+		return
+	}
+	// why???
+	/*vw, vh := content.view.Size()
+	for y := 0; y < vh; y++ {
+		for x := 0; x < vw; x++ {
+			content.view.SetContent(x, y, ' ', nil, content.style)
+		}
+	}*/
+
+	ex, ey := model.GetBounds()
+	vx, vy := port.Size()
+	_, _, px1, _ := port.GetVisible()
+	if ex < vx {
+		ex = vx
+	}
+	if ey < vy {
+		ey = vy
+	}
+
+	var offset int
+	var altStyle bool
+
+	cx, cy, en, sh := model.GetCursor()
+	for y := 0; y < ey; y++ {
+		for x := 0; x < ex; x++ {
+			ch, style, comb, wid := model.GetCell(x+offset, y)
+			if en && x == cx && y == cy && sh {
+				style = style.Reverse(true)
+			}
+			if ch == '\ue000' || ch == '\ue001' {
+				/*if content.style == window.style {
+					content.style = content.style.Foreground(window.altColor)
+				} else {
+					content.style = window.style
+				}*/
+				altStyle = !altStyle
+				offset++
+				style = content.style
+				if x+offset >= ex {
+					continue
+				}
+				ch, _, comb, wid = model.GetCell(x+offset, y)
+			}
+
+			if altStyle {
+				style = style.Foreground(window.altColor)
+			}
+
+			//style := content.style
+			if x+3 > px1 && ch != 0 {
+				if r, _, _, _ := model.GetCell(x+3, y); r != 0 && r != ' ' {
+					for ; x <= px1; x++ {
+						port.SetContent(x, y, '.', nil, style)
+					}
+					break
+				}
+			}
+			if ch == 0 {
+				ch = ' '
+				style = content.style
+			}
+
+			port.SetContent(x, y, ch, comb, style)
+			x += wid - 1
+		}
+		altStyle = false
+		offset = 0
+	}
+}
+
+func (content *contentArea) keyUp() {
+	model := content.GetModel()
+	if _, _, en, _ := model.GetCursor(); !en {
+		content.port.ScrollUp(1)
+		return
+	}
+	model.MoveCursor(0, -1)
+	content.MakeCursorVisible()
+}
+
+func (content *contentArea) keyDown() {
+	model := content.GetModel()
+	if _, _, en, _ := model.GetCursor(); !en {
+		content.port.ScrollDown(1)
+		return
+	}
+	model.MoveCursor(0, 1)
+	content.MakeCursorVisible()
+}
+
+func (content *contentArea) keyLeft() {
+	model := content.GetModel()
+	if _, _, en, _ := model.GetCursor(); !en {
+		content.port.ScrollLeft(1)
+		return
+	}
+	model.MoveCursor(-1, 0)
+	content.MakeCursorVisible()
+}
+
+func (content *contentArea) keyRight() {
+	model := content.GetModel()
+	if _, _, en, _ := model.GetCursor(); !en {
+		content.port.ScrollRight(1)
+		return
+	}
+	model.MoveCursor(+1, 0)
+	content.MakeCursorVisible()
+}
+
+func (content *contentArea) keyPgUp() {
+	model := content.GetModel()
+	_, vy := content.port.Size()
+	if _, _, en, _ := model.GetCursor(); !en {
+		content.port.ScrollUp(vy)
+		return
+	}
+	model.MoveCursor(0, -vy)
+	content.MakeCursorVisible()
+}
+
+func (content *contentArea) keyPgDn() {
+	model := content.GetModel()
+	_, vy := content.port.Size()
+	if _, _, en, _ := model.GetCursor(); !en {
+		content.port.ScrollDown(vy)
+		return
+	}
+	model.MoveCursor(0, +vy)
+	content.MakeCursorVisible()
+}
+
+func (content *contentArea) keyHome() {
+	model := content.GetModel()
+	vx, vy := model.GetBounds()
+	if _, _, en, _ := model.GetCursor(); !en {
+		content.port.ScrollUp(vy)
+		content.port.ScrollLeft(vx)
+		return
+	}
+	model.SetCursor(0, 0)
+	content.MakeCursorVisible()
+}
+
+func (content *contentArea) keyEnd() {
+	model := content.GetModel()
+	vx, vy := model.GetBounds()
+	if _, _, en, _ := model.GetCursor(); !en {
+		content.port.ScrollDown(vy)
+		content.port.ScrollRight(vx)
+		return
+	}
+	model.SetCursor(vx, vy)
+	content.MakeCursorVisible()
+}
+
+// MakeCursorVisible ensures that the cursor is visible, panning the ViewPort
+// as necessary, if the cursor is enabled.
+func (content *contentArea) MakeCursorVisible() {
+	model := content.GetModel()
+	if model == nil {
+		return
+	}
+	x, y, enabled, _ := model.GetCursor()
+	if enabled {
+		content.MakeVisible(x, y)
+	}
+}
+
+// HandleEvent handles events.  In particular, it handles certain key events
+// to move the cursor or pan the view.
+func (content *contentArea) handleModelControl(key tcell.Key) bool {
+	if content.GetModel() == nil {
+		return false
+	}
+	//switch e := e.(type) {
+	//case *tcell.EventKey:
+	switch key {
+	case tcell.KeyUp, tcell.KeyCtrlP:
+		content.keyUp()
+		return true
+	case tcell.KeyDown, tcell.KeyCtrlN:
+		content.keyDown()
+		return true
+	case tcell.KeyRight, tcell.KeyCtrlF:
+		content.keyRight()
+		return true
+	case tcell.KeyLeft, tcell.KeyCtrlB:
+		content.keyLeft()
+		return true
+	case tcell.KeyPgDn:
+		content.keyPgDn()
+		return true
+	case tcell.KeyPgUp:
+		content.keyPgUp()
+		return true
+	case tcell.KeyEnd:
+		content.keyEnd()
+		return true
+	case tcell.KeyHome:
+		content.keyHome()
+		return true
+	}
+	//}
+	return false
+}
+
+/*// Size returns the content size, based on the model.
+func (content *contentArea) Size() (int, int) {
+	// We always return a minimum of two rows, and two columns.
+	w, h := content.model.GetBounds()
+	// Clip to a 2x2 minimum square; we can scroll within that.
+	if w > 2 {
+		w = 2
+	}
+	if h > 2 {
+		h = 2
+	}
+	return w, h
+}*/
+
+// GetModel gets the model for this CellView
+func (content *contentArea) GetModel() contentModel {
+	return content.models[content.currentModel]
+}
+
+// SetModel sets the model for this CellView.
+func (content *contentArea) SetModel(modelId int) {
+	w, h := content.models[modelId].GetBounds()
+	//content.model = model
+	content.port.SetContentSize(w, h, true)
+	content.port.ValidateView()
+	content.PostEventWidgetContent(content)
+}
+
+// SetView sets the View context.
+func (content *contentArea) SetView(view views.View) {
+	port := content.port
+	port.SetView(view)
+	content.view = view
+	if view == nil {
+		return
+	}
+	width, height := view.Size()
+	content.port.Resize(0, 0, width, height)
+	if content.GetModel() != nil {
+		w, h := content.models[content.currentModel].GetBounds()
+		content.port.SetContentSize(w, h, true)
+	}
+	content.Resize()
+}
+
+// Resize is called when the View is resized.  It will ensure that the
+// cursor is visible, if present.
+func (content *contentArea) Resize() {
+	// We might want to reflow text
+	width, height := content.view.Size()
+	content.port.Resize(0, 0, width, height)
+	content.port.ValidateView()
+	content.MakeCursorVisible()
+}
+
+// SetCursor sets the the cursor position.
+func (content *contentArea) SetCursor(x, y int) {
+	content.models[content.currentModel].SetCursor(x, y)
+}
+
+// SetCursorX sets the the cursor column.
+func (content *contentArea) SetCursorX(x int) {
+	_, y, _, _ := content.models[content.currentModel].GetCursor()
+	content.SetCursor(x, y)
+}
+
+// SetCursorY sets the the cursor row.
+func (content *contentArea) SetCursorY(y int) {
+	x, _, _, _ := content.models[content.currentModel].GetCursor()
+	content.SetCursor(x, y)
+}
+
+// MakeVisible makes the given coordinates visible, if they are not already.
+// It does this by moving the ViewPort for the CellView.
+func (content *contentArea) MakeVisible(x, y int) {
+	content.port.MakeVisible(x, y)
+}
+
+// SetStyle sets the the default fill style.
+func (content *contentArea) SetStyle(s tcell.Style) {
+	content.style = s
+}
+
+// Init initializes a new CellView for use.
+func (content *contentArea) Init() {
+	content.once.Do(func() {
+		content.port = views.NewViewPort(nil, 0, 0, 0, 0)
+		content.style = tcell.StyleDefault
+	})
+}
+
+// NewCellView creates a CellView.
+func NewCellView() *contentArea {
+	cv := &contentArea{}
+	cv.Init()
+	return cv
 }
 
 func (content *contentArea) HandleEvent(event tcell.Event) bool {
@@ -30,6 +360,17 @@ func (content *contentArea) HandleEvent(event tcell.Event) bool {
 
 	case *tcell.EventKey:
 		switch event.Key() {
+
+		case tcell.KeyRune:
+			switch event.Rune() {
+			case 'H', 'h':
+				// TODO: remove this check later?
+				if window.hideInput {
+					content.toggleModel(helpModel)
+				}
+			default:
+				return false
+			}
 
 		case tcell.KeyCtrlL:
 			content.toggleModel(lyricsModel)
@@ -48,20 +389,24 @@ func (content *contentArea) HandleEvent(event tcell.Event) bool {
 			}
 		}
 
+		if content.currentModel == playerModel || !window.hideInput {
+			return false
+		}
+		return content.handleModelControl(event.Key())
+
 	case *eventUpdate:
 		content.GetModel().update()
 		app.Update()
 		return true
 
 	case *eventNewItem, *eventNextTrack:
+		if content.currentModel == welcomeModel {
+			content.currentModel = playerModel
+		}
 		content.switchModel(content.currentModel)
 		return true
 	}
-
-	if content.currentModel == playerModel || !window.hideInput {
-		return false
-	}
-	return content.CellView.HandleEvent(event)
+	return false
 }
 
 func (content *contentArea) toggleModel(model int) {
@@ -74,6 +419,8 @@ func (content *contentArea) toggleModel(model int) {
 
 func (content *contentArea) switchModel(model int) {
 	content.currentModel = model
+	content.GetModel().create()
+	content.SetModel(model)
 	switch content.currentModel {
 
 	// FIXME: player on some occasions does scroll past end coordinates,
@@ -82,29 +429,28 @@ func (content *contentArea) switchModel(model int) {
 	// real cursor position, two other rows will be out of view
 	// all of these are probably can be fixed by reimplementing
 	// viewport from scratch
-	case playerModel:
-		content.SetModel(content.player)
-		content.player.update()
+	/*case playerModel:
+		content.SetModel(playerModel)
+		content.models[playerModel].update()
 
 	case lyricsModel:
-		content.lyrics.create()
-		content.SetModel(content.lyrics)
+		content.models[lyricsModel].create()
+		content.SetModel(lyricsModel)*/
 
 	case playlistModel:
-		content.playlist.update()
-		content.SetModel(content.playlist)
 		content.SetCursorY(player.currentTrack * 3)
 	}
 	app.Update()
+	//content.Draw()
 }
 
 func (content *contentArea) Size() (int, int) {
 	return window.getBounds()
 }
 
-func (content *contentArea) GetModel() contentModel {
+/*func (content *contentArea) GetModel() contentModel {
 	return content.CellView.GetModel().(contentModel)
-}
+}*/
 
 type contentModel interface {
 	views.CellModel
@@ -137,23 +483,21 @@ func (model *defaultModel) SetCursor(x int, y int) {
 	return
 }
 
-// TODO: styling based on some kind of control symbol? might break with some weird unicode combination
-// FIXME: truncated dots not in the same style
 func (model *defaultModel) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
 	var ch rune
 	style := window.style
 	if y < len(model.text) {
 		if x < len(model.text[y]) {
 
-			// draw "by" and tags in alt color
+			/*// draw "by" and tags in alt color
 			if ((x == 1 || x == 2) && y == 1) || y == 3 {
 				style = window.style.Foreground(window.altColor)
-			}
+			}*/
 
 			// truncate tail of any string that's out of bounds to ...
-			if len(model.text[y]) > model.endx && x > model.endx-4 {
+			/*if len(model.text[y]) > model.endx && x > model.endx-4 {
 				return '.', style, nil, 1
-			}
+			}*/
 
 			return model.text[y][x], style, nil, 1
 		}
@@ -226,6 +570,35 @@ func generateCharMatrix(text string, matrix [][]rune) (maxx int, maxy int) {
 
 		x++
 		matrix[y] = append(matrix[y], r)
+		// FIXME: reallt janky fix for CJK:
+		// CJK scripts and symbols:
+		// CJK Radicals Supplement (2E80–2EFF)
+		// Kangxi Radicals (2F00–2FDF)
+		// Ideographic Description Characters (2FF0–2FFF)
+		// CJK Symbols and Punctuation (3000–303F)
+		// Hiragana (3040–309F)
+		// Katakana (30A0–30FF)
+		// Bopomofo (3100–312F)
+		// Hangul Compatibility Jamo (3130–318F)
+		// Kanbun (3190–319F)
+		// Bopomofo Extended (31A0–31BF)
+		// CJK Strokes (31C0–31EF)
+		// Katakana Phonetic Extensions (31F0–31FF)
+		// Enclosed CJK Letters and Months (3200–32FF)
+		// CJK Compatibility (3300–33FF)
+		// CJK Unified Ideographs Extension A (3400–4DBF)
+		// Yijing Hexagram Symbols (4DC0–4DFF)
+		// CJK Unified Ideographs (4E00–9FFF)
+
+		// and modern(?) Korean:
+		// Hangul Syllables (AC00–D7AF)
+
+		// barely tested, places space after symbol, that way tcell doesn't
+		// skip every second symbol
+		if r >= '\u2E80' && r <= '\u9FFF' || r >= '\uAC00' && r <= '\uD7AF' {
+			x++
+			matrix[y] = append(matrix[y], ' ')
+		}
 	}
 	return maxx + 1, y + 1
 }
@@ -257,10 +630,6 @@ func (model *textModel) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
 
 	if y < len(model.text) {
 		if x < len(model.text[y]) {
-
-			if y == 0 || y == model.endy-1 {
-				return model.text[y][x], window.style.Foreground(window.altColor), nil, 1
-			}
 			return model.text[y][x], window.style, nil, 1
 		}
 	}
@@ -273,15 +642,15 @@ func (model *textModel) create() {
 
 	if window.playlist.tracks[track].lyrics == "" {
 		model.text = make([][]rune, 1)
-		model.text[0] = append(model.text[0], '-', '-', '-', ' ', 'n', 'o', ' ',
-			'l', 'y', 'r', 'i', 'c', 's', ' ', 'f', 'o', 'u', 'n', 'd', ' ', '-', '-', '-')
+		model.text[0] = append(model.text[0], '\ue000', '-', '-', '-', ' ', 'n', 'o', ' ',
+			'l', 'y', 'r', 'i', 'c', 's', ' ', 'f', 'o', 'u', 'n', 'd', ' ', '-', '-', '-', '\ue001')
 		model.endx = 23
 		model.endy = 1
 		return
 	}
 
-	text := fmt.Sprint("--- ", window.playlist.tracks[track].title, " by ",
-		window.playlist.artist, " ---\n", window.playlist.tracks[track].lyrics, "\n--- END ---")
+	text := fmt.Sprint("\ue000--- ", window.playlist.tracks[track].title, " \ue001by\ue000 ",
+		window.playlist.artist, " ---\ue001\n", window.playlist.tracks[track].lyrics, "\n\ue000--- END ---\ue001")
 	model.text = make([][]rune, strings.Count(text, "\n")+1)
 
 	model.endx, model.endy = generateCharMatrix(text, model.text)
@@ -293,6 +662,24 @@ func (model *textModel) update() {
 
 func (model *textModel) getItem() int {
 	return -1
+}
+
+type welcomeMessage struct {
+	*textModel
+}
+
+func (model *welcomeMessage) create() {
+	text := "\n\nwelcome to \ue000gobandcamp\ue001\nbarebones terminal player for bandcamp\n\npress \ue000[Tab]\ue001 and enter command/url\n    or \ue000[H]\ue001 to display help and controls"
+	model.text = make([][]rune, 7)
+	model.endx, model.endy = generateCharMatrix(text, model.text)
+}
+
+type helpMessage struct {
+	*textModel
+}
+
+func (model *helpMessage) create() {
+	return
 }
 
 type menuModel struct {
@@ -398,9 +785,9 @@ func (model *menuModel) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
 
 	if y < len(model.text) {
 		if x < len(model.text[y]) {
-			if len(model.text[y]) > model.endx && x > model.endx-4 {
+			/*if len(model.text[y]) > model.endx && x > model.endx-4 {
 				return '.', style, nil, 1
-			}
+			}*/
 			return model.text[y][x], style, nil, 1
 		}
 	}
@@ -485,17 +872,27 @@ func progressbarLength(duration float64, pos time.Duration, width int) int {
 
 func init() {
 	player := &defaultModel{
-		formatString: "%s\n by %s\nreleased %s\n%s\n\n%2s %2d/%d - %s\n%s" +
+		formatString: "%s\n \ue000by\ue001 %s\nreleased %s\n\ue000%s\ue001\n\n%2s %2d/%d - %s\n%s" +
 			"\n%s/%s\nvolume %4s mode %s\n\n\n\n\n%s",
 	}
 
+	welcome := &welcomeMessage{&textModel{}}
 	lyrics := &textModel{}
+	help := &helpMessage{&textModel{}}
+	text := string(helpText)
+	helpText = make([]byte, 0)
+	help.text = make([][]rune, strings.Count(text, "\n")+1)
+	help.endx, help.endy = generateCharMatrix(text, help.text)
 
 	playlist := &menuModel{enab: true, hide: true,
 		formatString: "%s %2d - %s\n%s\n%s%s%s\n"}
 
-	contentWidget := &contentArea{
-		views.NewCellView(), 0, player, lyrics, playlist}
-	contentWidget.SetModel(contentWidget.player)
+	contentWidget := NewCellView()
+	contentWidget.models[welcomeModel] = welcome
+	contentWidget.models[playerModel] = player
+	contentWidget.models[lyricsModel] = lyrics
+	contentWidget.models[playlistModel] = playlist
+	contentWidget.models[helpModel] = help
+	contentWidget.switchModel(welcomeModel)
 	window.widgets[content] = contentWidget
 }

@@ -6,6 +6,7 @@ import (
 	"os"
 	"runtime"
 	"runtime/pprof"
+	"sync"
 	"time"
 )
 
@@ -17,6 +18,7 @@ var exitCode = 0
 var cache *FIFO
 var player playback
 var logFile *os.File
+var wg sync.WaitGroup
 
 func checkFatalError(err error) {
 	if err != nil {
@@ -34,12 +36,14 @@ func init() {
 }
 
 func updater(quit chan bool, update <-chan time.Time) {
+	wg.Add(1)
 	for {
 		select {
 		case <-quit:
 			if *debug {
 				logFile.WriteString(time.Now().Format(time.ANSIC) + "[ext]:updater loop exit\n")
 			}
+			wg.Done()
 			return
 		case <-update:
 			window.HandleEvent(&eventUpdate{})
@@ -88,11 +92,10 @@ func main() {
 
 	// exit updater loop, close channel, stop timer
 	// wait for them to finish
-	// TODO: use wg
 	quit <- true
 	close(quit)
 	ticker.Stop()
-	time.Sleep(time.Second / 3)
+	wg.Wait()
 
 	if *debug {
 		logFile.WriteString(time.Now().Format(time.ANSIC) + "[ext]:closing debug file, exiting with code 0\n")

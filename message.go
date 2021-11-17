@@ -53,6 +53,6 @@ func (message *messageBox) SetStyle(style tcell.Style) {
 
 func init() {
 	messageBox := &messageBox{views.NewText()}
-	messageBox.SetText("[Tab] enable input [H] display help")
+	//messageBox.SetText("[Tab] enable input [H] display help")
 	window.widgets[message] = messageBox
 }

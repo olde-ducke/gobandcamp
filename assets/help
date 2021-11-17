@@ -1,0 +1,78 @@
+--- gobandcamp ---
+ Terminal player for bandcamp, uses [Beep] package to play actual sound,
+ [tcell] to display metadata and handle controls, and
+ [image2ascii] to convert album cover to colored ASCII-art. WIP
+ Placeholder image source: https://github.com/egonelbre/gophers
+ 
+-- Features --
+ Playback of media from band/album/track pages
+ Tag search (WIP, for now only plays one random item from first results page)
+ 
+- URL playback -
+ supported pages:
+ "https://artistname.bandcamp.com/album/albumname"
+ "https://artistname.bandcamp.com/track/trackname"
+ "https://artistname.bandcamp.com"
+ "https://artistname.com"
+ if home page of artist is not album/track, parser will fail and report error
+ 
+- Tag search -
+ "-t sometag anothertag third-tag -s random -f cd"
+   or
+ "--tag sometag --sort date --tag another three tags --format vinyl"
+ 
+ Sorting methods (optional):
+  ""           - popular
+  "random"     - random
+  "date"       - sort by date
+  "highlights" - search in highlights tab of first tag/genre
+  
+ Formats (optional):
+  ""           - any
+  "cassette"
+  "cd"
+  "vinyl"
+  
+-- Known problems --
+  relatively high CPU load even in idle on both win and linux
+  window resizes can lead to spike in CPU load (image resizes with window)
+  image will fill all available space if window height ~= width
+  seeking can break playback completely, stop/play or track switching fixes that
+  url corrupts if it can't fit screen or truncated from right side
+  sometimes fails to parse tag search page (buffer is running out of memory again?)
+  irregular crashes, cause unknown, seems something is wrong with beep
+ linux:
+  locks sound playback from other sources
+  playback can't initialize if device is being used by something else
+  device can not reinitialize after suspend, high CPU load
+ win:
+  flashing screen, not sure what's the problem
+ linux arm:
+  https://github.com/faiface/beep/issues/131, same behaviour
+  
+-- Command line arguments --
+ "-cpuprofile" - write cpu profile to `file`
+ "-memprofile" - write memory profile to `file`
+ "-debug"      - write debug output to `dump.log`
+ 
+-- Controls --
+ [Space]  - play/pause
+   [P]    - stop
+   [M]    - mute
+   [S]    - lower volume
+   [W]    - raise volume
+   [A]    - rewind
+   [D]    - fast forward
+   [F]    - next track
+   [B]    - previous track
+   [R]    - change playback mode
+   [T]    - switch theme
+   [E]    - switch symbols in status and progressbar to ascii ones
+   [H]    - display this message
+ [Ctrl+A] - switch art drawing method
+ [Ctrl+L] - display lyrics (if available)
+ [Ctrl+P] - display playlist
+ [Arrows] - scroll around/navigate lists
+  [Tab]   - enable input
+  [Esc]   - quit"
+  

@@ -63,6 +63,8 @@ func download(link string, mobile bool, checkDomain bool) (io.ReadCloser, string
 
 func processMediaPage(link string) {
 	window.sendEvent(newMessage("fetching media page..."))
+	wg.Add(1)
+	defer wg.Done()
 	reader, _ := download(link, true, true)
 	if reader == nil {
 		window.sendEvent(newItem(nil))
@@ -144,14 +146,16 @@ func downloadMedia(link string, track int) {
 	var err error
 	key := getTruncatedURL(link)
 
+	// TODO: move this check to upper level?
 	if _, ok := cache.get(key); ok {
 		window.sendEvent(newTrackDownloaded(key))
 		window.sendEvent(newMessage(fmt.Sprintf("playing track %d from cache",
 			track+1)))
 		return
 	}
-
 	window.sendEvent(newMessage(fmt.Sprintf("fetching track %d...", track+1)))
+	wg.Add(1)
+	defer wg.Done()
 	// NOTE: media location suggests that there is always only mp3 files on server
 	// for now ignore type of media
 	reader, _ := download(link, false, false)
@@ -174,6 +178,8 @@ func downloadMedia(link string, track int) {
 
 func downloadCover(link string) {
 	window.sendEvent(newDebugMessage("fetching album cover..."))
+	wg.Add(1)
+	defer wg.Done()
 	reader, format := download(link, false, false)
 	if reader == nil {
 		window.sendEvent(newCoverDownloaded(nil))
@@ -291,7 +297,7 @@ func processTagPage(args arguments) {
 		}
 		url = urls[rand.Intn(len(urls))]
 
-		processMediaPage(url)
+		go processMediaPage(url)
 		return
 	}
 	window.sendEvent(newMessage("nothing was found"))
