@@ -13,17 +13,32 @@ import (
 var app = &views.Application{}
 var window = &windowLayout{}
 
-// TODO: test if has any effect on windows
+// by default none of the colors are used, to keep default terminal look
+// only used for light/dark themes
+// actual bandcamp color (one of) is 0x61929c, but windows for some reason
+// gave 0x5f8787 instead of something something grey, which looks
+// rather nice
+const (
+	accentColor tcell.Color = tcell.ColorIsRGB | tcell.Color(0x61929c) |
+		tcell.ColorValid
+	bgColor tcell.Color = tcell.ColorIsRGB | tcell.Color(0x2b2b2b) |
+		tcell.ColorValid
+	fgColor tcell.Color = tcell.ColorIsRGB | tcell.Color(0xf9fdff) |
+		tcell.ColorValid
+)
+
+// FIXME: windows build is now more responsive
+// but terminal is still flashing every update
 type screen struct {
 	tcell.Screen
 }
 
-var counter int
+//var counter int
 
 func (screen *screen) Show() {
 	if window.screen.HasPendingEvent() {
-		counter++
-		window.sendEvent(newDebugMessage(fmt.Sprint("skipped show calls:", counter)))
+		// counter++
+		// window.sendEvent(newDebugMessage(fmt.Sprint("skipped show calls:", counter)))
 		return
 	}
 	screen.Screen.Show()
@@ -64,8 +79,7 @@ type windowLayout struct {
 	widgets     [8]recolorable
 	bgColor     tcell.Color
 	fgColor     tcell.Color
-	altColor    tcell.Color
-	altColorBuf tcell.Color
+	accentColor tcell.Color
 	style       tcell.Style
 	asciionly   bool
 
@@ -109,7 +123,7 @@ func getNewTrack(track int) {
 	if url, streamable := window.playlist.getURL(track); streamable {
 		go downloadMedia(url, track)
 	} else {
-		window.sendEvent(newMessage("track is not available for streaming"))
+		window.sendEvent(newMessage(fmt.Sprintf("track %d is not available for streaming", track+1)))
 		player.status = stopped
 	}
 }
@@ -132,7 +146,7 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 			window.playlist = event.value()
 			player.currentTrack = 0
 			getNewTrack(player.currentTrack)
-			go downloadCover(window.playlist.getImageURL(3))
+			go downloadCover(window.playlist.getImageURL(2))
 			player.totalTracks = event.value().totalTracks
 			return window.widgets[content].HandleEvent(event)
 		}
@@ -170,21 +184,22 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 			window.sendEvent(newDebugMessage(fmt.Sprint(window.playlist)))
 			return true
 
+		// forcefully clear all playlist data, even if playback already started
 		case tcell.KeyCtrlS:
 			if *debug {
 				window.playlist = nil
 			}
 
 		// recolor everything in random colors
-		// if debug flag is not set everything in one random style
+		// if debug flag is not set color everything in one random style
 		case tcell.KeyCtrlT:
-			window.altColor = getRandomColor()
+			window.accentColor = getRandomColor()
 			if *debug {
 				for _, widget := range window.widgets {
 					widget.SetStyle(getRandomStyle())
 				}
 				window.style = getRandomStyle()
-				window.altColor = getRandomColor()
+				window.accentColor = getRandomColor()
 			} else {
 				window.setTheme(4)
 			}
@@ -302,7 +317,7 @@ func (window *windowLayout) setTheme(theme int) {
 		window.fgColor, window.bgColor = window.bgColor, window.fgColor
 		window.style = tcell.StyleDefault.Background(window.bgColor).
 			Foreground(window.fgColor)
-		window.altColor = window.altColorBuf
+		window.accentColor = accentColor
 
 	// TODO: theme based on colors from cover
 	// case 3:
@@ -310,11 +325,11 @@ func (window *windowLayout) setTheme(theme int) {
 	// only triggered by pressing Ctrl+T
 	case 4:
 		window.style = getRandomStyle()
-		window.altColor = getRandomColor()
+		window.accentColor = getRandomColor()
 
 	default:
 		window.style = tcell.StyleDefault
-		window.altColor = 0
+		window.accentColor = 0
 	}
 
 	for _, widget := range window.widgets {
@@ -355,15 +370,9 @@ func init() {
 	var err error
 	window.hideInput = true
 	window.hMargin, window.vMargin = 3, 1
-	// by default none of the colors are used, to keep default terminal look
-	// only used for light/dark themes
-	window.fgColor = tcell.NewHexColor(0xf9fdff)
-	window.bgColor = tcell.NewHexColor(0x2b2b2b)
-	// actual bandcamp color (one of) is 0x61929c, but windows for some reason
-	// gave 0x5f8787 instead of something something grey, which looks
-	// rather nice
-	window.altColorBuf = tcell.NewHexColor(0x5f8787)
 	window.playlist = getDummyData()
+	window.bgColor = bgColor
+	window.fgColor = fgColor
 
 	window.widgets[spacerV1] = &spacer{views.NewText(), false}
 	window.widgets[spacerH1] = &spacer{views.NewText(), false}

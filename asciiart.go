@@ -97,7 +97,7 @@ func (model *artModel) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
 						model.asciiart[y][x].G,
 						model.asciiart[y][x].B,
 						0})).
-				Foreground(window.bgColor), nil, 1
+				Foreground(bgColor), nil, 1
 
 		case 4:
 			return rune(model.asciiart[y][x].Char), window.style.Background(
@@ -107,7 +107,7 @@ func (model *artModel) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
 						model.asciiart[y][x].G,
 						model.asciiart[y][x].B,
 						0})).
-				Foreground(window.fgColor), nil, 1
+				Foreground(fgColor), nil, 1
 
 		case 5:
 			return rune(model.asciiart[y][x].Char), window.style.Foreground(

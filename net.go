@@ -35,14 +35,16 @@ func download(link string, mobile bool, checkDomain bool) (io.ReadCloser, string
 
 	response, err := client.Do(request)
 	if err != nil {
-		// https requests fail here because reasons (real certificate is replacced by expired
-		// generic one), only relevant for images at the moment
-		window.sendEvent(newErrorMessage(err))
+		// https requests fail here because reasons (real certificate
+		// is replacced by expired generic one), only relevant for
+		// images at the moment
+		// basically try http instead of https, and don't report error
 		if strings.Contains(link, "https://") {
-			window.sendEvent(newDebugMessage("trying over http://"))
+			window.sendEvent(newDebugMessage(err.Error() + "; trying over http://"))
 			return download(strings.Replace(link, "https://", "http://", 1),
 				mobile, checkDomain)
 		}
+		window.sendEvent(newErrorMessage(err))
 		return nil, ""
 	}
 	window.sendEvent(newDebugMessage(response.Status))

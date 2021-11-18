@@ -12,6 +12,7 @@ import (
 	//"encoding/json"
 )
 
+// output types
 type album struct {
 	imageSrc    string
 	title       string
@@ -69,48 +70,55 @@ func (album *album) getImageURL(size int) string {
 	return strings.Replace(album.imageSrc, "_10", s, 1)
 }
 
-// TODO: unwrap all types back, it's painfull to look at this thing below
 type albumJSON struct {
 	ByArtist      map[string]string `json:"byArtist"`      // field "name" contains artist/band name
-	Name          string            `json:"name"`          // album title
+	Name          string            `json:"name"`          // album name
 	DatePublished string            `json:"datePublished"` // release date
 	Image         string            `json:"image"`         // link to album art
 	Tags          []string          `json:"keywords"`      // tags/keywords
-	Tracks        struct {
-		NumberOfItems   int `json:"numberOfItems"` // total number of tracks
-		ItemListElement []struct {
-			Position  int `json:"position"` // track number
-			TrackInfo struct {
-				Name        string `json:"name"` // track name
-				RecordingOf struct {
-					Lyrics map[string]string `json:"lyrics"` // field "text" contains actual lyrics
-				} `json:"recordingOf"` // container for lyrics
-			} `json:"item"` // further container for track data
-		} `json:"itemListElement"` // further container for track data
-	} `json:"track"` // container for track data
+	Tracks        Track             `json:"track"`         // container for track data
+}
+
+type Track struct {
+	NumberOfItems   int           `json:"numberOfItems"`   // total number of tracks
+	ItemListElement []ListElement `json:"itemListElement"` // further container for track data
+}
+
+type ListElement struct {
+	Position  int  `json:"position"` // track number
+	TrackInfo Item `json:"item"`     // further container for track data
+}
+
+type Item struct {
+	Name        string `json:"name"`        // track name
+	RecordingOf Lyrics `json:"recordingOf"` // container for lyrics
+}
+
+type Lyrics struct {
+	Lyrics map[string]string `json:"lyrics"` // field "text" contains actual lyrics
 }
 
 type trackJSON struct {
-	Name          string                 `json:"name"`
-	Image         string                 `json:"image"`
-	Tags          []string               `json:"keywords"`
-	DatePublished string                 `json:"datePublished"`
-	ByArtist      map[string]string      `json:"byArtist"`
-	InAlbum       map[string]interface{} `json:"inAlbum"`
-	RecordingOf   struct {
-		Lyrics map[string]string `json:"lyrics"` // field "text" contains actual lyrics
-	} `json:"recordingOf"` // container for lyrics
+	ByArtist      map[string]string      `json:"byArtist"`      // same as in album json
+	Name          string                 `json:"name"`          // track name
+	DatePublished string                 `json:"datePublished"` // same as in album json
+	Image         string                 `json:"image"`         // same as in album json
+	Tags          []string               `json:"keywords"`      // same as in album json
+	InAlbum       map[string]interface{} `json:"inAlbum"`       // album name
+	RecordingOf   Lyrics                 `json:"recordingOf"`   // same as in album json
 }
 
+// TODO: combine album and track json finally?
+
 type mediaJSON struct {
-	AlbumIsPreorder bool   `json:"album_is_preorder"`
-	URL             string `json:"url"`
+	AlbumIsPreorder bool   `json:"album_is_preorder"` // unused, useless
+	URL             string `json:"url"`               // either album or track URL
 	Trackinfo       []struct {
-		Duration float64 `json:"duration"`
+		Duration float64 `json:"duration"` // duration in seconds
 		File     struct {
-			MP3 string `json:"mp3-128"`
+			MP3 string `json:"mp3-128"` // media url
 		} `json:"file"`
-	} `json:"trackinfo"`
+	} `json:"trackinfo"` // file data
 }
 
 func parseAlbumJSON(metaDataJSON string, mediaDataJSON string) (*album, error) {
@@ -210,6 +218,9 @@ func parseTagSearchHighlights(dataBlobJSON string) (urls []string) {
 	if dataBlob.Hubs.IsSimple || len(dataBlob.Hubs.Tabs) == 0 {
 		return urls
 	}
+	// first tab is highlights, second one has actual search results
+	// highlights tab has several sections with albums/tracks
+	// for highlights query go through all sections and collect all data
 	for _, collection := range dataBlob.Hubs.Tabs[0].Collections {
 		for _, item := range collection.Items {
 			if value, ok := item["tralbum_url"].(string); ok {
@@ -220,6 +231,7 @@ func parseTagSearchHighlights(dataBlobJSON string) (urls []string) {
 	return urls
 }
 
+// tag search results
 type tagSearchJSON struct {
 	Hubs Hub `json:"hub"`
 }
@@ -236,6 +248,8 @@ type Tab struct {
 	Collections []Collection `json:"collections"`
 }
 
+// FIXME: key for accessing underlying data is dynamic and
+// built from search parameters not sure how to deal with that
 type Results struct {
 	Result map[string]Collection `json:"results"`
 }
@@ -248,8 +262,12 @@ func parseTagSearchJSON(dataBlobJSON string) (urls []string) {
 	var dataBlob tagSearchJSON
 	err := json.Unmarshal([]byte(dataBlobJSON), &dataBlob)
 	checkFatalError(err)
+
 	// FIXME: will absolutely fail at some point
 	var index int
+	// simple = tag is not "genre" and doesn't have tabs on tag search page
+	// for !simple tags there are two tabs: highlights and all releases
+	// ignore highlights if there are any, since we don't care about them here
 	if dataBlob.Hubs.IsSimple {
 		index = 0
 	} else {
@@ -265,10 +283,23 @@ func parseTagSearchJSON(dataBlobJSON string) (urls []string) {
 		for _, item := range collection.Items {
 			if value, ok := item["tralbum_url"].(string); ok {
 				urls = append(urls, value)
+				window.sendEvent(newDebugMessage(fmt.Sprint(item)))
 			} else {
 				return urls
 			}
 		}
 	}
 	return urls
+}
+
+func extractResults(item map[string]interface{}) {
+
+}
+
+type result struct {
+	title  string
+	artist string
+	genre  string
+	url    string
+	artId  int
 }

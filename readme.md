@@ -7,7 +7,7 @@ Terminal player for bandcamp, uses [Beep](https://github.com/faiface/beep/) pack
 Placeholder image source: https://github.com/egonelbre/gophers
 
 Features:
-- Playback of media from band/album/track pages (by pasting link into input field)
+- Playback of media from band/album/track pages
 - Tag search (WIP, for now only plays one random item from first results page)
 
 Tag search:
@@ -49,8 +49,11 @@ Formats (optional):
 |       <kbd>R</kbd>      | change playback mode                                               |
 |       <kbd>T</kbd>      | switch theme                                                       |
 |       <kbd>E</kbd>      | switch symbols in status and progressbar to ascii ones             |
+|       <kbd>H</kbd>      | toggle help/controls view                                          |
 |    <kbd>Ctrl+A</kbd>    | switch art drawing method                                          |
-|    <kbd>Ctrl+L</kbd>    | display lyrics                                                     |
-|    <kbd>Ctrl+P</kbd>    | display playlist                                                   |
+|    <kbd>Ctrl+L</kbd>    | toggle lyrics view                                                 |
+|    <kbd>Ctrl+P</kbd>    | toggle playlist view                                               |
+|   <kbd>Backspace</kbd>  | toggle between current and previous view                           |
+|      <kbd>←↑→↓</kbd>    | scroll around/navigate lists                                       |
 |      <kbd>Tab</kbd>     | enable input                                                       |
 |      <kbd>Esc</kbd>     | quit                                                               |

@@ -48,11 +48,10 @@ func (message *messageBox) Size() (int, int) {
 
 // TODO: remove if message ever becomes some other widget?
 func (message *messageBox) SetStyle(style tcell.Style) {
-	message.Text.SetStyle(style.Foreground(window.altColor))
+	message.Text.SetStyle(style.Foreground(window.accentColor))
 }
 
 func init() {
 	messageBox := &messageBox{views.NewText()}
-	//messageBox.SetText("[Tab] enable input [H] display help")
 	window.widgets[message] = messageBox
 }

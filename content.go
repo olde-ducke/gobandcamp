@@ -24,16 +24,13 @@ const (
 )
 
 type contentArea struct {
-	currentModel int
-	models       [5]contentModel
-	port         *views.ViewPort
-	view         views.View
-	//content views.Widget
-	//contentV *views.ViewPort
-	style tcell.Style
-	//lines    []string
-	//model views.CellModel
-	once sync.Once
+	currentModel  int
+	previousModel int
+	models        [5]contentModel
+	port          *views.ViewPort
+	view          views.View
+	style         tcell.Style
+	once          sync.Once
 
 	views.WidgetWatchers
 }
@@ -51,6 +48,7 @@ func (content *contentArea) Draw() {
 	if model == nil {
 		return
 	}
+
 	// why???
 	/*vw, vh := content.view.Size()
 	for y := 0; y < vh; y++ {
@@ -76,45 +74,50 @@ func (content *contentArea) Draw() {
 	for y := 0; y < ey; y++ {
 		for x := 0; x < ex; x++ {
 			ch, style, comb, wid := model.GetCell(x+offset, y)
+
 			if en && x == cx && y == cy && sh {
 				style = style.Reverse(true)
 			}
+
+			// flip flag
 			if ch == '\ue000' || ch == '\ue001' {
-				/*if content.style == window.style {
-					content.style = content.style.Foreground(window.altColor)
-				} else {
-					content.style = window.style
-				}*/
 				altStyle = !altStyle
 				offset++
-				style = content.style
 				if x+offset >= ex {
 					continue
 				}
-				ch, _, comb, wid = model.GetCell(x+offset, y)
+				ch, style, comb, wid = model.GetCell(x+offset, y)
 			}
 
 			if altStyle {
-				style = style.Foreground(window.altColor)
+				style = style.Foreground(window.accentColor)
 			}
 
-			//style := content.style
+			// truncate tails of strings
+			// FIXME: doesn't look good on scrollable texts
 			if x+3 > px1 && ch != 0 {
-				if r, _, _, _ := model.GetCell(x+3, y); r != 0 && r != ' ' {
+				if r, _, _, _ := model.GetCell(x+3, y); r != 0 { //&& r != ' ' {
 					for ; x <= px1; x++ {
 						port.SetContent(x, y, '.', nil, style)
 					}
 					break
 				}
 			}
+
+			// ignore empty characters completely
+			// in start of Draw() we fill screen (buffer) with spaces
+			// 2 times and then filling it again outside of actual content
+			// one more time? again, why ???
 			if ch == 0 {
-				ch = ' '
-				style = content.style
+				//ch = ' '
+				//style = content.style
+				break
 			}
 
 			port.SetContent(x, y, ch, comb, style)
 			x += wid - 1
 		}
+		// reset accentColor styling
 		altStyle = false
 		offset = 0
 	}
@@ -225,8 +228,6 @@ func (content *contentArea) handleModelControl(key tcell.Key) bool {
 	if content.GetModel() == nil {
 		return false
 	}
-	//switch e := e.(type) {
-	//case *tcell.EventKey:
 	switch key {
 	case tcell.KeyUp, tcell.KeyCtrlP:
 		content.keyUp()
@@ -253,7 +254,6 @@ func (content *contentArea) handleModelControl(key tcell.Key) bool {
 		content.keyHome()
 		return true
 	}
-	//}
 	return false
 }
 
@@ -381,12 +381,24 @@ func (content *contentArea) HandleEvent(event tcell.Event) bool {
 			return true
 
 		case tcell.KeyEnter:
+
 			if !window.hideInput {
 				return false
-			} else if content.currentModel == playlistModel {
-				player.setTrack(content.GetModel().getItem())
-				return true
 			}
+			item := content.GetModel().getItem()
+			switch content.currentModel {
+			case playlistModel:
+				player.setTrack(item)
+				return true
+			default:
+				return false
+			}
+
+		case tcell.KeyBackspace2, tcell.KeyBackspace:
+			if !window.hideInput {
+				return false
+			}
+			content.switchModel(content.previousModel)
 		}
 
 		if content.currentModel == playerModel || !window.hideInput {
@@ -418,39 +430,30 @@ func (content *contentArea) toggleModel(model int) {
 }
 
 func (content *contentArea) switchModel(model int) {
+	if content.currentModel != welcomeModel {
+		content.previousModel = content.currentModel
+	}
 	content.currentModel = model
 	content.GetModel().create()
 	content.SetModel(model)
 	switch content.currentModel {
 
-	// FIXME: player on some occasions does scroll past end coordinates,
-	// FIXME: text position does not reset on track change,
 	// FIXME menu on model switch in some cases will only highlight
 	// real cursor position, two other rows will be out of view
 	// all of these are probably can be fixed by reimplementing
 	// viewport from scratch
-	/*case playerModel:
-		content.SetModel(playerModel)
-		content.models[playerModel].update()
-
-	case lyricsModel:
-		content.models[lyricsModel].create()
-		content.SetModel(lyricsModel)*/
-
 	case playlistModel:
 		content.SetCursorY(player.currentTrack * 3)
+
+	default:
+		content.port.MakeVisible(0, 0)
 	}
 	app.Update()
-	//content.Draw()
 }
 
 func (content *contentArea) Size() (int, int) {
 	return window.getBounds()
 }
-
-/*func (content *contentArea) GetModel() contentModel {
-	return content.CellView.GetModel().(contentModel)
-}*/
 
 type contentModel interface {
 	views.CellModel
@@ -488,17 +491,10 @@ func (model *defaultModel) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
 	style := window.style
 	if y < len(model.text) {
 		if x < len(model.text[y]) {
-
-			/*// draw "by" and tags in alt color
-			if ((x == 1 || x == 2) && y == 1) || y == 3 {
-				style = window.style.Foreground(window.altColor)
-			}*/
-
 			// truncate tail of any string that's out of bounds to ...
 			/*if len(model.text[y]) > model.endx && x > model.endx-4 {
 				return '.', style, nil, 1
 			}*/
-
 			return model.text[y][x], style, nil, 1
 		}
 	}
@@ -542,7 +538,6 @@ func (model *defaultModel) update() {
 	// NOTE: hardcoded length
 	model.text = make([][]rune, 14)
 	generateCharMatrix(text, model.text)
-
 }
 
 func (model *defaultModel) create() {
@@ -556,11 +551,18 @@ func (model *defaultModel) getItem() int {
 func generateCharMatrix(text string, matrix [][]rune) (maxx int, maxy int) {
 	x, y := 0, 0
 	for _, r := range text {
+
+		// do not count
+		if r == '\ue000' || r == '\ue001' {
+			x--
+		}
+
 		if x > maxx {
 			maxx = x
 		}
 
-		if r == '\r' {
+		// ignore zero-width spaces and other silly things here
+		if r == '\r' || r == '\u200b' {
 			continue
 		} else if r == '\n' {
 			x = 0
@@ -568,7 +570,6 @@ func generateCharMatrix(text string, matrix [][]rune) (maxx int, maxy int) {
 			continue
 		}
 
-		x++
 		matrix[y] = append(matrix[y], r)
 		// FIXME: reallt janky fix for CJK:
 		// CJK scripts and symbols:
@@ -599,6 +600,7 @@ func generateCharMatrix(text string, matrix [][]rune) (maxx int, maxy int) {
 			x++
 			matrix[y] = append(matrix[y], ' ')
 		}
+		x++
 	}
 	return maxx + 1, y + 1
 }
@@ -687,11 +689,12 @@ type menuModel struct {
 	y            int
 	onBottom     bool
 	item         int
+	activeItem   int
+	totalItems   int
 	endx         int
 	endy         int
 	hide         bool
 	enab         bool
-	loc          string
 	text         [][]rune
 	formatString string
 	sbuilder     strings.Builder
@@ -739,7 +742,7 @@ func (model *menuModel) limitCursor() {
 	}
 	if model.y >= model.endy-1 {
 		model.y = model.endy - 1
-		model.item = window.playlist.totalTracks - 1
+		model.item = model.totalItems - 1
 	}
 	/*window.sendEvent(newDebugMessage(fmt.Sprintf(
 	"playlist cursor is %d,%d, onbottom:%v selected item:%d",
@@ -768,7 +771,7 @@ func (model *menuModel) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
 	var ch rune
 	var style = window.style
 	var returnWholeLine bool
-	track := player.currentTrack
+	//track := player.currentTrack
 
 	_, cursorY, _, _ := model.GetCursor()
 	if model.onBottom {
@@ -778,21 +781,18 @@ func (model *menuModel) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
 	if y >= cursorY && y <= cursorY+2 {
 		style = window.style.Reverse(true)
 		returnWholeLine = true
-	} else if y >= track*3 && y <= track*3+2 {
-		style = window.style.Background(window.altColor)
+	} else if y >= model.activeItem*3 && y <= model.activeItem*3+2 {
+		style = window.style.Background(window.accentColor)
 		returnWholeLine = true
 	}
 
 	if y < len(model.text) {
 		if x < len(model.text[y]) {
-			/*if len(model.text[y]) > model.endx && x > model.endx-4 {
-				return '.', style, nil, 1
-			}*/
 			return model.text[y][x], style, nil, 1
 		}
 	}
 
-	if returnWholeLine {
+	if returnWholeLine && x < model.endx {
 		return ' ', style, nil, 1
 	}
 
@@ -810,13 +810,14 @@ func (model *menuModel) update() {
 	//
 	//    0m0s
 	window.verifyData()
-	trackn := player.currentTrack
+	model.activeItem = player.currentTrack
+	model.totalItems = window.playlist.totalTracks
 	timeStamp := player.getCurrentTrackPosition()
-	repeats := progressbarLength(window.playlist.tracks[trackn].duration,
+	repeats := progressbarLength(window.playlist.tracks[model.activeItem].duration,
 		timeStamp, model.endx)
 
 	for n, track := range window.playlist.tracks {
-		if n == trackn {
+		if n == model.activeItem {
 			fmt.Fprintf(&model.sbuilder, model.formatString,
 				window.getPlayerStatus(),
 				n+1,
@@ -855,7 +856,7 @@ func (model *menuModel) getItem() int {
 		model.item = 0
 	}
 
-	if model.item > window.playlist.totalTracks-1 {
+	if model.item > model.totalItems-1 {
 		model.item = 0
 	}
 
@@ -894,5 +895,6 @@ func init() {
 	contentWidget.models[playlistModel] = playlist
 	contentWidget.models[helpModel] = help
 	contentWidget.switchModel(welcomeModel)
+	contentWidget.previousModel = playerModel
 	window.widgets[content] = contentWidget
 }
