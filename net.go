@@ -8,7 +8,6 @@ import (
 	"image/jpeg"
 	"image/png"
 	"io"
-	"math/rand"
 	"net/http"
 	"strings"
 	"time"
@@ -83,11 +82,14 @@ func processMediaPage(link string) {
 	scanner.Buffer(buffer, 131072)
 	var metaDataJSON string
 	var mediaDataJSON string
+	var err error
 	var isAlbum bool
 
 	// TODO: expects only album/track pages and artist page with pinned item
 	// if artist page is discography, will try to parse it as album/track
 	// doesn't crash, but doesn't need to get there in the first place
+	// NOTE: 5ccc945faa4b3243c4ab9f71ec53ed0c9a5c7df7 - absolutely zero idea
+	// what was here before and why, probably there was a reason for that
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.Contains(line, "og:type") {
@@ -97,33 +99,17 @@ func processMediaPage(link string) {
 		} else if strings.Contains(line, "application/ld+json") {
 			scanner.Scan()
 			metaDataJSON = scanner.Text()
-		} else if strings.Contains(line, "data-tralbum=") {
-			start := strings.Index(line, "data-tralbum=")
-			start += 14
-			end := strings.Index(line[start:], "\"")
-			end += start
-			if start == -1 || end == -1 || end < start {
-				window.sendEvent(newErrorMessage(errors.New("unexpected page format")))
-				return
-			}
-			replacer := strings.NewReplacer(`&quot;`, `"`, `&amp;`, `&`)
-			mediaDataJSON = replacer.Replace(line[start:end])
-		} else if strings.Contains(line, "data-cart=") {
-			start := strings.Index(line, "data-cart=")
-			start += 10
-			end := strings.Index(line[start:], "\"")
-			end += start
-			if start == -1 || end == -1 || end < start {
-				window.sendEvent(newErrorMessage(errors.New("unexpected page format")))
-				return
-			}
-			replacer := strings.NewReplacer(`&quot;`, `"`, `&amp;`, `&`, "%2F", "/")
-			mediaDataJSON = replacer.Replace(line[start:end])
+		} else if prefix := `data-tralbum="`; strings.Contains(line, prefix) {
+			mediaDataJSON, err = extractJSON(prefix, line, `"`)
 		}
 	}
 
+	if err != nil {
+		window.sendEvent(newErrorMessage(err))
+		return
+	}
+
 	var metadata *album
-	var err error
 	if metaDataJSON != "" || mediaDataJSON != "" {
 		if !isAlbum {
 			window.sendEvent(newMessage("found track data"))
@@ -257,52 +243,54 @@ func processTagPage(args arguments) {
 	// 64k is not enough for these pages
 	// buffer with size 1048576 reads json with 178 items
 	var buffer []byte
+	var err error
 	scanner.Buffer(buffer, 1048576)
 	for scanner.Scan() {
 		line := scanner.Text()
-		if strings.Contains(line, "data-blob=") {
-			start := strings.Index(line, `data-blob=`)
-			start += 11
-			end := strings.Index(line[start:], "></div>")
-			end += start
-			end--
-			if start == -1 || end == -1 || end < start {
-				window.sendEvent(newErrorMessage(errors.New("unexpected page format")))
-				return
-			}
-			replacer := strings.NewReplacer(`&quot;`, `"`, `&amp;`, `&`)
-			dataBlobJSON = replacer.Replace(line[start:end])
+		if prefix := `data-blob="`; strings.Contains(line, prefix) {
+			dataBlobJSON, err = extractJSON(prefix, line, `"`)
 			break
 		}
 	}
-	if dataBlobJSON == "" {
-		window.sendEvent(newErrorMessage(errors.New("unexpected page format")))
+	if err != nil {
+		window.sendEvent(newErrorMessage(err))
 		return
 	}
 	window.sendEvent(newMessage("found data"))
 
-	var urls []string
-	if inHighlights {
-		urls = parseTagSearchHighlights(dataBlobJSON)
-	} else {
-		urls = parseTagSearchJSON(dataBlobJSON)
-	}
-
-	rand.Seed(time.Now().UnixNano())
-	var url string
-	if len(urls) > 0 {
-		// TODO: remove later
-		for i, url := range urls {
-			window.sendEvent(newDebugMessage(fmt.Sprint(
-				"tag search:", i, " ", url,
-			)))
-		}
-		url = urls[rand.Intn(len(urls))]
-
-		go processMediaPage(url)
+	results, err := parseTagSearchJSON(dataBlobJSON, inHighlights)
+	if err != nil {
+		window.sendEvent(newErrorMessage(err))
 		return
 	}
-	window.sendEvent(newMessage("nothing was found"))
+
+	if results == nil || len(results.Items) == 0 {
+		window.sendEvent(newMessage("nothing was found"))
+		return
+	}
+
+	window.sendEvent(newDebugMessage(fmt.Sprint(results.MoreAvailable)))
+	for i, item := range results.Items {
+		window.sendEvent(newDebugMessage(""))
+		window.sendEvent(newDebugMessage(fmt.Sprint(i)))
+		window.sendEvent(newDebugMessage(fmt.Sprint(item.ArtId)))
+		window.sendEvent(newDebugMessage(item.Artist))
+		window.sendEvent(newDebugMessage(item.Title))
+		window.sendEvent(newDebugMessage(item.Genre))
+		window.sendEvent(newDebugMessage(item.URL))
+	}
+}
+
+func extractJSON(prefix, line, suffix string) (string, error) {
+	start := strings.Index(line, prefix)
+	start += len(prefix)
+	end := strings.Index(line[start:], suffix)
+	end += start
+	if start == -1 || end == -1 || end < start {
+		return "", errors.New("unexpected page format")
+	}
+	replacer := strings.NewReplacer(`&quot;`, `"`, `&amp;`, `&`, `&#39;`, `'`)
+	return replacer.Replace(line[start:end]), nil
 }
 
 func getTruncatedURL(link string) string {

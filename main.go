@@ -98,7 +98,7 @@ func main() {
 	wg.Wait()
 
 	if *debug {
-		logFile.WriteString(time.Now().Format(time.ANSIC) + "[ext]:closing debug file, exiting with code 0\n")
+		logFile.WriteString(time.Now().Format(time.ANSIC) + "[ext]:closing debug file\n")
 		err = logFile.Close()
 		if err != nil {
 			exitCode = 1

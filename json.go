@@ -165,10 +165,12 @@ func parseTrackJSON(metaDataJSON string, mediaDataJSON string) (*album, error) {
 	var mediaData mediaJSON
 	err := json.Unmarshal([]byte(metaDataJSON), &metaData)
 	if err != nil {
+		window.sendEvent(newDebugMessage(metaDataJSON))
 		return nil, err
 	}
 	err = json.Unmarshal([]byte(mediaDataJSON), &mediaData)
 	if err != nil {
+		window.sendEvent(newDebugMessage(mediaDataJSON))
 		return nil, err
 	}
 
@@ -193,6 +195,7 @@ func parseTrackJSON(metaDataJSON string, mediaDataJSON string) (*album, error) {
 			},
 		)
 	} else {
+		window.sendEvent(newDebugMessage(fmt.Sprint(mediaData)))
 		return nil, errors.New("not enough data was parsed")
 	}
 
@@ -211,25 +214,28 @@ func parseDate(input string) (strDate string) {
 	return strDate
 }
 
-func parseTagSearchHighlights(dataBlobJSON string) (urls []string) {
+/*func extractHighlights(dataBlobJSON string) (urls []string) {
 	var dataBlob tagSearchJSON
 	err := json.Unmarshal([]byte(dataBlobJSON), &dataBlob)
 	checkFatalError(err)
-	if dataBlob.Hubs.IsSimple || len(dataBlob.Hubs.Tabs) == 0 {
-		return urls
-	}
+
 	// first tab is highlights, second one has actual search results
 	// highlights tab has several sections with albums/tracks
 	// for highlights query go through all sections and collect all data
+	// we shouldn't be here if tag is simple
+	if dataBlob.Hubs.IsSimple || len(dataBlob.Hubs.Tabs) == 0 {
+		return urls
+	}
 	for _, collection := range dataBlob.Hubs.Tabs[0].Collections {
-		for _, item := range collection.Items {
-			if value, ok := item["tralbum_url"].(string); ok {
-				urls = append(urls, value)
-			}
-		}
+		window.sendEvent(newDebugMessage(fmt.Sprint(collection.Items)))
+		//	for _, item := range collection.Items {
+		//		if value, ok := item["tralbum_url"].(string); ok {
+		//			urls = append(urls, value)
+		//		}
+		//	}
 	}
 	return urls
-}
+} */
 
 // tag search results
 type tagSearchJSON struct {
@@ -244,62 +250,94 @@ type Hub struct {
 }
 
 type Tab struct {
-	DigDeeper   Results      `json:"dig_deeper"`
-	Collections []Collection `json:"collections"`
+	Collections []Result `json:"collections"`
+	DigDeeper   Results  `json:"dig_deeper"`
 }
 
 // FIXME: key for accessing underlying data is dynamic and
 // built from search parameters not sure how to deal with that
 type Results struct {
-	Result map[string]Collection `json:"results"`
+	Result json.RawMessage `json:"results"`
 }
 
-type Collection struct {
-	Items []map[string]interface{} `json:"items"`
+type Result struct {
+	MoreAvailable bool         `json:"more_available"`
+	Items         []SearchItem `json:"items"`
 }
 
-func parseTagSearchJSON(dataBlobJSON string) (urls []string) {
+type SearchItem struct {
+	Title  string `json:"title"`       // title
+	Artist string `json:"artist"`      // artist
+	Genre  string `json:"genre"`       // genre
+	URL    string `json:"tralbum_url"` // tralbum_url
+	ArtId  int    `json:"art_id"`      // art_id
+}
+
+func parseTagSearchJSON(dataBlobJSON string, highlights bool) (*Result, error) {
 	var dataBlob tagSearchJSON
+	var searchResults Result
 	err := json.Unmarshal([]byte(dataBlobJSON), &dataBlob)
-	checkFatalError(err)
+	if err != nil {
+		return &searchResults, err
+	}
+
+	if highlights {
+		// first tab is highlights, second one has actual search results
+		// highlights tab has several sections with albums/tracks
+		// for highlights query go through all sections and collect all data
+		// we shouldn't be here if tag is simple
+		if dataBlob.Hubs.IsSimple || len(dataBlob.Hubs.Tabs) == 0 {
+			return &searchResults, errors.New("nothing was found")
+		}
+		for _, collection := range dataBlob.Hubs.Tabs[0].Collections {
+			//window.sendEvent(newDebugMessage(fmt.Sprint(collection.MoreAvailable)))
+			//for _, item := range collection.Items {
+			//	window.sendEvent(newDebugMessage(item.Title))
+			//}
+			searchResults.Items = append(searchResults.Items, collection.Items...)
+		}
+		return &searchResults, nil
+	}
 
 	// FIXME: will absolutely fail at some point
 	var index int
 	// simple = tag is not "genre" and doesn't have tabs on tag search page
-	// for !simple tags there are two tabs: highlights and all releases
-	// ignore highlights if there are any, since we don't care about them here
-	if dataBlob.Hubs.IsSimple {
-		index = 0
-	} else {
+	// for not simple tags there are two tabs: highlights and all releases
+	if !dataBlob.Hubs.IsSimple {
 		index = 1
 	}
 
 	if index > len(dataBlob.Hubs.Tabs)-1 {
-		window.sendEvent(newErrorMessage(errors.New("tag page JSON parser: index out of range")))
-		return urls
+		window.sendEvent(newDebugMessage(fmt.Sprint(dataBlob.Hubs.Tabs)))
+		return &searchResults, errors.New("tag page JSON parser: index out of range")
 	}
 
-	for _, collection := range dataBlob.Hubs.Tabs[index].DigDeeper.Result {
-		for _, item := range collection.Items {
-			if value, ok := item["tralbum_url"].(string); ok {
-				urls = append(urls, value)
-				window.sendEvent(newDebugMessage(fmt.Sprint(item)))
-			} else {
-				return urls
-			}
+	// ignore dynamic key, to parse further data with jsoniter,
+	// by stripping data out
+	results := dataBlob.Hubs.Tabs[index].DigDeeper.Result
+	var i int
+	var b byte
+	for i, b = range results {
+		if b == byte('}') {
+			i += 3
+			break
 		}
 	}
-	return urls
+	return extractResults(results[i : len(results)-1])
 }
 
-func extractResults(item map[string]interface{}) {
+func extractResults(results []byte) (*Result, error) {
 
-}
+	var result Result
+	if !json.Valid(results) {
+		window.sendEvent(newDebugMessage(string(results)))
+		return &result, errors.New("extractResults: got invalid JSON")
+	}
 
-type result struct {
-	title  string
-	artist string
-	genre  string
-	url    string
-	artId  int
+	err := json.Unmarshal(results, &result)
+	if err != nil {
+		return &result, err
+	}
+
+	return &result, nil
 }

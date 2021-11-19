@@ -644,15 +644,15 @@ func (model *textModel) create() {
 
 	if window.playlist.tracks[track].lyrics == "" {
 		model.text = make([][]rune, 1)
-		model.text[0] = append(model.text[0], '\ue000', '-', '-', '-', ' ', 'n', 'o', ' ',
-			'l', 'y', 'r', 'i', 'c', 's', ' ', 'f', 'o', 'u', 'n', 'd', ' ', '-', '-', '-', '\ue001')
-		model.endx = 23
+		model.text[0] = append(model.text[0], '\ue000', 'n', 'o', ' ',
+			'l', 'y', 'r', 'i', 'c', 's', ' ', 'f', 'o', 'u', 'n', 'd', '\ue001')
+		model.endx = 15
 		model.endy = 1
 		return
 	}
 
-	text := fmt.Sprint("\ue000--- ", window.playlist.tracks[track].title, " \ue001by\ue000 ",
-		window.playlist.artist, " ---\ue001\n", window.playlist.tracks[track].lyrics, "\n\ue000--- END ---\ue001")
+	text := fmt.Sprint("\ue000", window.playlist.tracks[track].title, "\ue001 by \ue000",
+		window.playlist.artist, "\ue001\n\n", window.playlist.tracks[track].lyrics)
 	model.text = make([][]rune, strings.Count(text, "\n")+1)
 
 	model.endx, model.endy = generateCharMatrix(text, model.text)
@@ -873,7 +873,7 @@ func progressbarLength(duration float64, pos time.Duration, width int) int {
 
 func init() {
 	player := &defaultModel{
-		formatString: "%s\n \ue000by\ue001 %s\nreleased %s\n\ue000%s\ue001\n\n%2s %2d/%d - %s\n%s" +
+		formatString: "%s\n by \ue000%s\ue001\nreleased %s\n\ue000%s\ue001\n\n%2s %2d/%d - %s\n%s" +
 			"\n%s/%s\nvolume %4s mode %s\n\n\n\n\n%s",
 	}
 
