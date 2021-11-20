@@ -352,6 +352,8 @@ func (s *spacer) Size() (int, int) {
 
 func getDummyData() *album {
 	return &album{
+		single:      false,
+		album:       true,
 		title:       "---",
 		artist:      "---",
 		date:        "---",

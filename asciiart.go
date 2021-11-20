@@ -46,7 +46,7 @@ func (model *artModel) SetCursor(x int, y int) {
 
 func (model *artModel) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
 	var ch rune
-	if x > model.endx || y > model.endy {
+	if x > model.endx-1 || y > model.endy-1 {
 		return ch, window.style, nil, 1
 	}
 
@@ -59,6 +59,7 @@ func (model *artModel) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
 
 		switch model.artDrawingMode {
 
+		// both image colors, lighter background, darker foreground
 		case 1:
 			return rune(model.asciiart[y][x].Char), tcell.StyleDefault.Background(
 				tcell.FromImageColor(
@@ -74,6 +75,7 @@ func (model *artModel) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
 						model.asciiart[y][x].B / 2,
 						0})), nil, 1
 
+		// both image colors, darker background, lighter foreground
 		case 2:
 			return rune(model.asciiart[y][x].Char), tcell.StyleDefault.Background(
 				tcell.FromImageColor(
@@ -89,6 +91,7 @@ func (model *artModel) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
 						model.asciiart[y][x].B,
 						0})), nil, 1
 
+		// image colors on background, app background color on foreground
 		case 3:
 			return rune(model.asciiart[y][x].Char), window.style.Background(
 				tcell.FromImageColor(
@@ -99,6 +102,7 @@ func (model *artModel) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
 						0})).
 				Foreground(bgColor), nil, 1
 
+		// image colors on background, app foreground color on foreground
 		case 4:
 			return rune(model.asciiart[y][x].Char), window.style.Background(
 				tcell.FromImageColor(
@@ -109,6 +113,7 @@ func (model *artModel) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
 						0})).
 				Foreground(fgColor), nil, 1
 
+		// app background color, image colors on foreground
 		case 5:
 			return rune(model.asciiart[y][x].Char), window.style.Foreground(
 				tcell.FromImageColor(
@@ -118,6 +123,7 @@ func (model *artModel) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
 						model.asciiart[y][x].B,
 						0})), nil, 1
 
+		// fill area with spaces and color background to image colors
 		default:
 			return ' ', window.style.Background(
 				tcell.FromImageColor(
@@ -216,8 +222,8 @@ func (model *artModel) refitArt() {
 	model.asciiart = model.converter.Image2CharPixelMatrix(
 		model.cover, &model.options)
 
-	model.endx, model.endy = len(model.asciiart[0])-1,
-		len(model.asciiart)-1
+	model.endx, model.endy = len(model.asciiart[0]),
+		len(model.asciiart)
 }
 
 func getPlaceholderImage() image.Image {

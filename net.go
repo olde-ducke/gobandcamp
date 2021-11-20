@@ -109,15 +109,14 @@ func processMediaPage(link string) {
 		return
 	}
 
-	var metadata *album
 	if metaDataJSON != "" || mediaDataJSON != "" {
 		if !isAlbum {
 			window.sendEvent(newMessage("found track data"))
-			metadata, err = parseTrackJSON(metaDataJSON, mediaDataJSON)
 		} else {
 			window.sendEvent(newMessage("found album data"))
-			metadata, err = parseAlbumJSON(metaDataJSON, mediaDataJSON)
 		}
+
+		metadata, err := parseTrAlbumJSON(metaDataJSON, mediaDataJSON, isAlbum)
 
 		if err == nil {
 			window.sendEvent(newItem(metadata))

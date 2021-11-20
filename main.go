@@ -82,6 +82,7 @@ func main() {
 		checkFatalError(err)
 	}
 
+	window.recalculateBounds()
 	// FIXME: behaves weird after coming from suspend (high CPU load)
 	// FIXME: device does not reinitialize after suspend
 	// FIXME: takes device to itself, doesn't allow any other program to use it, and can't use it, if device is already being used

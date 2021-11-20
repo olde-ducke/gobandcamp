@@ -53,5 +53,6 @@ func (message *messageBox) SetStyle(style tcell.Style) {
 
 func init() {
 	messageBox := &messageBox{views.NewText()}
+	messageBox.SetText("messages will show up here, press [Esc] to quit")
 	window.widgets[message] = messageBox
 }

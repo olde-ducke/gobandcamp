@@ -51,7 +51,7 @@ func TestParseAlbumJSON(t *testing.T) {
 	} */
 
 	//formatstring := "imageSrc: %s title: %s artist: %s date: %s tags: %s totalTracks: %d"
-	gotdata, err := parseAlbumJSON(metadata, "")
+	gotdata, err := parseTrAlbumJSON(metadata, "", true)
 	if err == nil || gotdata != nil {
 		t.Fatalf("\nwant: <nil>, error,\n got: %v, %s", gotdata, err)
 	}

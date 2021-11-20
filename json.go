@@ -14,6 +14,8 @@ import (
 
 // output types
 type album struct {
+	album       bool
+	single      bool
 	imageSrc    string
 	title       string
 	artist      string
@@ -70,13 +72,19 @@ func (album *album) getImageURL(size int) string {
 	return strings.Replace(album.imageSrc, "_10", s, 1)
 }
 
-type albumJSON struct {
-	ByArtist      map[string]string `json:"byArtist"`      // field "name" contains artist/band name
-	Name          string            `json:"name"`          // album name
-	DatePublished string            `json:"datePublished"` // release date
-	Image         string            `json:"image"`         // link to album art
-	Tags          []string          `json:"keywords"`      // tags/keywords
-	Tracks        Track             `json:"track"`         // container for track data
+type trAlbum struct {
+	ByArtist      Artist   `json:"byArtist"`      // field "name" contains artist/band name
+	Name          string   `json:"name"`          // album/track name
+	DatePublished string   `json:"datePublished"` // release date
+	Image         string   `json:"image"`         // link to album art
+	Tags          []string `json:"keywords"`      // tags/keywords
+	Tracks        Track    `json:"track"`         // container for track data
+	InAlbum       Album    `json:"inAlbum"`       // album name
+	RecordingOf   Lyrics   `json:"recordingOf"`   // same as in album json
+}
+
+type Artist struct {
+	Name string `json:"name"`
 }
 
 type Track struct {
@@ -95,25 +103,23 @@ type Item struct {
 }
 
 type Lyrics struct {
-	Lyrics map[string]string `json:"lyrics"` // field "text" contains actual lyrics
+	Lyrics Text `json:"lyrics"` // field "text" contains actual lyrics
 }
 
-type trackJSON struct {
-	ByArtist      map[string]string      `json:"byArtist"`      // same as in album json
-	Name          string                 `json:"name"`          // track name
-	DatePublished string                 `json:"datePublished"` // same as in album json
-	Image         string                 `json:"image"`         // same as in album json
-	Tags          []string               `json:"keywords"`      // same as in album json
-	InAlbum       map[string]interface{} `json:"inAlbum"`       // album name
-	RecordingOf   Lyrics                 `json:"recordingOf"`   // same as in album json
+type Text struct {
+	Text string `json:"text"`
 }
 
-// TODO: combine album and track json finally?
+type Album struct {
+	Name             string `json:"name"`             // album name for track
+	AlbumReleaseType string `json:"albumReleaseType"` // only present in singles
+	NumTracks        int    `json:"numTracks"`        // same
+}
 
-type mediaJSON struct {
-	AlbumIsPreorder bool   `json:"album_is_preorder"` // unused, useless
-	URL             string `json:"url"`               // either album or track URL
-	Trackinfo       []struct {
+type media struct {
+	//AlbumIsPreorder bool   `json:"album_is_preorder"` // unused, useless
+	URL       string `json:"url"` // either album or track URL
+	Trackinfo []struct {
 		Duration float64 `json:"duration"` // duration in seconds
 		File     struct {
 			MP3 string `json:"mp3-128"` // media url
@@ -121,85 +127,86 @@ type mediaJSON struct {
 	} `json:"trackinfo"` // file data
 }
 
-func parseAlbumJSON(metaDataJSON string, mediaDataJSON string) (*album, error) {
-	var metaData albumJSON
-	var mediaData mediaJSON
-	err := json.Unmarshal([]byte(metaDataJSON), &metaData)
+func parseTrAlbumJSON(metadataJSON, mediaJSON string, isAlbum bool) (*album, error) {
+	var metadata trAlbum
+	var mediadata media
+	err := json.Unmarshal([]byte(metadataJSON), &metadata)
 	if err != nil {
 		return nil, err
 	}
-	err = json.Unmarshal([]byte(mediaDataJSON), &mediaData)
+	err = json.Unmarshal([]byte(mediaJSON), &mediadata)
 	if err != nil {
 		return nil, err
 	}
 
-	albumMetaData := &album{
-		imageSrc:    metaData.Image,
-		title:       metaData.Name,
-		artist:      metaData.ByArtist["name"],
-		date:        parseDate(metaData.DatePublished),
-		url:         mediaData.URL,
-		tags:        strings.Join(metaData.Tags, " "),
-		totalTracks: metaData.Tracks.NumberOfItems,
+	window.sendEvent(newDebugMessage(metadataJSON))
+	if isAlbum {
+		return extractAlbum(&metadata, &mediadata)
+	}
+	return extractTrack(&metadata, &mediadata)
+}
+
+func extractAlbum(metadata *trAlbum, mediadata *media) (*album, error) {
+	albumMetadata := &album{
+		album:       true,
+		single:      false,
+		imageSrc:    metadata.Image,
+		title:       metadata.Name,
+		artist:      metadata.ByArtist.Name,
+		date:        parseDate(metadata.DatePublished),
+		url:         mediadata.URL,
+		tags:        strings.Join(metadata.Tags, " "),
+		totalTracks: metadata.Tracks.NumberOfItems,
 	}
 
-	if len(metaData.Tracks.ItemListElement) == len(mediaData.Trackinfo) {
-		for i, item := range metaData.Tracks.ItemListElement {
-			albumMetaData.tracks = append(albumMetaData.tracks,
+	if len(metadata.Tracks.ItemListElement) == len(mediadata.Trackinfo) {
+		for i, item := range metadata.Tracks.ItemListElement {
+			albumMetadata.tracks = append(albumMetadata.tracks,
 				track{
 					trackNumber: item.Position,
 					title:       item.TrackInfo.Name,
-					duration:    mediaData.Trackinfo[i].Duration,
-					lyrics:      item.TrackInfo.RecordingOf.Lyrics["text"],
-					url:         mediaData.Trackinfo[i].File.MP3,
+					duration:    mediadata.Trackinfo[i].Duration,
+					lyrics:      item.TrackInfo.RecordingOf.Lyrics.Text,
+					url:         mediadata.Trackinfo[i].File.MP3,
 				})
 		}
 	} else {
 		return nil, errors.New("not enough data was parsed")
 	}
-	return albumMetaData, nil
+	return albumMetadata, nil
 }
 
-func parseTrackJSON(metaDataJSON string, mediaDataJSON string) (*album, error) {
-	var metaData trackJSON
-	var mediaData mediaJSON
-	err := json.Unmarshal([]byte(metaDataJSON), &metaData)
-	if err != nil {
-		window.sendEvent(newDebugMessage(metaDataJSON))
-		return nil, err
-	}
-	err = json.Unmarshal([]byte(mediaDataJSON), &mediaData)
-	if err != nil {
-		window.sendEvent(newDebugMessage(mediaDataJSON))
-		return nil, err
-	}
-
-	albumMetaData := &album{
-		imageSrc:    metaData.Image,
-		title:       metaData.InAlbum["name"].(string),
-		artist:      metaData.ByArtist["name"],
-		date:        parseDate(metaData.DatePublished),
-		url:         mediaData.URL,
-		tags:        strings.Join(metaData.Tags, " "),
+func extractTrack(metadata *trAlbum, mediadata *media) (*album, error) {
+	albumMetadata := &album{
+		album:       false,
+		imageSrc:    metadata.Image,
+		title:       metadata.InAlbum.Name,
+		artist:      metadata.ByArtist.Name,
+		date:        parseDate(metadata.DatePublished),
+		url:         mediadata.URL,
+		tags:        strings.Join(metadata.Tags, " "),
 		totalTracks: 1,
 	}
 
-	if len(mediaData.Trackinfo) > 0 {
-		albumMetaData.tracks = append(albumMetaData.tracks,
+	if metadata.InAlbum.AlbumReleaseType == "SingleRelease" {
+		albumMetadata.single = true
+	}
+
+	if len(mediadata.Trackinfo) > 0 {
+		albumMetadata.tracks = append(albumMetadata.tracks,
 			track{
 				trackNumber: 1,
-				title:       metaData.Name,
-				duration:    mediaData.Trackinfo[0].Duration,
-				lyrics:      metaData.RecordingOf.Lyrics["text"],
-				url:         mediaData.Trackinfo[0].File.MP3,
+				title:       metadata.Name,
+				duration:    mediadata.Trackinfo[0].Duration,
+				lyrics:      metadata.RecordingOf.Lyrics.Text,
+				url:         mediadata.Trackinfo[0].File.MP3,
 			},
 		)
 	} else {
-		window.sendEvent(newDebugMessage(fmt.Sprint(mediaData)))
 		return nil, errors.New("not enough data was parsed")
 	}
 
-	return albumMetaData, nil
+	return albumMetadata, nil
 }
 
 func parseDate(input string) (strDate string) {
@@ -213,29 +220,6 @@ func parseDate(input string) (strDate string) {
 	}
 	return strDate
 }
-
-/*func extractHighlights(dataBlobJSON string) (urls []string) {
-	var dataBlob tagSearchJSON
-	err := json.Unmarshal([]byte(dataBlobJSON), &dataBlob)
-	checkFatalError(err)
-
-	// first tab is highlights, second one has actual search results
-	// highlights tab has several sections with albums/tracks
-	// for highlights query go through all sections and collect all data
-	// we shouldn't be here if tag is simple
-	if dataBlob.Hubs.IsSimple || len(dataBlob.Hubs.Tabs) == 0 {
-		return urls
-	}
-	for _, collection := range dataBlob.Hubs.Tabs[0].Collections {
-		window.sendEvent(newDebugMessage(fmt.Sprint(collection.Items)))
-		//	for _, item := range collection.Items {
-		//		if value, ok := item["tralbum_url"].(string); ok {
-		//			urls = append(urls, value)
-		//		}
-		//	}
-	}
-	return urls
-} */
 
 // tag search results
 type tagSearchJSON struct {
@@ -254,10 +238,12 @@ type Tab struct {
 	DigDeeper   Results  `json:"dig_deeper"`
 }
 
-// FIXME: key for accessing underlying data is dynamic and
-// built from search parameters not sure how to deal with that
+// NOTE: key for accessing underlying data is dynamic
+// ({\"tags\":[\"tag\"],\"format\":\"all\",\"location\":0,\"sort\":\"pop\"})
+// key itself is stored in dig_deeper.initial_settings
 type Results struct {
-	Result json.RawMessage `json:"results"`
+	InitialSettings string            `json:"initial_settings"`
+	Result          map[string]Result `json:"results"`
 }
 
 type Result struct {
@@ -285,15 +271,12 @@ func parseTagSearchJSON(dataBlobJSON string, highlights bool) (*Result, error) {
 		// first tab is highlights, second one has actual search results
 		// highlights tab has several sections with albums/tracks
 		// for highlights query go through all sections and collect all data
-		// we shouldn't be here if tag is simple
+		// we shouldn't be here if tag is simple, NOTE: that some sections
+		// have empty positions, haven't figured out what they actually are
 		if dataBlob.Hubs.IsSimple || len(dataBlob.Hubs.Tabs) == 0 {
 			return &searchResults, errors.New("nothing was found")
 		}
 		for _, collection := range dataBlob.Hubs.Tabs[0].Collections {
-			//window.sendEvent(newDebugMessage(fmt.Sprint(collection.MoreAvailable)))
-			//for _, item := range collection.Items {
-			//	window.sendEvent(newDebugMessage(item.Title))
-			//}
 			searchResults.Items = append(searchResults.Items, collection.Items...)
 		}
 		return &searchResults, nil
@@ -312,21 +295,14 @@ func parseTagSearchJSON(dataBlobJSON string, highlights bool) (*Result, error) {
 		return &searchResults, errors.New("tag page JSON parser: index out of range")
 	}
 
-	// ignore dynamic key, to parse further data with jsoniter,
-	// by stripping data out
-	results := dataBlob.Hubs.Tabs[index].DigDeeper.Result
-	var i int
-	var b byte
-	for i, b = range results {
-		if b == byte('}') {
-			i += 3
-			break
-		}
+	key := dataBlob.Hubs.Tabs[index].DigDeeper.InitialSettings
+	if value, ok := dataBlob.Hubs.Tabs[index].DigDeeper.Result[key]; ok {
+		return &value, nil
 	}
-	return extractResults(results[i : len(results)-1])
+	return &searchResults, errors.New("nothing was found")
 }
 
-func extractResults(results []byte) (*Result, error) {
+/*func extractResults(results []byte) (*Result, error) {
 
 	var result Result
 	if !json.Valid(results) {
@@ -340,4 +316,4 @@ func extractResults(results []byte) (*Result, error) {
 	}
 
 	return &result, nil
-}
+} */
