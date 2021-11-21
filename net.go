@@ -268,7 +268,7 @@ func processTagPage(args arguments) {
 		return
 	}
 
-	window.sendEvent(newDebugMessage(fmt.Sprint(results.MoreAvailable)))
+	/*window.sendEvent(newDebugMessage(fmt.Sprint(results.MoreAvailable)))
 	for i, item := range results.Items {
 		window.sendEvent(newDebugMessage(""))
 		window.sendEvent(newDebugMessage(fmt.Sprint(i)))
@@ -277,7 +277,9 @@ func processTagPage(args arguments) {
 		window.sendEvent(newDebugMessage(item.Title))
 		window.sendEvent(newDebugMessage(item.Genre))
 		window.sendEvent(newDebugMessage(item.URL))
-	}
+	}*/
+	//window.PostEvent()
+	//window.sendEvent()
 }
 
 func extractJSON(prefix, line, suffix string) (string, error) {

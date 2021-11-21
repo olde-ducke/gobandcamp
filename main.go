@@ -46,7 +46,7 @@ func updater(quit chan bool, update <-chan time.Time) {
 			wg.Done()
 			return
 		case <-update:
-			window.HandleEvent(&eventUpdate{})
+			window.sendEvent(&eventUpdate{})
 			if player.status == seekBWD || player.status == seekFWD {
 				player.status = player.bufferedStatus
 			}

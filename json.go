@@ -139,7 +139,6 @@ func parseTrAlbumJSON(metadataJSON, mediaJSON string, isAlbum bool) (*album, err
 		return nil, err
 	}
 
-	window.sendEvent(newDebugMessage(metadataJSON))
 	if isAlbum {
 		return extractAlbum(&metadata, &mediadata)
 	}

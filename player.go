@@ -375,8 +375,7 @@ func (player *playback) handleEvent(key rune) bool {
 	default:
 		return false
 	}
-	// nil = just update text on screen
-	window.HandleEvent(&eventUpdate{})
+	window.sendEvent(&eventUpdate{})
 	return true
 }
 

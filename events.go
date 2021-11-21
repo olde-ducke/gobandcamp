@@ -10,6 +10,14 @@ type eventUpdate struct {
 	tcell.EventTime
 }
 
+type eventUpdateModel struct {
+	tcell.EventTime
+}
+
+type eventDisplayMessage struct {
+	tcell.EventTime
+}
+
 type eventRefitArt struct {
 	tcell.EventTime
 }
@@ -34,6 +42,19 @@ func newItem(album *album) *eventNewItem {
 
 func (event *eventNewItem) value() *album {
 	return event.album
+}
+
+type eventNewTagSearch struct {
+	tcell.EventTime
+	result *Result
+}
+
+func newTagSearch(result *Result) *eventNewTagSearch {
+	return &eventNewTagSearch{result: result}
+}
+
+func (event *eventNewTagSearch) value() *Result {
+	return event.result
 }
 
 // value unused

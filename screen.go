@@ -110,10 +110,48 @@ func (window *windowLayout) verifyData() (err error) {
 }
 
 func (window *windowLayout) sendEvent(event tcell.Event) {
-	if _, ok := event.(*eventDebugMessage); ok && !*debug {
+	switch event.(type) {
+
+	case *eventDebugMessage:
+		if !*debug {
+			return
+		}
+
+	case *eventUpdate:
+		if window.screen != nil {
+			// same as with refit art, update models immediately
+			window.widgets[content].HandleEvent(&eventUpdateModel{})
+			// same filter as for screen.Show()
+			// not sure if needed, but it puts new events in stream
+			// so ignore excessive screen updates and events to them
+			if window.screen.HasPendingEvent() {
+				return
+			}
+		} else {
+			return
+		}
+
+	// FIXME: all drawing is dependent of art sizes
+	// need to figure out a way to let widgets resize freely,
+	// as it is, if art is not refit first, then everything goes
+	// to drain
+	case *eventRefitArt:
+		window.widgets[art].HandleEvent(event)
 		return
 	}
-	window.HandleEvent(event)
+
+	// FIXME: probably fail somehow
+	// fails if event queue is full
+	// which can lead to some interesting bugs
+	// PostEventWait doesn't seem to do anything different
+	// previously events were sent directly to root widget,
+	// which works fine, but locks everything untill event is processed
+	// might be the reason why windows console updates so slow
+	err := window.screen.PostEvent(event)
+	if err != nil {
+		window.screen.PostEventWait(newErrorMessage(err))
+	}
+	//window.HandleEvent(event)
 }
 
 func getNewTrack(track int) {
@@ -172,11 +210,21 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 			return true
 		}
 
+	case *eventUpdate:
+		app.Update()
+		return true
+
 	case *tcell.EventKey:
 		switch event.Key() {
 
 		case tcell.KeyEscape:
 			app.Quit()
+			return true
+
+		// still can't see real difference between
+		// screen.Show() and screen.Sync()
+		case tcell.KeyF5:
+			app.Refresh()
 			return true
 
 		// dumps all parsed metadata from playlist to logfile
@@ -219,6 +267,7 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 					window.asciionly = !window.asciionly
 					return true
 
+				// TODO: remove later
 				case 'h', 'H':
 					return window.widgets[content].HandleEvent(event)
 

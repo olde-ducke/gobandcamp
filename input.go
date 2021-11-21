@@ -24,10 +24,10 @@ func (field *textField) HandleEvent(event tcell.Event) bool {
 			window.hideInput = !window.hideInput
 			field.HideCursor(window.hideInput)
 			field.EnableCursor(!window.hideInput)
-			if window.hideInput {
-				window.sendEvent(newMessage("[Tab] enable input [H] display help"))
-			} else {
+			if !window.hideInput {
 				window.sendEvent(newMessage("enter url/command"))
+			} else {
+				window.sendEvent(&eventDisplayMessage{})
 			}
 			return true
 		}

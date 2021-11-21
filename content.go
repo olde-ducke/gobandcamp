@@ -65,6 +65,7 @@ func (content *contentArea) Draw() {
 			}
 
 			//if {}
+			// TODO: finish line truncation idea
 
 			// flip flag
 			if ch == '\ue000' || ch == '\ue001' {
@@ -216,6 +217,7 @@ func (content *contentArea) handleModelControl(key tcell.Key) bool {
 	if content.GetModel() == nil {
 		return false
 	}
+
 	switch key {
 	case tcell.KeyUp, tcell.KeyCtrlP:
 		content.keyUp()
@@ -341,6 +343,7 @@ func (content *contentArea) HandleEvent(event tcell.Event) bool {
 				// TODO: remove this check later?
 				if window.hideInput {
 					content.toggleModel(helpModel)
+					content.displayMesage()
 				}
 			default:
 				return false
@@ -348,10 +351,12 @@ func (content *contentArea) HandleEvent(event tcell.Event) bool {
 
 		case tcell.KeyCtrlL:
 			content.toggleModel(lyricsModel)
+			content.displayMesage()
 			return true
 
 		case tcell.KeyCtrlP:
 			content.toggleModel(playlistModel)
+			content.displayMesage()
 			return true
 
 		case tcell.KeyEnter:
@@ -373,17 +378,26 @@ func (content *contentArea) HandleEvent(event tcell.Event) bool {
 				return false
 			}
 			content.switchModel(content.previousModel)
+			content.displayMesage()
 		}
 
 		if content.currentModel == playerModel || !window.hideInput {
 			return false
 		}
-		return content.handleModelControl(event.Key())
 
-	case *eventUpdate:
+		if content.handleModelControl(event.Key()) {
+			content.GetModel().update()
+			return true
+		} else {
+			return false
+		}
+
+	case *eventUpdateModel:
 		content.GetModel().update()
-		app.Update()
 		return true
+
+	case *eventDisplayMessage:
+		content.displayMesage()
 
 	case *eventNewItem, *eventNextTrack:
 		if content.currentModel == welcomeModel {
@@ -404,7 +418,7 @@ func (content *contentArea) toggleModel(model int) {
 }
 
 func (content *contentArea) switchModel(model int) {
-	if content.currentModel != content.previousModel &&
+	if content.currentModel != model &&
 		content.currentModel != welcomeModel {
 		content.previousModel = content.currentModel
 	}
@@ -420,20 +434,11 @@ func (content *contentArea) switchModel(model int) {
 	// viewport from scratch
 	case playlistModel:
 		content.SetCursorY(player.currentTrack * 3)
-		window.sendEvent(newMessage("[Backspace] go back [Ctrl+P] return to player"))
 
-	case lyricsModel:
+	default:
 		content.port.MakeVisible(0, 0)
-		window.sendEvent(newMessage("[Backspace] go back [Ctrl+L] return to player"))
-
-	case playerModel:
-		content.port.MakeVisible(0, 0)
-		window.sendEvent(newMessage("[Tab] enable input [H] display help"))
-
-	case helpModel:
-		content.port.MakeVisible(0, 0)
-		window.sendEvent(newMessage("[Backspace] go back [H] return to player"))
 	}
+	window.sendEvent(&eventUpdate{})
 }
 
 func (content *contentArea) Size() (int, int) {
@@ -455,7 +460,11 @@ func init() {
 	help.endx, help.endy = generateCharMatrix(text, help.text)
 
 	playlist := &menuModel{enab: true, hide: true,
-		formatString: "%s %2d - %s\n%s\n%s%s%s\n"}
+		formatString: [3]string{
+			"%s %2d - %s\n",
+			"%s%s%s%s%s%s%s%s\n",
+			"%s%s%s\n"},
+	}
 
 	contentWidget := NewCellView()
 	contentWidget.models[welcomeModel] = welcome
@@ -466,4 +475,20 @@ func init() {
 	contentWidget.switchModel(welcomeModel)
 	contentWidget.previousModel = playerModel
 	window.widgets[content] = contentWidget
+}
+
+func (content *contentArea) displayMesage() {
+	switch content.currentModel {
+	case playlistModel:
+		window.sendEvent(newMessage("[Backspace] go back [Ctrl+P] return to player"))
+
+	case lyricsModel:
+		window.sendEvent(newMessage("[Backspace] go back [Ctrl+L] return to player"))
+
+	case playerModel:
+		window.sendEvent(newMessage("[Tab] enable input [H] display help"))
+
+	case helpModel:
+		window.sendEvent(newMessage("[Backspace] go back [H] return to player"))
+	}
 }

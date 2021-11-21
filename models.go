@@ -221,19 +221,24 @@ func (model *textModel) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
 func (model *textModel) create() {
 	window.verifyData()
 	track := player.currentTrack
+	var from string
 
 	if window.playlist.tracks[track].lyrics == "" {
 		model.text = make([][]rune, 1)
 		model.text[0] = append(model.text[0], '\ue000', 'n', 'o', ' ',
-			'l', 'y', 'r', 'i', 'c', 's', ' ', 'f', 'o', 'u', 'n', 'd', '\ue001')
+			'l', 'y', 'r', 'i', 'c', 's', ' ', 'f', 'o', 'u', 'n', 'd',
+			'\ue001')
 		model.endx = 15
 		model.endy = 1
 		return
 	}
 
-	text := fmt.Sprint(window.playlist.tracks[track].title, "\n from ", "\ue000",
-		window.playlist.title, "\ue001 by \ue000",
-		window.playlist.artist, "\ue001\n\n",
+	if !window.playlist.single {
+		from = " from \ue000" + window.playlist.title + "\ue001"
+	}
+
+	text := fmt.Sprint(window.playlist.tracks[track].title, "\n",
+		from, " by \ue000", window.playlist.artist, "\ue001\n\n",
 		window.playlist.tracks[track].lyrics)
 	model.text = make([][]rune, strings.Count(text, "\n")+1)
 
@@ -281,7 +286,7 @@ type menuModel struct {
 	hide         bool
 	enab         bool
 	text         [][]rune
-	formatString string
+	formatString [3]string
 	sbuilder     strings.Builder
 }
 
@@ -402,23 +407,52 @@ func (model *menuModel) update() {
 		timeStamp, model.endx)
 
 	for n, track := range window.playlist.tracks {
+		// FIXME: this is just bad
 		if n == model.activeItem {
-			fmt.Fprintf(&model.sbuilder, model.formatString,
+			fmt.Fprintf(&model.sbuilder, model.formatString[0],
 				window.getPlayerStatus(),
 				n+1,
 				track.title,
-				strings.Repeat(window.getProgressbarSymbol(), repeats),
-				timeStamp, "/",
-				(time.Duration(track.duration) * time.Second).Round(time.Second),
 			)
 		} else {
-			fmt.Fprintf(&model.sbuilder, model.formatString,
+			fmt.Fprintf(&model.sbuilder, model.formatString[0],
 				"  ",
 				n+1,
 				track.title,
-				"", "", "    ",
-				(time.Duration(track.duration) * time.Second).Round(time.Second),
 			)
+		}
+
+		if n == model.activeItem {
+			fmt.Fprintf(&model.sbuilder, model.formatString[1],
+				strings.Repeat(window.getProgressbarSymbol(), repeats),
+				"", "", "", "", "", "", "")
+		} else {
+			var styleStart, styleEnd string
+			if n != model.item {
+				styleStart = "\ue000"
+				styleEnd = "\ue001"
+			}
+
+			if window.playlist.single {
+				fmt.Fprintf(&model.sbuilder, model.formatString[1],
+					"     by ", styleStart, window.playlist.artist, styleEnd,
+					"", "", "", "")
+			} else {
+				fmt.Fprintf(&model.sbuilder, model.formatString[1],
+					"     from ", styleStart, window.playlist.title, styleEnd,
+					" by ", styleStart, window.playlist.artist, styleEnd,
+				)
+			}
+		}
+
+		if n == model.activeItem {
+			fmt.Fprintf(&model.sbuilder, model.formatString[2],
+				timeStamp, "/",
+				(time.Duration(track.duration) * time.Second).Round(time.Second))
+		} else {
+			fmt.Fprintf(&model.sbuilder, model.formatString[2],
+				"", "    ",
+				(time.Duration(track.duration) * time.Second).Round(time.Second))
 		}
 	}
 
