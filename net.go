@@ -8,6 +8,7 @@ import (
 	"image/jpeg"
 	"image/png"
 	"io"
+	"math/rand"
 	"net/http"
 	"strings"
 	"time"
@@ -267,19 +268,9 @@ func processTagPage(args arguments) {
 		window.sendEvent(newMessage("nothing was found"))
 		return
 	}
-
-	/*window.sendEvent(newDebugMessage(fmt.Sprint(results.MoreAvailable)))
-	for i, item := range results.Items {
-		window.sendEvent(newDebugMessage(""))
-		window.sendEvent(newDebugMessage(fmt.Sprint(i)))
-		window.sendEvent(newDebugMessage(fmt.Sprint(item.ArtId)))
-		window.sendEvent(newDebugMessage(item.Artist))
-		window.sendEvent(newDebugMessage(item.Title))
-		window.sendEvent(newDebugMessage(item.Genre))
-		window.sendEvent(newDebugMessage(item.URL))
-	}*/
-	//window.PostEvent()
-	//window.sendEvent()
+	window.sendEvent(newTagSearch(results))
+	n := rand.Intn(len(results.Items))
+	processMediaPage(results.Items[n].URL)
 }
 
 func extractJSON(prefix, line, suffix string) (string, error) {

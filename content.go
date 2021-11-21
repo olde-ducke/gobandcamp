@@ -11,7 +11,7 @@ import (
 type contentArea struct {
 	currentModel  int
 	previousModel int
-	models        [5]contentModel
+	models        [6]contentModel
 	port          *views.ViewPort
 	view          views.View
 	style         tcell.Style
@@ -57,6 +57,9 @@ func (content *contentArea) Draw() {
 
 	cx, cy, en, sh := model.GetCursor()
 	for y := 0; y < ey; y++ {
+		// reset accentColor styling
+		altStyle = false
+		offset = 0
 		for x := 0; x < ex; x++ {
 			ch, style, comb, wid := model.GetCell(x+offset, y)
 
@@ -71,9 +74,6 @@ func (content *contentArea) Draw() {
 			if ch == '\ue000' || ch == '\ue001' {
 				altStyle = !altStyle
 				offset++
-				if x+offset >= ex {
-					continue
-				}
 				ch, style, comb, wid = model.GetCell(x+offset, y)
 			}
 
@@ -91,13 +91,11 @@ func (content *contentArea) Draw() {
 				break
 			}
 
-			// truncate tails of strings
-			// FIXME: doesn't look good on scrollable texts,
-			// code doesn't look good either
-			if x+3 > px1+offset && ch != 0 {
-				if r, _, _, _ := model.GetCell(x+3, y); r != 0 { //&& r != ' ' {
-					for ; x <= px1+offset; x++ {
-						port.SetContent(x-offset, y, '.', nil, style)
+			if x+3 > px1 {
+				r, _, _, _ := model.GetCell(x+3+offset, y)
+				if r != 0 && r != '\ue000' && r != '\ue001' {
+					for ; x <= px1; x++ {
+						port.SetContent(x, y, '.', nil, style)
 					}
 					break
 				}
@@ -106,9 +104,6 @@ func (content *contentArea) Draw() {
 			port.SetContent(x, y, ch, comb, style)
 			x += wid - 1
 		}
-		// reset accentColor styling
-		altStyle = false
-		offset = 0
 	}
 }
 
@@ -441,6 +436,22 @@ func (content *contentArea) switchModel(model int) {
 	window.sendEvent(&eventUpdate{})
 }
 
+func (content *contentArea) displayMesage() {
+	switch content.currentModel {
+	case playlistModel:
+		window.sendEvent(newMessage("[Backspace] go back [Ctrl+P] return to player"))
+
+	case lyricsModel:
+		window.sendEvent(newMessage("[Backspace] go back [Ctrl+L] return to player"))
+
+	case playerModel:
+		window.sendEvent(newMessage("[Tab] enable input [H] display help"))
+
+	case helpModel:
+		window.sendEvent(newMessage("[Backspace] go back [H] return to player"))
+	}
+}
+
 func (content *contentArea) Size() (int, int) {
 	return window.getBounds()
 }
@@ -466,29 +477,19 @@ func init() {
 			"%s%s%s\n"},
 	}
 
+	results := &searchResultsModel{&menuModel{
+		enab: true,
+		hide: true,
+	}}
+
 	contentWidget := NewCellView()
 	contentWidget.models[welcomeModel] = welcome
 	contentWidget.models[playerModel] = player
 	contentWidget.models[lyricsModel] = lyrics
 	contentWidget.models[playlistModel] = playlist
 	contentWidget.models[helpModel] = help
+	contentWidget.models[resultsModel] = results
 	contentWidget.switchModel(welcomeModel)
 	contentWidget.previousModel = playerModel
 	window.widgets[content] = contentWidget
-}
-
-func (content *contentArea) displayMesage() {
-	switch content.currentModel {
-	case playlistModel:
-		window.sendEvent(newMessage("[Backspace] go back [Ctrl+P] return to player"))
-
-	case lyricsModel:
-		window.sendEvent(newMessage("[Backspace] go back [Ctrl+L] return to player"))
-
-	case playerModel:
-		window.sendEvent(newMessage("[Tab] enable input [H] display help"))
-
-	case helpModel:
-		window.sendEvent(newMessage("[Backspace] go back [H] return to player"))
-	}
 }

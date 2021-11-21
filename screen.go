@@ -149,7 +149,10 @@ func (window *windowLayout) sendEvent(event tcell.Event) {
 	// might be the reason why windows console updates so slow
 	err := window.screen.PostEvent(event)
 	if err != nil {
-		window.screen.PostEventWait(newErrorMessage(err))
+		// NOTE/FIXME: deprecated, will be deleted, not safe to use,
+		// though tcell.views uses it internally
+		// TODO: write to debug file without spamming event stream
+		go func() { window.screen.PostEventWait(newErrorMessage(err)) }()
 	}
 	//window.HandleEvent(event)
 }
@@ -282,7 +285,7 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 	return window.BoxLayout.HandleEvent(event)
 }
 
-// FIXME: this assumes that font is 1/2 height to width
+// NOTE: this assumes that font is 1/2 height to width
 func (window *windowLayout) checkOrientation() {
 	if window.width > 2*window.height {
 		window.SetOrientation(views.Horizontal)

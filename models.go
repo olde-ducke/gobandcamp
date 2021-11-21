@@ -20,7 +20,7 @@ const (
 	lyricsModel
 	playlistModel
 	helpModel
-	// resultsModel
+	resultsModel
 )
 
 type contentModel interface {
@@ -137,10 +137,6 @@ func generateCharMatrix(text string, matrix [][]rune) (maxx int, maxy int) {
 			x--
 		}
 
-		if x > maxx {
-			maxx = x
-		}
-
 		// ignore zero-width spaces and other silly things here
 		if r == '\r' || r == '\u200b' {
 			continue
@@ -148,6 +144,10 @@ func generateCharMatrix(text string, matrix [][]rune) (maxx int, maxy int) {
 			x = 0
 			y++
 			continue
+		}
+
+		if x > maxx {
+			maxx = x
 		}
 
 		matrix[y] = append(matrix[y], r)
@@ -334,9 +334,6 @@ func (model *menuModel) limitCursor() {
 		model.y = model.endy - 1
 		model.item = model.totalItems - 1
 	}
-	/*window.sendEvent(newDebugMessage(fmt.Sprintf(
-	"playlist cursor is %d,%d, onbottom:%v selected item:%d",
-	model.x, model.y, model.onBottom, model.item)))*/
 }
 
 func (m *menuModel) GetCursor() (int, int, bool, bool) {
@@ -361,7 +358,6 @@ func (model *menuModel) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
 	var ch rune
 	var style = window.style
 	var returnWholeLine bool
-	//track := player.currentTrack
 
 	_, cursorY, _, _ := model.GetCursor()
 	if model.onBottom {
@@ -489,3 +485,11 @@ func progressbarLength(duration float64, pos time.Duration, width int) int {
 		return 0
 	}
 }
+
+type searchResultsModel struct {
+	*menuModel
+}
+
+//title
+// by %artist%
+//%genre%

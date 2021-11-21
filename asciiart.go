@@ -201,14 +201,7 @@ func (model *artModel) refitArt() {
 		model.cover = getPlaceholderImage()
 	}
 
-	// FIXME: janky fix for windows
-	// ascii2image can't get terminal dimensions on windows and uses
-	// zeroes as fixed width/height, which is equivalent to original
-	// image size, recalculateBounds() calculates negative dimensions
-	// and clamps them to 0, this leads to empty terminal
-	// this assumes that font roughly 1/2 (height to width) ratio
-	// which is not necessarily like that in all cases?
-	// works fine with default fonts on both systems
+	// NOTE: this assumes that font is 1/2 height to width
 	if window.orientation == views.Horizontal {
 		model.options.FixedHeight = window.height
 		model.options.FixedWidth = window.height * 2 * model.cover.Bounds().Dx() /

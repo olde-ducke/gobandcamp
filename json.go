@@ -232,6 +232,9 @@ type Hub struct {
 	Tabs     []Tab `json:"tabs"`
 }
 
+// TODO: collections have types, some contain fan reviews for albums
+// at least 1 collection doesn't have media items
+// filter them by type
 type Tab struct {
 	Collections []Result `json:"collections"`
 	DigDeeper   Results  `json:"dig_deeper"`
@@ -251,6 +254,7 @@ type Result struct {
 }
 
 type SearchItem struct {
+	Type   string `json:"tralbum_type"`
 	Title  string `json:"title"`       // title
 	Artist string `json:"artist"`      // artist
 	Genre  string `json:"genre"`       // genre
@@ -270,8 +274,7 @@ func parseTagSearchJSON(dataBlobJSON string, highlights bool) (*Result, error) {
 		// first tab is highlights, second one has actual search results
 		// highlights tab has several sections with albums/tracks
 		// for highlights query go through all sections and collect all data
-		// we shouldn't be here if tag is simple, NOTE: that some sections
-		// have empty positions, haven't figured out what they actually are
+		// we shouldn't be here if tag is simple
 		if dataBlob.Hubs.IsSimple || len(dataBlob.Hubs.Tabs) == 0 {
 			return &searchResults, errors.New("nothing was found")
 		}
