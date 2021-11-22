@@ -8,7 +8,7 @@ Placeholder image source: https://github.com/egonelbre/gophers
 
 Features:
 - Playback of media from band/album/track pages
-- Tag search (WIP, for now only plays one random item from first results page)
+- Tag search (WIP, for now displays list, containing items from first page)
 
 Tag search:
 

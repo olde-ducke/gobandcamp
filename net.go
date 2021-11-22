@@ -8,7 +8,6 @@ import (
 	"image/jpeg"
 	"image/png"
 	"io"
-	"math/rand"
 	"net/http"
 	"strings"
 	"time"
@@ -170,7 +169,7 @@ func downloadCover(link string) {
 	defer wg.Done()
 	reader, format := download(link, false, false)
 	if reader == nil {
-		window.sendEvent(newCoverDownloaded(nil))
+		window.sendEvent(newCoverDownloaded(nil, ""))
 		return
 	}
 	defer reader.Close()
@@ -193,12 +192,12 @@ func downloadCover(link string) {
 
 	if err != nil {
 		window.sendEvent(newErrorMessage(err))
-		window.sendEvent(newCoverDownloaded(nil))
+		window.sendEvent(newCoverDownloaded(nil, ""))
 		return
 	}
 
 	window.sendEvent(newDebugMessage("album cover downloaded"))
-	window.sendEvent(newCoverDownloaded(img))
+	window.sendEvent(newCoverDownloaded(img, link))
 }
 
 func processTagPage(args arguments) {
@@ -269,8 +268,8 @@ func processTagPage(args arguments) {
 		return
 	}
 	window.sendEvent(newTagSearch(results))
-	n := rand.Intn(len(results.Items))
-	processMediaPage(results.Items[n].URL)
+	//n := rand.Intn(len(results.Items))
+	//processMediaPage(results.Items[n].URL)
 }
 
 func extractJSON(prefix, line, suffix string) (string, error) {

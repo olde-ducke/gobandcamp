@@ -75,6 +75,9 @@ func (content *contentArea) Draw() {
 				altStyle = !altStyle
 				offset++
 				ch, style, comb, wid = model.GetCell(x+offset, y)
+				if ch == '\ue000' || ch == '\ue001' {
+					ch = ' '
+				}
 			}
 
 			if altStyle {
@@ -338,7 +341,7 @@ func (content *contentArea) HandleEvent(event tcell.Event) bool {
 				// TODO: remove this check later?
 				if window.hideInput {
 					content.toggleModel(helpModel)
-					content.displayMesage()
+					//content.displayMesage()
 				}
 			default:
 				return false
@@ -346,12 +349,12 @@ func (content *contentArea) HandleEvent(event tcell.Event) bool {
 
 		case tcell.KeyCtrlL:
 			content.toggleModel(lyricsModel)
-			content.displayMesage()
+			//content.displayMesage()
 			return true
 
 		case tcell.KeyCtrlP:
 			content.toggleModel(playlistModel)
-			content.displayMesage()
+			//content.displayMesage()
 			return true
 
 		case tcell.KeyEnter:
@@ -359,11 +362,29 @@ func (content *contentArea) HandleEvent(event tcell.Event) bool {
 			if !window.hideInput {
 				return false
 			}
+
 			item := content.GetModel().getItem()
 			switch content.currentModel {
+
 			case playlistModel:
 				player.setTrack(item)
 				return true
+
+			case resultsModel:
+				// FIXME: might fail
+				if window.searchResults == nil {
+					//len(window.searchResults.Items) == 0 {
+					return false
+				}
+				if url := window.searchResults.Items[item].URL; url != "" {
+					go processMediaPage(url)
+					//model := content.GetModel().(*searchResultsModel)
+					//model.activeItem = model.item
+				} else { // TODO: remove, it's better to filter by type
+					window.sendEvent(newMessage("not a media item"))
+				}
+				return true
+
 			default:
 				return false
 			}
@@ -373,7 +394,7 @@ func (content *contentArea) HandleEvent(event tcell.Event) bool {
 				return false
 			}
 			content.switchModel(content.previousModel)
-			content.displayMesage()
+			//content.displayMesage()
 		}
 
 		if content.currentModel == playerModel || !window.hideInput {
@@ -393,13 +414,31 @@ func (content *contentArea) HandleEvent(event tcell.Event) bool {
 
 	case *eventDisplayMessage:
 		content.displayMesage()
-
-	case *eventNewItem, *eventNextTrack:
-		if content.currentModel == welcomeModel {
-			content.currentModel = playerModel
-		}
-		content.switchModel(content.currentModel)
 		return true
+
+	case *eventNewTagSearch:
+		window.searchResults = event.value()
+		content.models[resultsModel] = &searchResultsModel{
+			&menuModel{
+				enab: true,
+				hide: true,
+			}}
+		content.switchModel(resultsModel)
+		return true
+
+	case *eventNewItem:
+		if content.currentModel == welcomeModel ||
+			content.currentModel == resultsModel {
+			content.toggleModel(content.currentModel)
+		} else {
+			content.switchModel(content.currentModel)
+		}
+		return true
+
+	case *eventNextTrack:
+		if content.currentModel != playerModel {
+			content.switchModel(content.currentModel)
+		}
 	}
 	return false
 }
@@ -413,14 +452,33 @@ func (content *contentArea) toggleModel(model int) {
 }
 
 func (content *contentArea) switchModel(model int) {
-	if content.currentModel != model &&
-		content.currentModel != welcomeModel {
+	if content.currentModel != model {
 		content.previousModel = content.currentModel
+	}
+
+	// don't ever come back to welcome screen
+	if content.previousModel == welcomeModel {
+		content.previousModel = playerModel
 	}
 
 	content.currentModel = model
 	content.GetModel().create()
 	content.SetModel(model)
+
+	// FIXME: crashes on start without second condition
+	if content.currentModel != resultsModel && window.playlist != nil { //&&
+		// TODO: for now, redownload image again
+		// no cache for images yet
+		if url := window.playlist.getImageURL(2); url != "" {
+			if window.coverKey != url {
+				window.coverKey = window.playlist.getImageURL(2)
+				go downloadCover(url)
+			}
+		} else {
+			window.sendEvent(newCoverDownloaded(nil, ""))
+		}
+	}
+
 	switch content.currentModel {
 
 	// FIXME menu on model switch in some cases will only highlight
@@ -430,9 +488,15 @@ func (content *contentArea) switchModel(model int) {
 	case playlistModel:
 		content.SetCursorY(player.currentTrack * 3)
 
+	case resultsModel:
+		content.previousModel = playerModel
+		model := content.GetModel()
+		content.SetCursorY(model.getItem() * 3)
+
 	default:
 		content.port.MakeVisible(0, 0)
 	}
+	content.displayMesage()
 	window.sendEvent(&eventUpdate{})
 }
 
@@ -449,6 +513,9 @@ func (content *contentArea) displayMesage() {
 
 	case helpModel:
 		window.sendEvent(newMessage("[Backspace] go back [H] return to player"))
+
+	case resultsModel:
+		window.sendEvent(newMessage("[Backspace] return to player"))
 	}
 }
 
@@ -458,7 +525,8 @@ func (content *contentArea) Size() (int, int) {
 
 func init() {
 	player := &defaultModel{
-		formatString: "%s\n%s\ue000%s \ue001by \ue000%s\ue001\nreleased %s\n\ue000%s\ue001\n\n%2s %2d/%d - %s\n%s" +
+		formatString: "%s\n%s\ue000%s \ue001by \ue000%s\ue001\nreleased %s\n" +
+			"\ue000%s\ue001\n\n%2s %2d/%d - %s\n%s" +
 			"\n%s/%s\nvolume %4s mode %s\n\n\n\n\n%s",
 	}
 
@@ -478,8 +546,9 @@ func init() {
 	}
 
 	results := &searchResultsModel{&menuModel{
-		enab: true,
-		hide: true,
+		enab:       true,
+		hide:       true,
+		activeItem: -1,
 	}}
 
 	contentWidget := NewCellView()

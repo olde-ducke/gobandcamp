@@ -28,7 +28,7 @@
 
 -- Features --
  Playback of media from band/album/track pages
- Tag search (WIP, for now only plays one random item from first results page)
+ Tag search (WIP, for now displays list, containing items from first page)
 
 - URL playback -
  supported pages:
@@ -64,13 +64,14 @@
   seeking can break playback completely, stop/play or track switching fixes that
   url corrupts if it can't fit screen or truncated from right side
   sometimes fails to parse tag search page (buffer is running out of memory again?)
-  irregular crashes, cause unknown, seems something is wrong with beep
+  irregular crashes, cause unknown, (possibly race condition on current position update)
  linux:
   locks sound playback from other sources
   playback can't initialize if device is being used by something else
   device can not reinitialize after suspend, high CPU load
  win:
   flashing screen, not sure what's the problem
+  generally less responsive than on linux
  linux arm:
   https://github.com/faiface/beep/issues/131, same behaviour
 

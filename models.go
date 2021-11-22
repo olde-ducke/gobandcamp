@@ -3,6 +3,7 @@ package main
 import (
 	_ "embed"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -150,6 +151,7 @@ func generateCharMatrix(text string, matrix [][]rune) (maxx int, maxy int) {
 			maxx = x
 		}
 
+		// TODO: add wide non CJK symbols, like '（' for example
 		matrix[y] = append(matrix[y], r)
 		// FIXME: reallt janky fix for CJK:
 		// CJK scripts and symbols:
@@ -490,6 +492,98 @@ type searchResultsModel struct {
 	*menuModel
 }
 
-//title
-// by %artist%
-//%genre%
+func (model *searchResultsModel) create() {
+	// check if current item is in search results
+	// if it is, it will be highlighted in update()
+	// player status will display near active item
+	var activeFound bool
+	url := window.playlist.url
+	for i, item := range window.searchResults.Items {
+		if url != "" && item.URL == url {
+			model.activeItem = i
+			activeFound = true
+			break
+		}
+	}
+	if !activeFound {
+		model.activeItem = -1
+	}
+	model.update()
+}
+
+func (model *searchResultsModel) update() {
+	// ▹  active title
+	//     by %artist%
+	//    %genre%
+	//    title
+	//     by %artist%
+	//    %genre%
+	for i, item := range window.searchResults.Items {
+
+		var by, styleStart, styleEnd, playerStatus string
+		if item.Type == "a" || item.Type == "t" {
+			by = "by"
+		}
+		if i != model.item && i != model.activeItem {
+			styleStart, styleEnd = "\ue000", "\ue001"
+		}
+		if i == model.activeItem {
+			playerStatus = window.getPlayerStatus()
+		}
+
+		fmt.Fprintf(&model.sbuilder, "%2s  %s\n     %s %s%s%s\n    %s%s%s\n",
+			playerStatus, item.Title,
+			by, styleStart, item.Artist, styleEnd,
+			styleStart, item.Genre, styleEnd)
+
+		model.totalItems = i + 1
+	}
+
+	text := model.sbuilder.String()
+	model.sbuilder.Reset()
+
+	model.text = make([][]rune, strings.Count(text, "\n"))
+	generateCharMatrix(text, model.text)
+
+	model.endx, _ = window.getBounds()
+	model.endy = len(model.text)
+}
+
+func (model *searchResultsModel) MoveCursor(offx, offy int) {
+	prevPos := model.getItem()
+	model.menuModel.MoveCursor(offx, offy)
+	currPos := model.getItem()
+
+	// do not spam downloadings/pulling from cache of last first/item in a list
+	if currPos != prevPos {
+		model.triggerNewDownload(currPos, offy)
+	}
+}
+
+func (model *searchResultsModel) SetCursor(x, y int) {
+	model.menuModel.SetCursor(x, y)
+	model.triggerNewDownload(model.getItem(), y)
+}
+
+func (model *searchResultsModel) triggerNewDownload(currPos, offy int) {
+	if model.item >= model.totalItems-1 && offy > 0 {
+		if !window.searchResults.MoreAvailable {
+			window.sendEvent(newMessage("nothing else to show"))
+		} else {
+			// TODO: finish pulling of new result
+			window.sendEvent(newMessage("additional results: not implemented"))
+		}
+	}
+
+	artId := window.searchResults.Items[currPos].ArtId
+	if artId == 0 {
+		window.sendEvent(newCoverDownloaded(nil, ""))
+		window.coverKey = ""
+		return
+	}
+
+	url := "https://f4.bcbits.com/img/a" +
+		strconv.Itoa(artId) + "_7.jpg"
+	window.coverKey = url
+	go downloadCover(url)
+}

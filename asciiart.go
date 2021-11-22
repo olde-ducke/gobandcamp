@@ -152,10 +152,12 @@ func (art *artArea) HandleEvent(event tcell.Event) bool {
 	switch event := event.(type) {
 
 	case *eventCoverDownloaded:
-		art.model.cover = event.value()
-		art.model.refitArt()
-		window.recalculateBounds()
-		return true
+		if window.coverKey == event.key() || event.key() == "" {
+			art.model.cover = event.value()
+			art.model.refitArt()
+			window.recalculateBounds()
+			return true
+		}
 
 	case *eventRefitArt:
 		art.model.refitArt()
@@ -185,14 +187,18 @@ func (art *artArea) HandleEvent(event tcell.Event) bool {
 // and reversing is still enabled, reverse to default and redraw,
 // looks bad on white either way, but at least is more recognisable
 func (model *artModel) checkDrawingMode() {
-	if window.theme == 1 && model.artDrawingMode == 5 {
+	// TODO: finish threshold checking
+	_, color, _ := window.style.Decompose()
+	if color.Hex() > trColor && model.artDrawingMode == 5 {
 		if !model.options.Reversed {
 			model.options.Reversed = true
 			model.refitArt()
 		}
-	} else if model.options.Reversed {
-		model.options.Reversed = false
-		model.refitArt()
+	} else if color.Hex() <= trColor && model.artDrawingMode == 5 {
+		if model.options.Reversed {
+			model.options.Reversed = false
+			model.refitArt()
+		}
 	}
 }
 
@@ -202,6 +208,9 @@ func (model *artModel) refitArt() {
 	}
 
 	// NOTE: this assumes that font is 1/2 height to width
+	// TODO: make variable that sets ratio?
+	// there seems to be no way to actully get this ratio normal way
+	// image2ascii uses same assumption (and ~0.7 for windows?)
 	if window.orientation == views.Horizontal {
 		model.options.FixedHeight = window.height
 		model.options.FixedWidth = window.height * 2 * model.cover.Bounds().Dx() /

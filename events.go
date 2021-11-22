@@ -74,14 +74,19 @@ func (event *eventNextTrack) value() int {
 type eventCoverDownloaded struct {
 	tcell.EventTime
 	cover image.Image
+	url   string
 }
 
-func newCoverDownloaded(cover image.Image) *eventCoverDownloaded {
-	return &eventCoverDownloaded{cover: cover}
+func newCoverDownloaded(cover image.Image, url string) *eventCoverDownloaded {
+	return &eventCoverDownloaded{cover: cover, url: url}
 }
 
 func (event *eventCoverDownloaded) value() image.Image {
 	return event.cover
+}
+
+func (event *eventCoverDownloaded) key() string {
+	return event.url
 }
 
 // cache key = track url

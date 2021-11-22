@@ -25,6 +25,7 @@ const (
 		tcell.ColorValid
 	fgColor tcell.Color = tcell.ColorIsRGB | tcell.Color(0xf9fdff) |
 		tcell.ColorValid
+	trColor int32 = 0xcccccc
 )
 
 // FIXME: windows build is now more responsive
@@ -83,6 +84,10 @@ type windowLayout struct {
 	style       tcell.Style
 	asciionly   bool
 
+	searchResults *Result
+	// TODO: image cache
+	coverKey string
+
 	boundx, boundy int
 	playlist       *album
 }
@@ -101,7 +106,7 @@ func (window *windowLayout) verifyData() (err error) {
 		// in dummy data are empty
 		player.totalTracks = 0
 		player.currentTrack = 0
-		window.sendEvent(newCoverDownloaded(nil))
+		window.sendEvent(newCoverDownloaded(nil, ""))
 		player.stop()
 		player.clearStream()
 		return err
@@ -110,6 +115,11 @@ func (window *windowLayout) verifyData() (err error) {
 }
 
 func (window *windowLayout) sendEvent(event tcell.Event) {
+
+	if window.screen == nil {
+		return
+	}
+
 	switch event.(type) {
 
 	case *eventDebugMessage:
@@ -187,7 +197,10 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 			window.playlist = event.value()
 			player.currentTrack = 0
 			getNewTrack(player.currentTrack)
-			go downloadCover(window.playlist.getImageURL(2))
+
+			imageURL := window.playlist.getImageURL(2)
+			window.coverKey = imageURL
+			go downloadCover(imageURL)
 			player.totalTracks = event.value().totalTracks
 			return window.widgets[content].HandleEvent(event)
 		}
@@ -406,6 +419,7 @@ func getDummyData() *album {
 	return &album{
 		single:      false,
 		album:       true,
+		imageSrc:    "",
 		title:       "---",
 		artist:      "---",
 		date:        "---",
