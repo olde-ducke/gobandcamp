@@ -8,9 +8,12 @@ Placeholder image source: https://github.com/egonelbre/gophers
 
 Features:
 - Playback of media from band/album/track pages
-- Tag search (WIP, for now displays list, containing items from first page)
+- Tag search (search albums/tracks by genre, location etc)
 
 Tag search:
+Displays items in list with album cover preview.
+
+Command format:
 
     -t sometag anothertag third-tag -s random -f cd
 
@@ -55,5 +58,6 @@ Formats (optional):
 |                <kbd>Ctrl+P</kbd>                 | toggle playlist view                                   |
 |               <kbd>Backspace</kbd>               | toggle between current and previous view               |
 | <kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> | scroll around/navigate lists                           |
+|                 <kbd>Enter</kbd>                 | select item/confirm input                              |
 |                  <kbd>Tab</kbd>                  | enable input                                           |
 |                  <kbd>Esc</kbd>                  | quit                                                   |

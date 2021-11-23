@@ -566,12 +566,19 @@ func (model *searchResultsModel) SetCursor(x, y int) {
 }
 
 func (model *searchResultsModel) triggerNewDownload(currPos, offy int) {
+
+	if len(window.searchResults.Items) == 0 {
+		return
+	}
+
 	if model.item >= model.totalItems-1 && offy > 0 {
 		if !window.searchResults.MoreAvailable {
 			window.sendEvent(newMessage("nothing else to show"))
-		} else {
+		} else if !window.searchResults.waiting {
 			// TODO: finish pulling of new result
-			window.sendEvent(newMessage("additional results: not implemented"))
+			window.searchResults.waiting = true
+			//window.sendEvent(newMessage("additional results: not implemented"))
+			go getAdditionalResults(window.searchResults)
 		}
 	}
 

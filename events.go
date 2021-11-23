@@ -57,6 +57,19 @@ func (event *eventNewTagSearch) value() *Result {
 	return event.result
 }
 
+type eventAdditionalTagSearch struct {
+	tcell.EventTime
+	result *Result
+}
+
+func newAdditionalTagSearch(result *Result) *eventAdditionalTagSearch {
+	return &eventAdditionalTagSearch{result: result}
+}
+
+func (event *eventAdditionalTagSearch) value() *Result {
+	return event.result
+}
+
 // value unused
 type eventNextTrack struct {
 	tcell.EventTime

@@ -120,10 +120,16 @@ func (window *windowLayout) sendEvent(event tcell.Event) {
 		return
 	}
 
-	switch event.(type) {
+	switch event := event.(type) {
 
+	// FIXME: may cause issues actually
+	// TODO: unify quitting in one place
+	// do not spam event stream with messages events
+	// write them directly
 	case *eventDebugMessage:
-		if !*debug {
+		if *debug {
+			logFile.WriteString(event.When().Format(time.ANSIC) + "[dbg]:" + event.String() + "\n")
+		} else {
 			return
 		}
 

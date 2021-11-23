@@ -249,6 +249,9 @@ type Results struct {
 }
 
 type Result struct {
+	page          int
+	filters       string
+	waiting       bool
 	MoreAvailable bool         `json:"more_available"`
 	Items         []SearchItem `json:"items"`
 }
@@ -276,7 +279,7 @@ func parseTagSearchJSON(dataBlobJSON string, highlights bool) (*Result, error) {
 		// for highlights query go through all sections and collect all data
 		// we shouldn't be here if tag is simple
 		if dataBlob.Hubs.IsSimple || len(dataBlob.Hubs.Tabs) == 0 {
-			return &searchResults, errors.New("nothing was found")
+			return nil, errors.New("nothing was found")
 		}
 		for _, collection := range dataBlob.Hubs.Tabs[0].Collections {
 			searchResults.Items = append(searchResults.Items, collection.Items...)
@@ -294,28 +297,31 @@ func parseTagSearchJSON(dataBlobJSON string, highlights bool) (*Result, error) {
 
 	if index > len(dataBlob.Hubs.Tabs)-1 {
 		window.sendEvent(newDebugMessage(fmt.Sprint(dataBlob.Hubs.Tabs)))
-		return &searchResults, errors.New("tag page JSON parser: index out of range")
+		return nil, errors.New("tag page JSON parser: index out of range")
 	}
 
 	key := dataBlob.Hubs.Tabs[index].DigDeeper.InitialSettings
 	if value, ok := dataBlob.Hubs.Tabs[index].DigDeeper.Result[key]; ok {
+		value.page = 2
+		value.filters = dataBlob.Hubs.Tabs[index].DigDeeper.InitialSettings
 		return &value, nil
 	}
-	return &searchResults, errors.New("nothing was found")
+
+	return nil, errors.New("nothing was found")
 }
 
-/*func extractResults(results []byte) (*Result, error) {
+func extractResults(results []byte) (*Result, error) {
 
 	var result Result
-	if !json.Valid(results) {
+	/*if !json.Valid(results) {
 		window.sendEvent(newDebugMessage(string(results)))
 		return &result, errors.New("extractResults: got invalid JSON")
-	}
+	}*/
 
 	err := json.Unmarshal(results, &result)
 	if err != nil {
-		return &result, err
+		return nil, err
 	}
 
 	return &result, nil
-} */
+}

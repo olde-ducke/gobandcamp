@@ -1,10 +1,10 @@
 --- gobandcamp ---
- Terminal player for bandcamp, uses [Beep] package to play actual sound,
+ terminal player for bandcamp, uses [Beep] package to play actual sound,
  [tcell] to display metadata and handle controls, and
  [image2ascii] to convert album cover to colored ASCII-art. WIP
  Placeholder image source: https://github.com/egonelbre/gophers
 
--- Controls --
+-- controls --
   [Space]    - play/pause
     [P]      - stop
     [M]      - mute
@@ -22,15 +22,16 @@
   [Ctrl+L]   - toggle lyrics view (if available for current track)
   [Ctrl+P]   - toggle playlist view
  [Backspace] - toggle between current and previous view
-   [←↑→↓]    - scroll around/navigate lists
+  [Enter]    - select item/confirm input
+   [←↑→↓]    - scroll around/navigate lists
    [Tab]     - enable input
    [Esc]     - quit
 
--- Features --
- Playback of media from band/album/track pages
- Tag search (WIP, for now displays list, containing items from first page)
+-- features --
+ playback of media from band/album/track pages
+ tag search (search albums/tracks by genre, location etc)
 
-- URL playback -
+- url playback -
  supported pages:
  "https://artistname.bandcamp.com/album/albumname"
  "https://artistname.bandcamp.com/track/trackname"
@@ -38,24 +39,27 @@
  "https://artistname.com"
  if home page of artist is not album/track, parser will fail and report error
 
-- Tag search -
+- tag search -
+ displays items in list with album cover preview
+
+ command format:
  "-t sometag anothertag third-tag -s random -f cd"
    or
  "--tag sometag --sort date --tag another three tags --format vinyl"
 
- Sorting methods (optional):
+ sorting methods (optional):
   ""           - popular
   "random"     - random
   "date"       - sort by date
   "highlights" - search in highlights tab of first tag/genre
 
- Formats (optional):
+ formats (optional):
   ""           - any
   "cassette"
   "cd"
   "vinyl"
 
--- Known problems --
+-- known problems --
   it is possible to trigger download of the same item more than one time
   because of ^ playback can restart when download finishes (needs download manager)
   relatively high CPU load even in idle on both win and linux
@@ -65,6 +69,7 @@
   url corrupts if it can't fit screen or truncated from right side
   sometimes fails to parse tag search page (buffer is running out of memory again?)
   irregular crashes, cause unknown, (possibly race condition on current position update)
+  cursor acts weird sometimes
  linux:
   locks sound playback from other sources
   playback can't initialize if device is being used by something else
@@ -75,7 +80,7 @@
  linux arm:
   https://github.com/faiface/beep/issues/131, same behaviour
 
--- Command line arguments --
+-- command line arguments --
  "-cpuprofile" - write cpu profile to `file`
  "-memprofile" - write memory profile to `file`
  "-debug"      - write debug output to `dump.log`

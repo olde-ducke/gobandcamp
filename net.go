@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"errors"
 	"fmt"
 	"image"
@@ -9,11 +10,12 @@ import (
 	"image/png"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
 
-var client = http.Client{Timeout: 60 * time.Second}
+var client = http.Client{Timeout: 120 * time.Second}
 
 // TODO: cancel response body readings for unfinished tracks
 // will solve a lot of problems
@@ -268,8 +270,6 @@ func processTagPage(args arguments) {
 		return
 	}
 	window.sendEvent(newTagSearch(results))
-	//n := rand.Intn(len(results.Items))
-	//processMediaPage(results.Items[n].URL)
 }
 
 func extractJSON(prefix, line, suffix string) (string, error) {
@@ -291,4 +291,43 @@ func getTruncatedURL(link string) string {
 	} else {
 		return ""
 	}
+}
+
+func getAdditionalResults(result *Result) {
+	window.sendEvent(newMessage("pulling additional results..."))
+	jsonString := "{\"filters\":" + result.filters + ",\"page\":" +
+		strconv.Itoa(result.page) + "}"
+	buffer := bytes.NewBuffer([]byte(jsonString))
+
+	request, err := http.NewRequest("POST",
+		"https://bandcamp.com/api/hub/2/dig_deeper", buffer)
+	if err != nil {
+		window.sendEvent(newAdditionalTagSearch(nil))
+		window.sendEvent(newErrorMessage(err))
+		return
+	}
+	// pretend that we are Chrome on Win10
+	request.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 12_0_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/95.0.4638.69 Safari/537.36")
+
+	response, err := client.Do(request)
+	if err != nil {
+		window.sendEvent(newAdditionalTagSearch(nil))
+		window.sendEvent(newErrorMessage(err))
+		return
+	}
+
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		window.sendEvent(newAdditionalTagSearch(nil))
+		window.sendEvent(newErrorMessage(err))
+		return
+	}
+
+	additionalResult, err := extractResults(body)
+	if err != nil {
+		window.sendEvent(newAdditionalTagSearch(nil))
+		window.sendEvent(newErrorMessage(err))
+		return
+	}
+	window.sendEvent(newAdditionalTagSearch(additionalResult))
 }

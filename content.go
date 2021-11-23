@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 	"sync"
 
@@ -341,7 +342,6 @@ func (content *contentArea) HandleEvent(event tcell.Event) bool {
 				// TODO: remove this check later?
 				if window.hideInput {
 					content.toggleModel(helpModel)
-					//content.displayMesage()
 				}
 			default:
 				return false
@@ -349,12 +349,14 @@ func (content *contentArea) HandleEvent(event tcell.Event) bool {
 
 		case tcell.KeyCtrlL:
 			content.toggleModel(lyricsModel)
-			//content.displayMesage()
 			return true
 
 		case tcell.KeyCtrlP:
 			content.toggleModel(playlistModel)
-			//content.displayMesage()
+			return true
+
+		case tcell.KeyCtrlZ:
+			window.sendEvent(newDebugMessage(fmt.Sprint("[test]", len(window.searchResults.Items), window.searchResults)))
 			return true
 
 		case tcell.KeyEnter:
@@ -373,13 +375,19 @@ func (content *contentArea) HandleEvent(event tcell.Event) bool {
 			case resultsModel:
 				// FIXME: might fail
 				if window.searchResults == nil {
-					//len(window.searchResults.Items) == 0 {
 					return false
 				}
+
+				if len(window.searchResults.Items) == 0 {
+					return false
+				}
+
 				if url := window.searchResults.Items[item].URL; url != "" {
-					go processMediaPage(url)
-					//model := content.GetModel().(*searchResultsModel)
-					//model.activeItem = model.item
+					if url != window.playlist.url {
+						go processMediaPage(url)
+					} else {
+						content.switchModel(playerModel)
+					}
 				} else { // TODO: remove, it's better to filter by type
 					window.sendEvent(newMessage("not a media item"))
 				}
@@ -394,7 +402,6 @@ func (content *contentArea) HandleEvent(event tcell.Event) bool {
 				return false
 			}
 			content.switchModel(content.previousModel)
-			//content.displayMesage()
 		}
 
 		if content.currentModel == playerModel || !window.hideInput {
@@ -424,6 +431,19 @@ func (content *contentArea) HandleEvent(event tcell.Event) bool {
 				hide: true,
 			}}
 		content.switchModel(resultsModel)
+		return true
+
+	case *eventAdditionalTagSearch:
+		if value := event.value(); value != nil {
+			window.searchResults.MoreAvailable = value.MoreAvailable
+			//window.searchResults.MoreAvailable = value.waiting
+			window.searchResults.page += 1
+			window.searchResults.Items = append(window.searchResults.Items,
+				value.Items...)
+			content.switchModel(resultsModel)
+			window.sendEvent(newMessage("new items added"))
+		}
+		window.searchResults.waiting = false
 		return true
 
 	case *eventNewItem:
