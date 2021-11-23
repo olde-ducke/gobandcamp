@@ -12,18 +12,27 @@ type messageBox struct {
 }
 
 func (message *messageBox) HandleEvent(event tcell.Event) bool {
-	switch event := event.(type) {
 
-	case *eventMessage:
-		logFile.WriteString(event.When().Format(time.ANSIC) + "[msg]:" + event.String() + "\n")
-		message.SetText(event.String())
-		return true
+	if *debug {
+		switch event := event.(type) {
 
-	case *eventErrorMessage:
-		logFile.WriteString(event.When().Format(time.ANSIC) + "[err]:" + event.String() + "\n")
+		case *eventMessage:
+			logFile.WriteString(event.When().Format(time.ANSIC) + "[msg]:" + event.String() + "\n")
+			message.SetText(event.String())
+			return true
+
+		case *eventErrorMessage:
+
+			logFile.WriteString(event.When().Format(time.ANSIC) + "[err]:" + event.String() + "\n")
+			message.SetText(event.String())
+			return true
+		}
+
+	} else if event, ok := event.(textEvents); ok {
 		message.SetText(event.String())
 		return true
 	}
+
 	return false //message.Text.HandleEvent(event)
 }
 

@@ -3,10 +3,10 @@ package main
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/gdamore/tcell/v2/views"
+	"github.com/pkg/errors"
 )
 
 type textField struct {
@@ -123,17 +123,15 @@ type arguments struct {
 }
 
 func parseInput(input string) {
-	// FIXME: -t<whatever> is passed to tag parsing
 	commands := strings.Split(input, " ")
 	if strings.Contains(commands[0], "http://") || strings.Contains(commands[0], "https://") {
 		go processMediaPage(commands[0])
 		return
 	} else if commands[0] == "exit" || commands[0] == "q" || commands[0] == "quit" {
-		logFile.WriteString(time.Now().Format(time.ANSIC) + "[ext]:exit with code 0\n")
 		app.Quit()
 		return
-	} else if !strings.HasPrefix(commands[0], "-") {
-		window.sendEvent(newMessage("search (not implemented)"))
+	} else if commands[0] != "-t" && commands[0] != "--tag" {
+		window.sendEvent(newErrorMessage(errors.New("unrecognised command")))
 		return
 	}
 

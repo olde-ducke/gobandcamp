@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"strings"
 	"sync"
 
@@ -342,6 +341,7 @@ func (content *contentArea) HandleEvent(event tcell.Event) bool {
 				// TODO: remove this check later?
 				if window.hideInput {
 					content.toggleModel(helpModel)
+					content.displayMessage()
 				}
 			default:
 				return false
@@ -349,14 +349,12 @@ func (content *contentArea) HandleEvent(event tcell.Event) bool {
 
 		case tcell.KeyCtrlL:
 			content.toggleModel(lyricsModel)
+			content.displayMessage()
 			return true
 
 		case tcell.KeyCtrlP:
 			content.toggleModel(playlistModel)
-			return true
-
-		case tcell.KeyCtrlZ:
-			window.sendEvent(newDebugMessage(fmt.Sprint("[test]", len(window.searchResults.Items), window.searchResults)))
+			content.displayMessage()
 			return true
 
 		case tcell.KeyEnter:
@@ -402,6 +400,7 @@ func (content *contentArea) HandleEvent(event tcell.Event) bool {
 				return false
 			}
 			content.switchModel(content.previousModel)
+			content.displayMessage()
 		}
 
 		if content.currentModel == playerModel || !window.hideInput {
@@ -420,7 +419,7 @@ func (content *contentArea) HandleEvent(event tcell.Event) bool {
 		return true
 
 	case *eventDisplayMessage:
-		content.displayMesage()
+		content.displayMessage()
 		return true
 
 	case *eventNewTagSearch:
@@ -431,6 +430,7 @@ func (content *contentArea) HandleEvent(event tcell.Event) bool {
 				hide: true,
 			}}
 		content.switchModel(resultsModel)
+		content.displayMessage()
 		return true
 
 	case *eventAdditionalTagSearch:
@@ -516,11 +516,10 @@ func (content *contentArea) switchModel(model int) {
 	default:
 		content.port.MakeVisible(0, 0)
 	}
-	content.displayMesage()
 	window.sendEvent(&eventUpdate{})
 }
 
-func (content *contentArea) displayMesage() {
+func (content *contentArea) displayMessage() {
 	switch content.currentModel {
 	case playlistModel:
 		window.sendEvent(newMessage("[Backspace] go back [Ctrl+P] return to player"))
