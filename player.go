@@ -197,7 +197,7 @@ func (player *playback) setTrack(track int) {
 	player.stop()
 	player.clearStream()
 	player.status = skipFWD
-	player.delaySwitching()
+	go player.delaySwitching()
 }
 
 func (player *playback) play(key string) {
@@ -218,9 +218,10 @@ func (player *playback) play(key string) {
 	// since it's locking device itself
 	speaker.Play(beep.Seq(player.stream.volume, beep.Callback(
 		func() {
-			window.sendEvent(newDebugMessage("next track callback"))
-			go player.nextTrack()
-			window.sendEvent(newDebugMessage("next track callback exit"))
+			//window.sendEvent(newDebugMessage("next track callback"))
+			// go player.nextTrack()
+			window.sendEvent(&eventNextTrack{})
+			//window.sendEvent(newDebugMessage("next track callback exit"))
 		})))
 }
 
@@ -229,9 +230,10 @@ func (player *playback) restart() {
 	speaker.Clear()
 	speaker.Play(beep.Seq(player.stream.volume, beep.Callback(
 		func() {
-			window.sendEvent(newDebugMessage("restart callback"))
-			go player.nextTrack()
-			window.sendEvent(newDebugMessage("restart callback exit"))
+			//window.sendEvent(newDebugMessage("restart callback"))
+			//go player.nextTrack()
+			//window.sendEvent(newDebugMessage("restart callback exit"))
+			window.sendEvent(&eventNextTrack{})
 		})))
 	player.status = playing
 }

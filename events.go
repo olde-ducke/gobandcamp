@@ -70,17 +70,21 @@ func (event *eventAdditionalTagSearch) value() *Result {
 	return event.result
 }
 
-// value unused
 type eventNextTrack struct {
+	tcell.EventTime
+}
+
+// value unused
+type eventNewTrack struct {
 	tcell.EventTime
 	track int
 }
 
-func newTrack(trackNumber int) *eventNextTrack {
-	return &eventNextTrack{track: trackNumber}
+func newTrack(trackNumber int) *eventNewTrack {
+	return &eventNewTrack{track: trackNumber}
 }
 
-func (event *eventNextTrack) value() int {
+func (event *eventNewTrack) value() int {
 	return event.track
 }
 

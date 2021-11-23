@@ -371,25 +371,25 @@ func (content *contentArea) HandleEvent(event tcell.Event) bool {
 				return true
 
 			case resultsModel:
-				// FIXME: might fail
-				if window.searchResults == nil {
-					return false
-				}
-
-				if len(window.searchResults.Items) == 0 {
-					return false
-				}
-
-				if url := window.searchResults.Items[item].URL; url != "" {
-					if url != window.playlist.url {
-						go processMediaPage(url)
-					} else {
-						content.switchModel(playerModel)
+				// FIXME: move check to a function?
+				// maybe could be deleted, check for valid data
+				// is right before sending
+				if window.searchResults != nil {
+					if item < len(window.searchResults.Items) {
+						if url := window.searchResults.Items[item].URL; url != "" {
+							if url != window.playlist.url {
+								go processMediaPage(url)
+							} else {
+								content.switchModel(playerModel)
+							}
+						} else { // TODO: remove, it's better to filter by type
+							// when parsing
+							window.sendEvent(newMessage("not a media item"))
+						}
+						return true
 					}
-				} else { // TODO: remove, it's better to filter by type
-					window.sendEvent(newMessage("not a media item"))
 				}
-				return true
+				return false
 
 			default:
 				return false
@@ -455,7 +455,7 @@ func (content *contentArea) HandleEvent(event tcell.Event) bool {
 		}
 		return true
 
-	case *eventNextTrack:
+	case *eventNewTrack:
 		if content.currentModel != playerModel {
 			content.switchModel(content.currentModel)
 		}

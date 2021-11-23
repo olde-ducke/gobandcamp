@@ -6,11 +6,11 @@ Terminal player for bandcamp, uses [Beep](https://github.com/faiface/beep/) pack
  
 Placeholder image source: https://github.com/egonelbre/gophers
 
-Features:
+## Features:
 - Playback of media from band/album/track pages
 - Tag search (search albums/tracks by genre, location etc)
 
-Tag search:
+### Tag search:
 Displays items in list with album cover preview.
 
 Command format:
@@ -35,6 +35,8 @@ Formats (optional):
     "cd"
     "vinyl"
 
+## Dependencies:
+Same as [oto](https://github.com/hajimehoshi/oto).
 
 ## Controls
 

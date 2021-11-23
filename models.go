@@ -67,8 +67,10 @@ func (model *defaultModel) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
 }
 
 func (model *defaultModel) update() {
-	window.verifyData()
 	track := player.currentTrack
+	if err := window.verifyData(track); err != nil {
+		return
+	}
 	timeStamp := player.getCurrentTrackPosition()
 	model.endx, model.endy = window.getBounds()
 	repeats := progressbarLength(window.playlist.tracks[track].duration,
@@ -151,9 +153,14 @@ func generateCharMatrix(text string, matrix [][]rune) (maxx int, maxy int) {
 			maxx = x
 		}
 
-		// TODO: add wide non CJK symbols, like '（' for example
 		matrix[y] = append(matrix[y], r)
-		// FIXME: reallt janky fix for CJK:
+		// FIXME: really janky fix for CJK:
+		// NOTE: tcell has width argument for SetContent/GetCell etc
+		// but it did not fix output (probably doing something wrong)
+		// and it is more reasonable to check once per creation, add
+		// spaces after wide characters and then forget about the problem?
+		// also, truncation checks for empty symbol as signal of line end
+
 		// CJK scripts and symbols:
 		// CJK Radicals Supplement (2E80–2EFF)
 		// Kangxi Radicals (2F00–2FDF)
@@ -173,12 +180,17 @@ func generateCharMatrix(text string, matrix [][]rune) (maxx int, maxy int) {
 		// Yijing Hexagram Symbols (4DC0–4DFF)
 		// CJK Unified Ideographs (4E00–9FFF)
 
-		// and modern(?) Korean:
+		// modern(?) Korean:
 		// Hangul Syllables (AC00–D7AF)
+
+		// Halfwidth and Fullwidth Forms (FF00–FFEF)
 
 		// barely tested, places space after symbol, that way tcell doesn't
 		// skip every second symbol
-		if r >= '\u2E80' && r <= '\u9FFF' || r >= '\uAC00' && r <= '\uD7AF' {
+		if r >= '\u2E80' && r <= '\u9FFF' ||
+			r >= '\uAC00' && r <= '\uD7AF' ||
+			r >= '\uFF00' && r <= '\uFFEF' {
+
 			x++
 			matrix[y] = append(matrix[y], ' ')
 		}
@@ -221,8 +233,10 @@ func (model *textModel) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
 }
 
 func (model *textModel) create() {
-	window.verifyData()
 	track := player.currentTrack
+	if err := window.verifyData(track); err != nil {
+		return
+	}
 	var from string
 
 	if window.playlist.tracks[track].lyrics == "" {
@@ -248,8 +262,6 @@ func (model *textModel) create() {
 }
 
 func (model *textModel) update() {
-	// TODO: remove?
-	window.verifyData()
 	return
 }
 
@@ -397,8 +409,11 @@ func (model *menuModel) update() {
 	//    3 - title
 	//
 	//    0m0s
-	window.verifyData()
-	model.activeItem = player.currentTrack
+	track := player.currentTrack
+	if err := window.verifyData(track); err != nil {
+		return
+	}
+	model.activeItem = track
 	model.totalItems = window.playlist.totalTracks
 	timeStamp := player.getCurrentTrackPosition()
 	repeats := progressbarLength(window.playlist.tracks[model.activeItem].duration,

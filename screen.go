@@ -96,22 +96,25 @@ type windowLayout struct {
 // if for whatever reason we end up with empty playlist,
 // go back to initial state, if called, then something gone
 // horribly wrong
-func (window *windowLayout) verifyData() (err error) {
-	if window.playlist == nil {
-		err = errors.New("something went wrong")
-		window.sendEvent(newErrorMessage(err))
-		window.playlist = getDummyData()
-		// player should ignore any sensitive command with 0 tracks
-		// window won't load anything, since all links
-		// in dummy data are empty
-		player.totalTracks = 0
-		player.currentTrack = 0
-		window.sendEvent(newCoverDownloaded(nil, ""))
-		player.stop()
-		player.clearStream()
-		return err
+func (window *windowLayout) verifyData(track int) (err error) {
+	if window.playlist != nil {
+		if track < len(window.playlist.tracks) {
+			return nil
+		}
 	}
-	return nil
+
+	err = errors.New("something went wrong")
+	window.sendEvent(newErrorMessage(err))
+	window.playlist = getDummyData()
+	// player should ignore any sensitive command with 0 tracks
+	// window won't load anything, since all links
+	// in dummy data are empty
+	player.totalTracks = 0
+	player.currentTrack = 0
+	window.sendEvent(newCoverDownloaded(nil, ""))
+	player.stop()
+	player.clearStream()
+	return err
 }
 
 func (window *windowLayout) sendEvent(event tcell.Event) {
@@ -123,9 +126,6 @@ func (window *windowLayout) sendEvent(event tcell.Event) {
 	switch event := event.(type) {
 
 	// FIXME: may cause issues actually
-	// TODO: unify quitting in one place
-	// do not spam event stream with messages events
-	// write them directly
 	case *eventDebugMessage:
 		if *debug {
 			logFile.WriteString(event.When().Format(time.ANSIC) + "[dbg]:" + event.String() + "\n")
@@ -156,7 +156,7 @@ func (window *windowLayout) sendEvent(event tcell.Event) {
 		return
 	}
 
-	// FIXME: probably fail somehow
+	// FIXME: probably will fail somehow
 	// fails if event queue is full
 	// which can lead to some interesting bugs
 	// PostEventWait doesn't seem to do anything different
@@ -174,7 +174,7 @@ func (window *windowLayout) sendEvent(event tcell.Event) {
 }
 
 func getNewTrack(track int) {
-	if err := window.verifyData(); err != nil {
+	if err := window.verifyData(track); err != nil {
 		return
 	}
 	if url, streamable := window.playlist.getURL(track); streamable {
@@ -212,17 +212,23 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 		}
 		return true
 
-		// TODO: isn't it possible to call next track on
+		// FIXME: isn't it possible to call next track on
 		// album change? (and get out of range)
-	case *eventNextTrack:
+		// second one fixed?
+		// first one won't be fixed for now, not a major problem
+	case *eventNewTrack:
 		getNewTrack(event.value())
 		return window.widgets[content].HandleEvent(event)
 
+	case *eventNextTrack:
+		player.nextTrack()
+		return true
+
 	case *eventTrackDownloaded:
-		if err := window.verifyData(); err != nil {
+		track := player.currentTrack
+		if err := window.verifyData(track); err != nil {
 			return false
 		}
-		track := player.currentTrack
 		if event.value() == window.playlist.getTruncatedURL(track) {
 			if player.status == playing {
 				player.stop()
