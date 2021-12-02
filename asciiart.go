@@ -17,8 +17,6 @@ import (
 var gopherPNG []byte
 
 type artModel struct {
-	x              int
-	y              int
 	endx           int
 	endy           int
 	asciiart       [][]ascii.CharPixel
@@ -33,7 +31,6 @@ func (model *artModel) GetBounds() (int, int) {
 }
 
 func (model *artModel) MoveCursor(offx, offy int) {
-	return
 }
 
 func (model *artModel) GetCursor() (int, int, bool, bool) {
@@ -41,17 +38,12 @@ func (model *artModel) GetCursor() (int, int, bool, bool) {
 }
 
 func (model *artModel) SetCursor(x int, y int) {
-	return
 }
 
 func (model *artModel) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
 	var ch rune
 	if x > model.endx-1 || y > model.endy-1 {
 		return ch, window.style, nil, 1
-	}
-
-	if model.artDrawingMode != 5 {
-		model.options.Reversed = false
 	}
 
 	// magic number
@@ -194,11 +186,9 @@ func (model *artModel) checkDrawingMode() {
 			model.options.Reversed = true
 			model.refitArt()
 		}
-	} else if color.Hex() <= trColor && model.artDrawingMode == 5 {
-		if model.options.Reversed {
-			model.options.Reversed = false
-			model.refitArt()
-		}
+	} else if model.options.Reversed {
+		model.options.Reversed = false
+		model.refitArt()
 	}
 }
 

@@ -44,7 +44,6 @@ func (model *defaultModel) GetBounds() (int, int) {
 }
 
 func (model *defaultModel) MoveCursor(offx, offy int) {
-	return
 }
 
 func (model *defaultModel) GetCursor() (int, int, bool, bool) {
@@ -52,7 +51,6 @@ func (model *defaultModel) GetCursor() (int, int, bool, bool) {
 }
 
 func (model *defaultModel) SetCursor(x int, y int) {
-	return
 }
 
 func (model *defaultModel) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
@@ -210,7 +208,6 @@ func (model *textModel) GetBounds() (int, int) {
 }
 
 func (model *textModel) MoveCursor(offx, offy int) {
-	return
 }
 
 func (model *textModel) GetCursor() (int, int, bool, bool) {
@@ -218,7 +215,6 @@ func (model *textModel) GetCursor() (int, int, bool, bool) {
 }
 
 func (model *textModel) SetCursor(x int, y int) {
-	return
 }
 
 func (model *textModel) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
@@ -262,7 +258,6 @@ func (model *textModel) create() {
 }
 
 func (model *textModel) update() {
-	return
 }
 
 func (model *textModel) getItem() int {
@@ -285,7 +280,6 @@ type helpMessage struct {
 }
 
 func (model *helpMessage) create() {
-	return
 }
 
 type menuModel struct {

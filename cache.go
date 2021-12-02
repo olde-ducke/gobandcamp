@@ -50,6 +50,7 @@ func (fifo *FIFO) get(key string) ([]byte, bool) {
 	return value, ok
 }
 
+/*
 func (fifo *FIFO) dump() {
 	enqueue := fifo.queue.Front()
 	for i := 0; i < fifo.size; i++ {
@@ -62,6 +63,7 @@ func (fifo *FIFO) dump() {
 		window.sendEvent(newDebugMessage(value.(string)))
 	}
 }
+*/
 
 // response.Body doesn't implement Seek() method
 // beep isn't bothered by this, but trying to

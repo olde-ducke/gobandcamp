@@ -95,6 +95,8 @@ func (player *playback) resetPosition() {
 	}
 }
 
+// FIXME: crashes irregularly, possibly race condition,
+// might be track switch delay
 func (player *playback) getCurrentTrackPosition() time.Duration {
 	if player.isReady() {
 		speaker.Lock()
@@ -116,7 +118,10 @@ func (player *playback) isPlaying() bool {
 }
 
 func (player *playback) isReady() bool {
-	return player.stream != nil
+	if player.stream != nil {
+		return player.stream.streamer != nil
+	}
+	return false
 }
 
 func (player *playback) skip(forward bool) {
