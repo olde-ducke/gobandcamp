@@ -414,7 +414,7 @@ func (content *contentArea) HandleEvent(event tcell.Event) bool {
 			return false
 		}
 
-	case *eventUpdateModel:
+	case *eventUpdate:
 		content.GetModel().update()
 		return true
 

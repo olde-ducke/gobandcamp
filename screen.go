@@ -136,7 +136,7 @@ func (window *windowLayout) sendEvent(event tcell.Event) {
 	case *eventUpdate:
 		if window.screen != nil {
 			// same as with refit art, update models immediately
-			window.widgets[content].HandleEvent(&eventUpdateModel{})
+			// window.widgets[content].HandleEvent(&eventUpdateModel{})
 			// same filter as for screen.Show()
 			// not sure if needed, but it puts new events in stream
 			// so ignore excessive screen updates and events to them
@@ -240,7 +240,7 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 
 	case *eventUpdate:
 		app.Update()
-		return true
+		return window.widgets[content].HandleEvent(event)
 
 	case *tcell.EventKey:
 		switch event.Key() {

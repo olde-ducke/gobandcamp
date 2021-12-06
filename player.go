@@ -118,10 +118,7 @@ func (player *playback) isPlaying() bool {
 }
 
 func (player *playback) isReady() bool {
-	if player.stream != nil {
-		return player.stream.streamer != nil
-	}
-	return false
+	return player.stream != nil
 }
 
 func (player *playback) skip(forward bool) {

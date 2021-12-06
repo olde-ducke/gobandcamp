@@ -10,9 +10,9 @@ type eventUpdate struct {
 	tcell.EventTime
 }
 
-type eventUpdateModel struct {
-	tcell.EventTime
-}
+// type eventUpdateModel struct {
+// 	tcell.EventTime
+// }
 
 type eventDisplayMessage struct {
 	tcell.EventTime
