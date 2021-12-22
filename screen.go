@@ -229,7 +229,7 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 		if err := window.verifyData(track); err != nil {
 			return false
 		}
-		if event.value() == window.playlist.getTruncatedURL(track) {
+		if event.value() == getTruncatedURL(window.playlist.tracks[track].url) {
 			if player.status == playing {
 				player.stop()
 				player.clearStream()

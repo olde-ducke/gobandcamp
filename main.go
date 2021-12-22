@@ -60,7 +60,6 @@ var memprofile = flag.String("memprofile", "", "write memory profile to `file`")
 var debug = flag.Bool("debug", false, "write debug output to 'dump.log'")
 
 func main() {
-
 	ticker := time.NewTicker(time.Second)
 	quit := make(chan bool)
 	update := ticker.C

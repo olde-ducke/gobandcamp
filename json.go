@@ -45,11 +45,6 @@ func (album *album) getURL(track int) (string, bool) {
 	}
 }
 
-// cache key = media url without any parameters
-func (album *album) getTruncatedURL(track int) string {
-	return getTruncatedURL(album.tracks[track].url)
-}
-
 // a<album_art_id>_nn.jpg
 // other images stored without type prefix?
 // not all sizes are listed here, all up to _16 are existing files
@@ -122,7 +117,8 @@ type media struct {
 	Trackinfo []struct {
 		Duration float64 `json:"duration"` // duration in seconds
 		File     struct {
-			MP3 string `json:"mp3-128"` // media url
+			MP3128 string `json:"mp3-128"` // media url
+			// higher quality mp3-v0 available only after login
 		} `json:"file"`
 	} `json:"trackinfo"` // file data
 }
@@ -166,7 +162,7 @@ func extractAlbum(metadata *trAlbum, mediadata *media) (*album, error) {
 					title:       item.TrackInfo.Name,
 					duration:    mediadata.Trackinfo[i].Duration,
 					lyrics:      item.TrackInfo.RecordingOf.Lyrics.Text,
-					url:         mediadata.Trackinfo[i].File.MP3,
+					url:         mediadata.Trackinfo[i].File.MP3128,
 				})
 		}
 	} else {
@@ -198,7 +194,7 @@ func extractTrack(metadata *trAlbum, mediadata *media) (*album, error) {
 				title:       metadata.Name,
 				duration:    mediadata.Trackinfo[0].Duration,
 				lyrics:      metadata.RecordingOf.Lyrics.Text,
-				url:         mediadata.Trackinfo[0].File.MP3,
+				url:         mediadata.Trackinfo[0].File.MP3128,
 			},
 		)
 	} else {

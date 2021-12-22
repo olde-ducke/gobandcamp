@@ -68,7 +68,7 @@ func processMediaPage(link string) {
 	window.sendEvent(newMessage("fetching media page..."))
 	wg.Add(1)
 	defer wg.Done()
-	reader, _ := download(link, true, true)
+	reader, _ := download(link, false, true)
 	if reader == nil {
 		window.sendEvent(newItem(nil))
 		return
@@ -284,6 +284,7 @@ func extractJSON(prefix, line, suffix string) (string, error) {
 	return replacer.Replace(line[start:end]), nil
 }
 
+// cache key = media url without any parameters
 func getTruncatedURL(link string) string {
 	if strings.Contains(link, "?") {
 		index := strings.Index(link, "?")
