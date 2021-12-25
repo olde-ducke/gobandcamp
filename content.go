@@ -252,8 +252,8 @@ func (content *contentArea) GetModel() contentModel {
 
 // SetModel sets the model for this CellView.
 func (content *contentArea) SetModel(modelId int) {
+	content.models[modelId].create()
 	w, h := content.models[modelId].GetBounds()
-	//content.model = model
 	content.port.SetContentSize(w, h, true)
 	content.port.ValidateView()
 	content.PostEventWidgetContent(content)
@@ -367,8 +367,13 @@ func (content *contentArea) HandleEvent(event tcell.Event) bool {
 			switch content.currentModel {
 
 			case playlistModel:
-				player.setTrack(item)
-				return true
+				if window.playlist != nil {
+					if item < len(window.playlist.tracks) {
+						player.setTrack(item)
+					}
+					return true
+				}
+				return false
 
 			case resultsModel:
 				// FIXME: move check to a function?
@@ -377,7 +382,7 @@ func (content *contentArea) HandleEvent(event tcell.Event) bool {
 				if window.searchResults != nil {
 					if item < len(window.searchResults.Items) {
 						if url := window.searchResults.Items[item].URL; url != "" {
-							if url != window.playlist.url {
+							if currentURL := window.getItemURL(); url != currentURL {
 								go processMediaPage(url)
 							} else {
 								content.switchModel(playerModel)
@@ -395,6 +400,8 @@ func (content *contentArea) HandleEvent(event tcell.Event) bool {
 				return false
 			}
 
+		// first one works for on unix, second on windows
+		// none on both
 		case tcell.KeyBackspace2, tcell.KeyBackspace:
 			if !window.hideInput {
 				return false
@@ -415,7 +422,14 @@ func (content *contentArea) HandleEvent(event tcell.Event) bool {
 		}
 
 	case *eventUpdate:
-		content.GetModel().update()
+		if window.playlist == nil {
+			model := content.currentModel
+			if model == playerModel || model == playlistModel || model == lyricsModel {
+				content.switchModel(welcomeModel)
+			}
+		} else {
+			content.GetModel().update()
+		}
 		return true
 
 	case *eventDisplayMessage:
@@ -447,6 +461,7 @@ func (content *contentArea) HandleEvent(event tcell.Event) bool {
 		return true
 
 	case *eventNewItem:
+		// switch current model to player or refresh current
 		if content.currentModel == welcomeModel ||
 			content.currentModel == resultsModel {
 			content.toggleModel(content.currentModel)
@@ -472,26 +487,28 @@ func (content *contentArea) toggleModel(model int) {
 }
 
 func (content *contentArea) switchModel(model int) {
-	if content.currentModel != model {
+	// FIXME: this is a complete mess
+	if model != content.currentModel && content.currentModel != welcomeModel {
 		content.previousModel = content.currentModel
 	}
 
-	// don't ever come back to welcome screen
-	if content.previousModel == welcomeModel {
-		content.previousModel = playerModel
+	// don't set these models on empty playlist
+	if window.playlist == nil {
+		if model == playerModel || model == playlistModel || model == lyricsModel {
+			model = welcomeModel
+			window.sendEvent(newMessage("nothing to show"))
+		}
 	}
 
 	content.currentModel = model
-	content.GetModel().create()
 	content.SetModel(model)
 
-	// FIXME: crashes on start without second condition
-	if content.currentModel != resultsModel && window.playlist != nil { //&&
+	if content.currentModel != resultsModel {
 		// TODO: for now, redownload image again
 		// no cache for images yet
-		if url := window.playlist.getImageURL(2); url != "" {
+		if url := window.getImageURL(2); url != "" {
 			if window.coverKey != url {
-				window.coverKey = window.playlist.getImageURL(2)
+				window.coverKey = url
 				go downloadCover(url)
 			}
 		} else {
@@ -549,13 +566,18 @@ func init() {
 			"\n%s/%s\nvolume %4s mode %s\n\n\n\n\n%s",
 	}
 
-	welcome := &welcomeMessage{&textModel{}}
 	lyrics := &textModel{}
+
 	help := &helpMessage{&textModel{}}
 	text := string(helpText)
-	helpText = make([]byte, 0)
+	helpText = make([]byte, 0) // not sure why
 	help.text = make([][]rune, strings.Count(text, "\n")+1)
 	help.endx, help.endy = generateCharMatrix(text, help.text)
+
+	welcome := &welcomeMessage{&textModel{}}
+	text = "\n\nwelcome to \ue000gobandcamp\ue001\nbarebones terminal player for bandcamp\n\npress \ue000[Tab]\ue001 and enter command/url\n    or \ue000[H]\ue001 to display help and controls"
+	welcome.text = make([][]rune, 7)
+	welcome.endx, welcome.endy = generateCharMatrix(text, welcome.text)
 
 	playlist := &menuModel{enab: true, hide: true,
 		formatString: [3]string{
@@ -577,7 +599,7 @@ func init() {
 	contentWidget.models[playlistModel] = playlist
 	contentWidget.models[helpModel] = help
 	contentWidget.models[resultsModel] = results
-	contentWidget.switchModel(welcomeModel)
+	// contentWidget.switchModel(welcomeModel)
 	contentWidget.previousModel = playerModel
 	window.widgets[content] = contentWidget
 }

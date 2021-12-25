@@ -10,8 +10,6 @@ import (
 	"time"
 )
 
-const maxInt32 = (1 << 31) - 1
-
 // TODO: move to app?
 var exitCode = 0
 
@@ -39,12 +37,14 @@ func updater(quit chan bool, update <-chan time.Time) {
 	wg.Add(1)
 	for {
 		select {
+
 		case <-quit:
 			if *debug {
 				logFile.WriteString(time.Now().Format(time.ANSIC) + "[ext]:updater loop exit\n")
 			}
 			wg.Done()
 			return
+
 		case <-update:
 			window.sendEvent(&eventUpdate{})
 			if player.status == seekBWD || player.status == seekFWD {
@@ -86,7 +86,6 @@ func main() {
 	// FIXME: device does not reinitialize after suspend
 	// FIXME: takes device to itself, doesn't allow any other program to use it, and can't use it, if device is already being used
 	// just switch to SDL, it doesn't have any of these problems
-	// FIXME: can't tell orientation on the start for whatever reason
 	err := app.Run()
 	checkFatalError(err)
 

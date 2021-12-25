@@ -34,39 +34,6 @@ type track struct {
 	url         string
 }
 
-// TODO: move these methods away from json, they have nothing to do with it
-
-// returns true and url if any streamable media was found
-func (album *album) getURL(track int) (string, bool) {
-	if album.tracks[track].url != "" {
-		return album.tracks[track].url, true
-	} else {
-		return "", false
-	}
-}
-
-// a<album_art_id>_nn.jpg
-// other images stored without type prefix?
-// not all sizes are listed here, all up to _16 are existing files
-// _10 - original, whatever size it was
-// _16 - 700x700
-// _7  - 160x160
-// _3  - 100x100
-func (album *album) getImageURL(size int) string {
-	var s string
-	switch size {
-	case 3:
-		s = "_16"
-	case 2:
-		s = "_7"
-	case 1:
-		s = "_3"
-	default:
-		return album.imageSrc
-	}
-	return strings.Replace(album.imageSrc, "_10", s, 1)
-}
-
 type trAlbum struct {
 	ByArtist      Artist   `json:"byArtist"`      // field "name" contains artist/band name
 	Name          string   `json:"name"`          // album/track name

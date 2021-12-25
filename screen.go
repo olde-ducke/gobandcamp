@@ -1,17 +1,14 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"math/rand"
+	"strings"
 	"time"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/gdamore/tcell/v2/views"
 )
-
-var app = &views.Application{}
-var window = &windowLayout{}
 
 // by default none of the colors are used, to keep default terminal look
 // only used for light/dark themes
@@ -28,18 +25,20 @@ const (
 	trColor int32 = 0xcccccc
 )
 
+const maxInt32 = (1 << 31) - 1
+
+var app = &views.Application{}
+var window = &windowLayout{}
+
 // FIXME: windows build is now more responsive
 // but terminal is still flashing every update
 type screen struct {
 	tcell.Screen
 }
 
-//var counter int
-
+// drop screen updates if queue is full
 func (screen *screen) Show() {
 	if window.screen.HasPendingEvent() {
-		// counter++
-		// window.sendEvent(newDebugMessage(fmt.Sprint("skipped show calls:", counter)))
 		return
 	}
 	screen.Screen.Show()
@@ -74,7 +73,8 @@ type windowLayout struct {
 	hMargin     int
 	vMargin     int
 
-	hideInput bool
+	hideInput     bool
+	playerVisible bool
 
 	theme       int
 	widgets     [8]recolorable
@@ -92,31 +92,6 @@ type windowLayout struct {
 	playlist       *album
 }
 
-// TODO: finish, less braindead check,
-// if for whatever reason we end up with empty playlist,
-// go back to initial state, if called, then something gone
-// horribly wrong
-func (window *windowLayout) verifyData(track int) (err error) {
-	if window.playlist != nil {
-		if track < len(window.playlist.tracks) {
-			return nil
-		}
-	}
-
-	err = errors.New("something went wrong")
-	window.sendEvent(newErrorMessage(err))
-	window.playlist = getDummyData()
-	// player should ignore any sensitive command with 0 tracks
-	// window won't load anything, since all links
-	// in dummy data are empty
-	player.totalTracks = 0
-	player.currentTrack = 0
-	window.sendEvent(newCoverDownloaded(nil, ""))
-	player.stop()
-	player.clearStream()
-	return err
-}
-
 func (window *windowLayout) sendEvent(event tcell.Event) {
 
 	if window.screen == nil {
@@ -128,7 +103,8 @@ func (window *windowLayout) sendEvent(event tcell.Event) {
 	// FIXME: may cause issues actually
 	case *eventDebugMessage:
 		if *debug {
-			logFile.WriteString(event.When().Format(time.ANSIC) + "[dbg]:" + event.String() + "\n")
+			logFile.WriteString(event.When().Format(time.ANSIC) + "[dbg]:" +
+				event.String() + "\n")
 		} else {
 			return
 		}
@@ -173,15 +149,60 @@ func (window *windowLayout) sendEvent(event tcell.Event) {
 	//window.HandleEvent(event)
 }
 
-func getNewTrack(track int) {
-	if err := window.verifyData(track); err != nil {
-		return
+// a<album_art_id>_nn.jpg
+// other images stored without type prefix?
+// not all sizes are listed here, all up to _16 are existing files
+// _10 - original, whatever size it was
+// _16 - 700x700
+// _7  - 160x160
+// _3  - 100x100
+func (window *windowLayout) getImageURL(size int) string {
+	var s string
+
+	if window.playlist == nil {
+		return ""
 	}
-	if url, streamable := window.playlist.getURL(track); streamable {
+
+	switch size {
+	case 3:
+		s = "_16"
+	case 2:
+		s = "_7"
+	case 1:
+		s = "_3"
+	default:
+		return window.playlist.imageSrc
+	}
+	return strings.Replace(window.playlist.imageSrc, "_10", s, 1)
+}
+
+func (window *windowLayout) getItemURL() string {
+	if window.playlist == nil {
+		return ""
+	}
+	return window.playlist.url
+}
+
+// returns true and url if any streamable media was found
+func (window *windowLayout) getTrackURL(track int) (string, bool) {
+	if window.playlist == nil {
+		return "", false
+	}
+
+	if url := window.playlist.tracks[track].url; url != "" {
+		return url, true
+	} else {
+		return "", false
+	}
+}
+
+func (window *windowLayout) getNewTrack(track int) {
+	if url, streamable := window.getTrackURL(track); streamable {
 		go downloadMedia(url, track)
 	} else {
-		window.sendEvent(newMessage(fmt.Sprintf("track %d is not available for streaming", track+1)))
-		player.status = stopped
+		window.sendEvent(newMessage(fmt.Sprintf("track %d is not available for streaming",
+			track+1)))
+		player.stop()
 	}
 }
 
@@ -201,10 +222,11 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 			player.stop()
 			player.clearStream()
 			window.playlist = event.value()
+			// FIXME: direct access to player data
 			player.currentTrack = 0
-			getNewTrack(player.currentTrack)
+			window.getNewTrack(player.currentTrack)
 
-			imageURL := window.playlist.getImageURL(2)
+			imageURL := window.getImageURL(2)
 			window.coverKey = imageURL
 			go downloadCover(imageURL)
 			player.totalTracks = event.value().totalTracks
@@ -217,7 +239,7 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 		// second one fixed?
 		// first one won't be fixed for now, not a major problem
 	case *eventNewTrack:
-		getNewTrack(event.value())
+		window.getNewTrack(event.value())
 		return window.widgets[content].HandleEvent(event)
 
 	case *eventNextTrack:
@@ -226,10 +248,12 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 
 	case *eventTrackDownloaded:
 		track := player.currentTrack
-		if err := window.verifyData(track); err != nil {
+		url, ok := window.getTrackURL(track)
+		if !ok {
 			return false
 		}
-		if event.value() == getTruncatedURL(window.playlist.tracks[track].url) {
+
+		if event.value() == getTruncatedURL(url) {
 			if player.status == playing {
 				player.stop()
 				player.clearStream()
@@ -450,7 +474,7 @@ func init() {
 	var err error
 	window.hideInput = true
 	window.hMargin, window.vMargin = 3, 1
-	window.playlist = getDummyData()
+	// window.playlist = getDummyData()
 	window.bgColor = bgColor
 	window.fgColor = fgColor
 

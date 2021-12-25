@@ -65,10 +65,11 @@ func (model *defaultModel) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
 }
 
 func (model *defaultModel) update() {
-	track := player.currentTrack
-	if err := window.verifyData(track); err != nil {
+	if window.playlist == nil {
+		// NOTE: should not get to this point
 		return
 	}
+	track := player.currentTrack
 	timeStamp := player.getCurrentTrackPosition()
 	model.endx, model.endy = window.getBounds()
 	repeats := progressbarLength(window.playlist.tracks[track].duration,
@@ -91,9 +92,7 @@ func (model *defaultModel) update() {
 		title = window.playlist.tracks[track].title
 		album = window.playlist.title
 	} else {
-		//from = ""
 		title = window.playlist.title
-		//album = ""
 	}
 
 	fmt.Fprintf(&model.sbuilder, model.formatString,
@@ -229,10 +228,12 @@ func (model *textModel) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
 }
 
 func (model *textModel) create() {
-	track := player.currentTrack
-	if err := window.verifyData(track); err != nil {
+	if window.playlist == nil {
+		// NOTE: should not get to this point
 		return
 	}
+
+	track := player.currentTrack
 	var from string
 
 	if window.playlist.tracks[track].lyrics == "" {
@@ -269,10 +270,6 @@ type welcomeMessage struct {
 }
 
 func (model *welcomeMessage) create() {
-	text := "\n\nwelcome to \ue000gobandcamp\ue001\nbarebones terminal player for bandcamp\n\npress \ue000[Tab]\ue001 and enter command/url\n    or \ue000[H]\ue001 to display help and controls"
-	// NOTE: hardcoded height
-	model.text = make([][]rune, 7)
-	model.endx, model.endy = generateCharMatrix(text, model.text)
 }
 
 type helpMessage struct {
@@ -403,10 +400,13 @@ func (model *menuModel) update() {
 	//    3 - title
 	//
 	//    0m0s
-	track := player.currentTrack
-	if err := window.verifyData(track); err != nil {
+	if window.playlist == nil {
+		// NOTE: should not get to this point
 		return
 	}
+	// FIXME: direct acces to player data
+	track := player.currentTrack
+
 	model.activeItem = track
 	model.totalItems = window.playlist.totalTracks
 	timeStamp := player.getCurrentTrackPosition()
@@ -501,12 +501,18 @@ type searchResultsModel struct {
 	*menuModel
 }
 
+// TODO?: on certain circumstances there are several
+// entries of the same item (exactly the same, and not
+// album published by label/etc.)
+// FIXME: will crash on empty results but there's no way
+// to set this view with empty results?
 func (model *searchResultsModel) create() {
 	// check if current item is in search results
 	// if it is, it will be highlighted in update()
 	// player status will display near active item
 	var activeFound bool
-	url := window.playlist.url
+
+	url := window.getItemURL()
 	for i, item := range window.searchResults.Items {
 		if url != "" && item.URL == url {
 			model.activeItem = i
@@ -514,9 +520,11 @@ func (model *searchResultsModel) create() {
 			break
 		}
 	}
+
 	if !activeFound {
 		model.activeItem = -1
 	}
+
 	model.update()
 }
 
@@ -584,9 +592,7 @@ func (model *searchResultsModel) triggerNewDownload(currPos, offy int) {
 		if !window.searchResults.MoreAvailable {
 			window.sendEvent(newMessage("nothing else to show"))
 		} else if !window.searchResults.waiting {
-			// TODO: finish pulling of new result
 			window.searchResults.waiting = true
-			//window.sendEvent(newMessage("additional results: not implemented"))
 			go getAdditionalResults(window.searchResults)
 		}
 	}
@@ -598,6 +604,12 @@ func (model *searchResultsModel) triggerNewDownload(currPos, offy int) {
 		return
 	}
 
+	// TODO: change item json parsing to collect
+	// art_id instead of direct url, since url is
+	// modified anyway, there's really no need for
+	// it in the first place
+	// this should be combined with image size
+	// selection and moved to function
 	url := "https://f4.bcbits.com/img/a" +
 		strconv.Itoa(artId) + "_7.jpg"
 	window.coverKey = url
