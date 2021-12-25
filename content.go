@@ -488,8 +488,13 @@ func (content *contentArea) toggleModel(model int) {
 
 func (content *contentArea) switchModel(model int) {
 	// FIXME: this is a complete mess
-	if model != content.currentModel && content.currentModel != welcomeModel {
+	if content.currentModel != model {
 		content.previousModel = content.currentModel
+	}
+
+	// overwrite previous model for welcome screen
+	if content.currentModel == welcomeModel {
+		content.previousModel = playerModel
 	}
 
 	// don't set these models on empty playlist
