@@ -37,6 +37,7 @@ const (
 )
 
 // □ ▹ ▯▯ ◃◃ ▹▹ ▯◃ ▹▯
+// fancy stuff, but doesn't work everywhere
 func (status playbackStatus) String() string {
 	return [7]string{" \u25a1", " \u25b9", "\u25af\u25af",
 		"\u25c3\u25c3", "\u25b9\u25b9", "\u25af\u25c3",
@@ -48,6 +49,7 @@ type playback struct {
 	totalTracks  int
 	stream       *mediaStream
 	format       beep.Format
+	timeStep     time.Duration
 
 	status         playbackStatus
 	bufferedStatus playbackStatus
@@ -56,15 +58,73 @@ type playback struct {
 	muted          bool
 }
 
-func (player *playback) changePosition(pos int) {
-	if !player.isPlaying() {
-		return
+func (player *playback) raiseVolume() {
+	player.volume += 0.5
+
+	if player.volume > 0.0 {
+		player.volume = 0.0
 	}
+
+	player.muted = false
+
+	player.setVolume()
+}
+
+func (player *playback) lowerVolume() {
+	player.volume -= 0.5
+	if player.volume < -10.0 {
+		player.volume = -10.0
+	}
+
+	if player.volume < -9.6 {
+		player.muted = true
+	}
+
+	player.setVolume()
+}
+
+func (player *playback) setVolume() {
+	if player.isReady() {
+		speaker.Lock()
+		player.stream.volume.Silent = player.muted
+		player.stream.volume.Volume = player.volume
+		speaker.Unlock()
+	}
+}
+
+func (player *playback) mute() {
+	player.muted = !player.muted
+	if player.isReady() {
+		speaker.Lock()
+		player.stream.volume.Silent = player.muted
+		speaker.Unlock()
+	}
+}
+
+func (player *playback) seek(forward bool) bool {
+	if !player.isPlaying() || !player.isPlaying() {
+		return false
+	}
+
+	var pos = player.format.SampleRate.N(time.Second * player.timeStep)
+	var newStatus playbackStatus
+
+	if forward {
+		newStatus = seekFWD
+	} else {
+		newStatus = seekBWD
+		pos *= -1
+	}
+	player.bufferStatus(newStatus)
+
+	speaker.Lock()
 	newPos := player.stream.streamer.Position()
 	newPos += pos
+
 	if newPos < 0 {
 		newPos = 0
 	}
+
 	if newPos >= player.stream.streamer.Len() {
 		// FIXME: crashes when seeking past ending of the last track
 		// if offset from end to -5, it doesn't crash
@@ -73,30 +133,36 @@ func (player *playback) changePosition(pos int) {
 		// crashes with index out of range in beep sources
 		newPos = player.stream.streamer.Len()
 	}
+
 	if err := player.stream.streamer.Seek(newPos); err != nil {
 		// FIXME:
 		// sometimes reports errors, for example this one:
 		// https://github.com/faiface/beep/issues/116
 		// causes track to skip, again, only sometimes
 		// NOTE: ignore EOF entirely, jumping straight to the end
-		// doesn't seem to break anything and fixes problem above
+		// doesn't seem to break anything and fixes crashes described
+		// above, all other errors just reported on screen, nothing
+		// could be done about them (?)
 		if err.Error() != "mp3: EOF" {
 			window.sendEvent(newErrorMessage(err))
 		}
 	}
+	speaker.Unlock()
+
+	return true
 }
 
 func (player *playback) resetPosition() {
 	if player.isReady() {
 		window.sendEvent(newDebugMessage("reset position"))
+		speaker.Lock()
 		if err := player.stream.streamer.Seek(0); err != nil {
 			window.sendEvent(newErrorMessage(err))
 		}
+		speaker.Unlock()
 	}
 }
 
-// FIXME: crashes irregularly, possibly race condition,
-// might be track switch delay
 func (player *playback) getCurrentTrackPosition() time.Duration {
 	if player.isReady() {
 		speaker.Lock()
@@ -108,30 +174,35 @@ func (player *playback) getCurrentTrackPosition() time.Duration {
 	return 0
 }
 
+// play/pause/seekFWD/seekBWD count as active state
 func (player *playback) isPlaying() bool {
-	if player.stream != nil && (player.status == playing ||
-		player.status == paused || player.status == seekFWD ||
-		player.status == seekBWD) {
-		return true
+	/* if player.status == playing || player.status == paused ||
+		player.status == seekFWD || player.status == seekBWD {
+		return player.isReady()
 	}
-	return false
+	return false */
+	return player.status == playing || player.status == paused ||
+		player.status == seekFWD || player.status == seekBWD
 }
 
 func (player *playback) isReady() bool {
 	return player.stream != nil
 }
 
-func (player *playback) skip(forward bool) {
+func (player *playback) skip(forward bool) bool {
 	if player.totalTracks == 0 {
-		return
+		return false
 	}
-	window.sendEvent(newDebugMessage("skip track"))
+
 	if player.playbackMode == random {
 		player.nextTrack()
-		return
+		return true
 	}
+
+	window.sendEvent(newDebugMessage("skip track"))
 	player.stop()
 	player.clearStream()
+
 	if forward {
 		player.currentTrack = (player.currentTrack + 1) %
 			player.totalTracks
@@ -142,9 +213,14 @@ func (player *playback) skip(forward bool) {
 			player.totalTracks
 		player.status = skipBWD
 	}
+
 	// TODO: remove after response reading cancellation is implemented
 	go player.delaySwitching()
+	return true
+}
 
+func (player *playback) nextMode() {
+	player.playbackMode = (player.playbackMode + 1) % 4
 }
 
 func (player *playback) nextTrack() {
@@ -152,23 +228,33 @@ func (player *playback) nextTrack() {
 	switch player.playbackMode {
 
 	case random:
+		var previousTrack int
+
 		if player.totalTracks > 1 {
 			rand.Seed(time.Now().UnixNano())
+			previousTrack = player.currentTrack
 			// never play same track again if random
-			temp := player.currentTrack
-			for player.currentTrack == temp {
+			for player.currentTrack == previousTrack {
 				player.currentTrack = rand.Intn(player.totalTracks)
 			}
 		}
-		player.status = skipFWD
 		player.stop()
+
+		if player.currentTrack >= previousTrack {
+			player.status = skipFWD
+		} else {
+			player.status = skipBWD
+		}
+
 		player.clearStream()
 		go player.delaySwitching()
 
+	// beep does have loop one, but stream should be set
+	// up to loop from the very start to play indefinetly,
+	// which is not ideal
 	case repeatOne:
-		speaker.Lock()
+		// doesn't work without position reset?
 		player.resetPosition()
-		speaker.Unlock()
 		player.restart()
 
 	case repeat:
@@ -176,6 +262,8 @@ func (player *playback) nextTrack() {
 
 	case normal:
 		if player.currentTrack == player.totalTracks-1 {
+			// prepare new stream for playback again
+			// and immediately stop it
 			player.restart()
 			player.stop()
 			return
@@ -184,9 +272,9 @@ func (player *playback) nextTrack() {
 	}
 }
 
+// to prevent downloading every item on fast track switching
+// probably dumb idea
 func (player *playback) delaySwitching() {
-	// to prevent downloading every item on fast track switching
-	// probably dumb idea
 	track := player.currentTrack
 	time.Sleep(time.Second / 2)
 	if track == player.currentTrack {
@@ -195,10 +283,14 @@ func (player *playback) delaySwitching() {
 }
 
 func (player *playback) setTrack(track int) {
-	player.currentTrack = track
 	player.stop()
 	player.clearStream()
-	player.status = skipFWD
+	if track >= player.currentTrack {
+		player.status = skipFWD
+	} else {
+		player.status = skipBWD
+	}
+	player.currentTrack = track
 	go player.delaySwitching()
 }
 
@@ -240,12 +332,13 @@ func (player *playback) restart() {
 	player.status = playing
 }
 
+// stop is actually pause with position reset
 func (player *playback) stop() {
 	window.sendEvent(newDebugMessage("playback stopped"))
 	player.status = stopped
 	if player.isReady() {
-		speaker.Lock()
 		player.resetPosition()
+		speaker.Lock()
 		player.stream.ctrl.Paused = true
 		speaker.Unlock()
 	}
@@ -272,114 +365,32 @@ func (player *playback) bufferStatus(newStatus playbackStatus) {
 	}
 }
 
-func (player *playback) handleEvent(key rune) bool {
-	switch key {
-	// TODO: change controls
-	case ' ':
-		if !player.isReady() {
-			return false
-		}
+func (player *playback) playPause() bool {
+	if !player.isReady() {
+		return false
+	}
 
-		if player.status == seekBWD || player.status == seekFWD {
-			player.status = player.bufferedStatus
-		}
+	if player.status == seekBWD || player.status == seekFWD {
+		player.status = player.bufferedStatus
+	}
 
-		switch player.status {
-		case paused, stopped:
-			player.status = playing
-		case playing:
-			player.status = paused
-		default:
-			return false
-		}
+	switch player.status {
 
-		speaker.Lock()
-		player.stream.ctrl.Paused = !player.stream.ctrl.Paused
-		speaker.Unlock()
+	case paused, stopped:
+		player.status = playing
 
-	case 'a', 'A':
-		if !player.isPlaying() {
-			return false
-		}
-		player.bufferStatus(seekBWD)
-		speaker.Lock()
-		player.changePosition(-player.format.SampleRate.N(time.Second * 2))
-		speaker.Unlock()
-
-	case 'd', 'D':
-		if !player.isPlaying() {
-			return false
-		}
-		player.bufferStatus(seekFWD)
-		speaker.Lock()
-		player.changePosition(player.format.SampleRate.N(time.Second * 2))
-		speaker.Unlock()
-
-	case 's', 'S':
-		player.volume -= 0.5
-		if player.volume < -10.0 {
-			player.volume = -10.0
-		}
-
-		if player.volume < -9.6 {
-			player.muted = true
-		}
-
-		if player.isReady() {
-			speaker.Lock()
-			player.stream.volume.Silent = player.muted
-			player.stream.volume.Volume = player.volume
-			speaker.Unlock()
-		}
-
-	case 'w', 'W':
-		player.volume += 0.5
-
-		if player.volume > 0.0 {
-			player.volume = 0.0
-		}
-
-		player.muted = false
-
-		if player.isReady() {
-			speaker.Lock()
-			player.stream.volume.Silent = player.muted
-			player.stream.volume.Volume = player.volume
-			speaker.Unlock()
-		}
-
-	case 'm', 'M':
-		player.muted = !player.muted
-		if player.isReady() {
-			speaker.Lock()
-			player.stream.volume.Silent = player.muted
-			speaker.Unlock()
-		}
-
-	case 'r', 'R':
-		player.playbackMode = (player.playbackMode + 1) % 4
-
-	case 'b', 'B':
-		if player.getCurrentTrackPosition() > time.Second*3 {
-			speaker.Lock()
-			player.resetPosition()
-			speaker.Unlock()
-		} else {
-			player.skip(false)
-		}
-
-	case 'f', 'F':
-		player.skip(true)
-
-	case 'p', 'P':
-		if player.isPlaying() {
-			player.stop()
-		}
+	case playing:
+		player.status = paused
 
 	default:
 		return false
+
 	}
-	window.sendEvent(&eventUpdate{})
+
+	speaker.Lock()
+	player.stream.ctrl.Paused = !player.stream.ctrl.Paused
+	speaker.Unlock()
+
 	return true
 }
 

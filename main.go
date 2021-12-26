@@ -14,7 +14,7 @@ import (
 var exitCode = 0
 
 var cache *FIFO
-var player playback
+var player = playback{timeStep: 2}
 var logFile *os.File
 var wg sync.WaitGroup
 

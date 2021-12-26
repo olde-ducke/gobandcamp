@@ -326,12 +326,67 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 				// TODO: handle player events here, right now all runes go
 				// to player
 				default:
-					return player.handleEvent(event.Rune())
+					if window.handlePlayerControls(event.Rune()) {
+						window.sendEvent(&eventUpdate{})
+					}
 				}
 			}
 		}
 	}
 	return window.BoxLayout.HandleEvent(event)
+}
+
+func (window *windowLayout) handlePlayerControls(key rune) bool {
+	switch key {
+	// TODO: change controls
+	case ' ':
+		return player.playPause()
+
+	case 'a', 'A':
+		return player.seek(false)
+
+	case 'd', 'D':
+		return player.seek(true)
+
+	case 's', 'S':
+		player.lowerVolume()
+		return true
+
+	case 'w', 'W':
+		player.raiseVolume()
+		return true
+
+	case 'm', 'M':
+		player.mute()
+		return true
+
+	case 'r', 'R':
+		player.nextMode()
+		return true
+
+	case 'b', 'B':
+		// jump to start instead of previous track if current position
+		// after 3 second mark
+		if player.getCurrentTrackPosition() > time.Second*3 {
+			player.resetPosition()
+			return true
+		} else {
+			return player.skip(false)
+		}
+
+	case 'f', 'F':
+		return player.skip(true)
+
+	case 'p', 'P':
+		if player.isPlaying() {
+			player.stop()
+			return true
+		}
+		return false
+
+	default:
+		return false
+	}
 }
 
 // NOTE: this assumes that font is 1/2 height to width
