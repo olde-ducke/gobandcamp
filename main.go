@@ -14,7 +14,7 @@ import (
 var exitCode = 0
 
 var cache *FIFO
-var player = playback{timeStep: 2}
+var player = beepPlayer{timeStep: 2}
 var logFile *os.File
 var wg sync.WaitGroup
 
@@ -22,7 +22,7 @@ func checkFatalError(err error) {
 	if err != nil {
 		app.Quit()
 		if *debug {
-			logFile.WriteString(time.Now().Format(time.ANSIC) + "[err]:" + err.Error())
+			writeToLogFile("[err]:" + err.Error())
 		}
 		fmt.Fprintln(os.Stderr, err)
 		exitCode = 1
@@ -33,15 +33,12 @@ func init() {
 	cache = newCache(4)
 }
 
-func updater(quit chan bool, update <-chan time.Time) {
-	wg.Add(1)
+func run(quit chan bool, update <-chan time.Time) {
 	for {
 		select {
 
 		case <-quit:
-			if *debug {
-				logFile.WriteString(time.Now().Format(time.ANSIC) + "[ext]:updater loop exit\n")
-			}
+			writeToLogFile("[ext]:main loop exit")
 			wg.Done()
 			return
 
@@ -59,11 +56,16 @@ var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to `file`")
 var memprofile = flag.String("memprofile", "", "write memory profile to `file`")
 var debug = flag.Bool("debug", false, "write debug output to 'dump.log'")
 
+func writeToLogFile(str string) {
+	if *debug {
+		logFile.WriteString(time.Now().Format(time.ANSIC) + str + "\n")
+	}
+}
+
 func main() {
 	ticker := time.NewTicker(time.Second)
 	quit := make(chan bool)
 	update := ticker.C
-	go updater(quit, update)
 
 	flag.Parse()
 
@@ -81,24 +83,28 @@ func main() {
 		checkFatalError(err)
 	}
 
-	window.recalculateBounds()
+	// TODO: test if needed anymore
+	// window.recalculateBounds()
+
 	// FIXME: behaves weird after coming from suspend (high CPU load)
 	// FIXME: device does not reinitialize after suspend
 	// FIXME: takes device to itself, doesn't allow any other program to use it, and can't use it, if device is already being used
-	// just switch to SDL, it doesn't have any of these problems
+
+	wg.Add(1)
+	go run(quit, update)
+
 	err := app.Run()
 	checkFatalError(err)
-
-	// exit updater loop, close channel, stop timer
-	// wait for them to finish
 	quit <- true
-	close(quit)
+
+	// TODO: why?
+	// close(quit)
 	ticker.Stop()
 	wg.Wait()
 
 	if *debug {
 		logFile.WriteString(time.Now().Format(time.ANSIC) + "[ext]:closing debug file\n")
-		err = logFile.Close()
+		err := logFile.Close()
 		if err != nil {
 			exitCode = 1
 		}

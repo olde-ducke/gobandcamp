@@ -383,6 +383,7 @@ func (content *contentArea) HandleEvent(event tcell.Event) bool {
 					if item < len(window.searchResults.Items) {
 						if url := window.searchResults.Items[item].URL; url != "" {
 							if currentURL := window.getItemURL(); url != currentURL {
+								wg.Add(1)
 								go processMediaPage(url)
 							} else {
 								content.switchModel(playerModel)
@@ -514,6 +515,7 @@ func (content *contentArea) switchModel(model int) {
 		if url := window.getImageURL(2); url != "" {
 			if window.coverKey != url {
 				window.coverKey = url
+				wg.Add(1)
 				go downloadCover(url)
 			}
 		} else {

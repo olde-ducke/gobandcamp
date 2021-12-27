@@ -593,6 +593,7 @@ func (model *searchResultsModel) triggerNewDownload(currPos, offy int) {
 			window.sendEvent(newMessage("nothing else to show"))
 		} else if !window.searchResults.waiting {
 			window.searchResults.waiting = true
+			wg.Add(1)
 			go getAdditionalResults(window.searchResults)
 		}
 	}
@@ -613,5 +614,6 @@ func (model *searchResultsModel) triggerNewDownload(currPos, offy int) {
 	url := "https://f4.bcbits.com/img/a" +
 		strconv.Itoa(artId) + "_7.jpg"
 	window.coverKey = url
+	wg.Add(1)
 	go downloadCover(url)
 }

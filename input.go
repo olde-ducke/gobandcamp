@@ -125,6 +125,7 @@ type arguments struct {
 func parseInput(input string) {
 	commands := strings.Split(input, " ")
 	if strings.Contains(commands[0], "http://") || strings.Contains(commands[0], "https://") {
+		wg.Add(1)
 		go processMediaPage(commands[0])
 		return
 	} else if commands[0] == "exit" || commands[0] == "q" || commands[0] == "quit" {
@@ -173,6 +174,7 @@ func parseInput(input string) {
 	}
 
 	if len(args.tags) > 0 {
+		wg.Add(1)
 		go processTagPage(args)
 	} else {
 		window.sendEvent(newMessage("no tags to search"))

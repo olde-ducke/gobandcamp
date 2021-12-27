@@ -198,6 +198,7 @@ func (window *windowLayout) getTrackURL(track int) (string, bool) {
 
 func (window *windowLayout) getNewTrack(track int) {
 	if url, streamable := window.getTrackURL(track); streamable {
+		wg.Add(1)
 		go downloadMedia(url, track)
 	} else {
 		window.sendEvent(newMessage(fmt.Sprintf("track %d is not available for streaming",
@@ -228,6 +229,7 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 
 			imageURL := window.getImageURL(2)
 			window.coverKey = imageURL
+			wg.Add(1)
 			go downloadCover(imageURL)
 			player.totalTracks = event.value().totalTracks
 			return window.widgets[content].HandleEvent(event)
@@ -506,7 +508,7 @@ func (s *spacer) Size() (int, int) {
 	return window.hMargin, window.vMargin
 }
 
-func getDummyData() *album {
+/* func getDummyData() *album {
 	return &album{
 		single:      false,
 		album:       true,
@@ -523,13 +525,12 @@ func getDummyData() *album {
 			duration:    0.0,
 		}},
 	}
-}
+} */
 
 func init() {
 	var err error
 	window.hideInput = true
 	window.hMargin, window.vMargin = 3, 1
-	// window.playlist = getDummyData()
 	window.bgColor = bgColor
 	window.fgColor = fgColor
 
@@ -541,6 +542,8 @@ func init() {
 	contentVLayoutOuter := views.NewBoxLayout(views.Vertical)
 	contentVLayoutInner := views.NewBoxLayout(views.Vertical)
 
+	// FIXME: reversed order of widgets breaks for some reason
+	// really not sure why, there must be something wrong still
 	window.AddWidget(window.widgets[spacerV1], 0.0)
 	window.AddWidget(window.widgets[art], 0.0)
 	contentHLayout.AddWidget(window.widgets[spacerV2], 0.0)
