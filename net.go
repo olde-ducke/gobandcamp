@@ -66,7 +66,6 @@ func download(link string, mobile bool, checkDomain bool) (io.ReadCloser, string
 
 func processMediaPage(link string) {
 	window.sendEvent(newMessage("fetching media page..."))
-	// wg.Add(1)
 	defer wg.Done()
 	reader, _ := download(link, false, true)
 	if reader == nil {

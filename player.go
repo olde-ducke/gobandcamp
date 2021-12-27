@@ -56,6 +56,21 @@ type beepPlayer struct {
 	playbackMode   playbackMode
 	volume         float64
 	muted          bool
+
+	text chan<- interface{}
+	next chan<- struct{}
+}
+
+func newBeepPlayer(text chan<- interface{}, next chan<- struct{}) *beepPlayer {
+	initializeDevice()
+	return &beepPlayer{timeStep: 2, text: text, next: next}
+}
+
+// device initialization
+func initializeDevice() {
+	// TODO: add setting sample rate
+	sr := beep.SampleRate(defaultSampleRate)
+	speaker.Init(sr, sr.N(time.Second/10))
 }
 
 func (player *beepPlayer) raiseVolume() {
@@ -144,7 +159,7 @@ func (player *beepPlayer) seek(forward bool) bool {
 		// above, all other errors just reported on screen, nothing
 		// could be done about them (?)
 		if err.Error() != "mp3: EOF" {
-			window.sendEvent(newErrorMessage(err))
+			player.text <- err
 		}
 	}
 	speaker.Unlock()
@@ -154,10 +169,10 @@ func (player *beepPlayer) seek(forward bool) bool {
 
 func (player *beepPlayer) resetPosition() {
 	if player.isReady() {
-		window.sendEvent(newDebugMessage("reset position"))
+		player.text <- "reset position"
 		speaker.Lock()
 		if err := player.stream.streamer.Seek(0); err != nil {
-			window.sendEvent(newErrorMessage(err))
+			player.text <- err
 		}
 		speaker.Unlock()
 	}
@@ -194,7 +209,7 @@ func (player *beepPlayer) skip(forward bool) bool {
 		return true
 	}
 
-	window.sendEvent(newDebugMessage("skip track"))
+	player.text <- "skip track"
 	player.stop()
 	player.clearStream()
 
@@ -219,7 +234,7 @@ func (player *beepPlayer) nextMode() {
 }
 
 func (player *beepPlayer) nextTrack() {
-	window.sendEvent(newDebugMessage("next track"))
+	player.text <- "next track"
 	switch player.playbackMode {
 
 	case random:
@@ -294,7 +309,7 @@ func (player *beepPlayer) play(key string) {
 	//player.currentTrack = track
 	streamer, format, err := mp3.Decode(wrapInRSC(key))
 	if err != nil {
-		window.sendEvent(newErrorMessage(err))
+		player.text <- err
 		return
 	}
 	speaker.Lock()
@@ -302,34 +317,28 @@ func (player *beepPlayer) play(key string) {
 	player.stream = newStream(format.SampleRate, streamer, player.volume, player.muted)
 	player.status = playing
 	speaker.Unlock()
-	window.sendEvent(newDebugMessage("playback started"))
+	player.text <- "playback started"
 	// deadlocks if anything speaker related is done inside callback
 	// since it's locking device itself
 	speaker.Play(beep.Seq(player.stream.volume, beep.Callback(
 		func() {
-			//window.sendEvent(newDebugMessage("next track callback"))
-			// go player.nextTrack()
-			window.sendEvent(&eventNextTrack{})
-			//window.sendEvent(newDebugMessage("next track callback exit"))
+			player.next <- struct{}{}
 		})))
 }
 
 func (player *beepPlayer) restart() {
-	window.sendEvent(newDebugMessage("restart playback"))
+	player.text <- "restart playback"
 	speaker.Clear()
 	speaker.Play(beep.Seq(player.stream.volume, beep.Callback(
 		func() {
-			//window.sendEvent(newDebugMessage("restart callback"))
-			//go player.nextTrack()
-			//window.sendEvent(newDebugMessage("restart callback exit"))
-			window.sendEvent(&eventNextTrack{})
+			player.next <- struct{}{}
 		})))
 	player.status = playing
 }
 
 // stop is actually pause with position reset
 func (player *beepPlayer) stop() {
-	window.sendEvent(newDebugMessage("playback stopped"))
+	player.text <- "playback stopped"
 	player.status = stopped
 	if player.isReady() {
 		player.resetPosition()
@@ -340,7 +349,7 @@ func (player *beepPlayer) stop() {
 }
 
 func (player *beepPlayer) clearStream() {
-	window.sendEvent(newDebugMessage("clearing buffer"))
+	player.text <- "clearing buffer"
 	speaker.Clear()
 	if player.isReady() {
 		speaker.Lock()
@@ -348,7 +357,7 @@ func (player *beepPlayer) clearStream() {
 		player.stream = nil
 		speaker.Unlock()
 		if err != nil {
-			window.sendEvent(newErrorMessage(err))
+			player.text <- err
 		}
 	}
 }
@@ -387,10 +396,4 @@ func (player *beepPlayer) playPause() bool {
 	speaker.Unlock()
 
 	return true
-}
-
-// device initialization
-func init() {
-	sr := beep.SampleRate(defaultSampleRate)
-	speaker.Init(sr, sr.N(time.Second/10))
 }

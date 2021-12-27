@@ -10,11 +10,11 @@ import (
 	"time"
 )
 
-// TODO: move to app?
+// TODO: finish return of exit code
 var exitCode = 0
 
 var cache *FIFO
-var player = beepPlayer{timeStep: 2}
+var player *beepPlayer
 var logFile *os.File
 var wg sync.WaitGroup
 
@@ -33,7 +33,7 @@ func init() {
 	cache = newCache(4)
 }
 
-func run(quit chan bool, update <-chan time.Time) {
+func run(quit chan struct{}, next chan struct{}, text chan interface{}, update <-chan time.Time) {
 	for {
 		select {
 
@@ -44,9 +44,24 @@ func run(quit chan bool, update <-chan time.Time) {
 
 		case <-update:
 			window.sendEvent(&eventUpdate{})
+			// TODO: remove
 			if player.status == seekBWD || player.status == seekFWD {
 				player.status = player.bufferedStatus
 			}
+
+		case text := <-text:
+			switch text := text.(type) {
+			case string:
+				writeToLogFile(text)
+			case error:
+				window.sendEvent(newErrorMessage(text))
+			}
+
+		case <-next:
+			window.sendEvent(&eventNextTrack{})
+
+		default:
+			time.Sleep(50 * time.Millisecond)
 		}
 	}
 }
@@ -64,8 +79,10 @@ func writeToLogFile(str string) {
 
 func main() {
 	ticker := time.NewTicker(time.Second)
-	quit := make(chan bool)
+	quit := make(chan struct{})
 	update := ticker.C
+	next := make(chan struct{})
+	text := make(chan interface{})
 
 	flag.Parse()
 
@@ -83,6 +100,8 @@ func main() {
 		checkFatalError(err)
 	}
 
+	player = newBeepPlayer(text, next)
+
 	// TODO: test if needed anymore
 	// window.recalculateBounds()
 
@@ -90,20 +109,20 @@ func main() {
 	// FIXME: device does not reinitialize after suspend
 	// FIXME: takes device to itself, doesn't allow any other program to use it, and can't use it, if device is already being used
 
+	// TODO: remove wg.Add() from downloaders
+	// for now, let them finish gracefully
 	wg.Add(1)
-	go run(quit, update)
+	go run(quit, next, text, update)
 
 	err := app.Run()
 	checkFatalError(err)
-	quit <- true
+	quit <- struct{}{}
 
-	// TODO: why?
-	// close(quit)
 	ticker.Stop()
 	wg.Wait()
 
 	if *debug {
-		logFile.WriteString(time.Now().Format(time.ANSIC) + "[ext]:closing debug file\n")
+		writeToLogFile("closing debug file")
 		err := logFile.Close()
 		if err != nil {
 			exitCode = 1
