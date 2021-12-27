@@ -20,10 +20,8 @@ var wg sync.WaitGroup
 
 func checkFatalError(err error) {
 	if err != nil {
-		app.Quit()
-		if *debug {
-			writeToLogFile("[err]:" + err.Error())
-		}
+		// app.Quit()
+		writeToLogFile("[err]:" + err.Error())
 		fmt.Fprintln(os.Stderr, err)
 		exitCode = 1
 	}
@@ -52,8 +50,9 @@ func run(quit chan struct{}, next chan struct{}, text chan interface{}, update <
 		case text := <-text:
 			switch text := text.(type) {
 			case string:
-				writeToLogFile(text)
+				writeToLogFile("[dbg]: " + text)
 			case error:
+				writeToLogFile("[err]: " + text.Error())
 				window.sendEvent(newErrorMessage(text))
 			}
 
@@ -117,12 +116,12 @@ func main() {
 	err := app.Run()
 	checkFatalError(err)
 	quit <- struct{}{}
-
 	ticker.Stop()
+
 	wg.Wait()
 
 	if *debug {
-		writeToLogFile("closing debug file")
+		writeToLogFile("[ext]: closing debug file")
 		err := logFile.Close()
 		if err != nil {
 			exitCode = 1

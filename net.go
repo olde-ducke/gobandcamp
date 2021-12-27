@@ -65,8 +65,8 @@ func download(link string, mobile bool, checkDomain bool) (io.ReadCloser, string
 }
 
 func processMediaPage(link string) {
-	window.sendEvent(newMessage("fetching media page..."))
 	defer wg.Done()
+	window.sendEvent(newMessage("fetching media page..."))
 	reader, _ := download(link, false, true)
 	if reader == nil {
 		window.sendEvent(newItem(nil))
@@ -131,6 +131,7 @@ func processMediaPage(link string) {
 }
 
 func downloadMedia(link string, track int) {
+	defer wg.Done()
 	var err error
 	key := getTruncatedURL(link)
 
@@ -142,7 +143,6 @@ func downloadMedia(link string, track int) {
 		return
 	}
 	window.sendEvent(newMessage(fmt.Sprintf("fetching track %d...", track+1)))
-	defer wg.Done()
 	// NOTE: media location suggests that there is always only mp3 files on server
 	// for now ignore type of media
 	reader, _ := download(link, false, false)
@@ -164,8 +164,8 @@ func downloadMedia(link string, track int) {
 }
 
 func downloadCover(link string) {
-	window.sendEvent(newDebugMessage("fetching album cover..."))
 	defer wg.Done()
+	window.sendEvent(newDebugMessage("fetching album cover..."))
 	reader, format := download(link, false, false)
 	if reader == nil {
 		window.sendEvent(newCoverDownloaded(nil, ""))
