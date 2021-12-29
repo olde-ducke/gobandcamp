@@ -20,7 +20,6 @@ var wg sync.WaitGroup
 
 func checkFatalError(err error) {
 	if err != nil {
-		// app.Quit()
 		writeToLogFile("[err]:" + err.Error())
 		fmt.Fprintln(os.Stderr, err)
 		exitCode = 1
@@ -31,38 +30,11 @@ func init() {
 	cache = newCache(4)
 }
 
-func run(quit chan struct{}, next chan struct{}, text chan interface{}, update <-chan time.Time) {
-	for {
-		select {
-
-		case <-quit:
-			writeToLogFile("[ext]:main loop exit")
-			wg.Done()
-			return
-
-		case <-update:
-			window.sendEvent(&eventUpdate{})
-			// TODO: remove
-			if player.status == seekBWD || player.status == seekFWD {
-				player.status = player.bufferedStatus
-			}
-
-		case text := <-text:
-			switch text := text.(type) {
-			case string:
-				writeToLogFile("[dbg]: " + text)
-			case error:
-				writeToLogFile("[err]: " + text.Error())
-				window.sendEvent(newErrorMessage(text))
-			}
-
-		case <-next:
-			window.sendEvent(&eventNextTrack{})
-
-		default:
-			time.Sleep(50 * time.Millisecond)
-		}
-	}
+func run(quit chan struct{}) {
+	err := app.Run()
+	checkFatalError(err)
+	quit <- struct{}{}
+	wg.Done()
 }
 
 // TODO: combine with input args
@@ -111,13 +83,41 @@ func main() {
 	// TODO: remove wg.Add() from downloaders
 	// for now, let them finish gracefully
 	wg.Add(1)
-	go run(quit, next, text, update)
+	go run(quit)
 
-	err := app.Run()
-	checkFatalError(err)
-	quit <- struct{}{}
+loop:
+	for {
+		select {
+
+		case <-quit:
+			writeToLogFile("[ext]:main loop exit")
+			break loop
+
+		case <-update:
+			window.sendEvent(&eventUpdate{})
+			// TODO: remove
+			if player.status == seekBWD || player.status == seekFWD {
+				player.status = player.bufferedStatus
+			}
+
+		case text := <-text:
+			switch text := text.(type) {
+			case string:
+				writeToLogFile("[dbg]: " + text)
+			case error:
+				writeToLogFile("[err]: " + text.Error())
+				window.sendEvent(newErrorMessage(text))
+			}
+
+		case <-next:
+			window.sendEvent(&eventNextTrack{})
+
+		default:
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+
 	ticker.Stop()
-
 	wg.Wait()
 
 	if *debug {

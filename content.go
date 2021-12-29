@@ -509,6 +509,12 @@ func (content *contentArea) switchModel(model int) {
 	content.currentModel = model
 	content.SetModel(model)
 
+	if content.currentModel != playerModel {
+		window.playerVisible = false
+	} else {
+		window.playerVisible = true
+	}
+
 	if content.currentModel != resultsModel {
 		// TODO: for now, redownload image again
 		// no cache for images yet

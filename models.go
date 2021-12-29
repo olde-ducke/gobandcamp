@@ -69,20 +69,12 @@ func (model *defaultModel) update() {
 		// NOTE: should not get to this point
 		return
 	}
-	track := player.currentTrack
+	track := player.getCurrentTrack()
 	timeStamp := player.getCurrentTrackPosition()
+	volume := player.getVolume()
 	model.endx, model.endy = window.getBounds()
 	repeats := progressbarLength(window.playlist.tracks[track].duration,
 		timeStamp, model.endx)
-
-	// if volume < 5 or player completely muted, display
-	// "mute" instead of volume
-	var volume string
-	if player.muted {
-		volume = "mute"
-	} else {
-		volume = fmt.Sprintf("%3.0f", (100 + player.volume*10))
-	}
 
 	// if we are playing track from album and it is not single
 	// display from what album track actually comes

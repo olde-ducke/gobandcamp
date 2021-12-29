@@ -22,7 +22,7 @@ const (
 		tcell.ColorValid
 	fgColor tcell.Color = tcell.ColorIsRGB | tcell.Color(0xf9fdff) |
 		tcell.ColorValid
-	trColor int32 = 0xcccccc
+	colorTreshold int32 = 127
 )
 
 const maxInt32 = (1 << 31) - 1
@@ -284,6 +284,7 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 		// dumps all parsed metadata from playlist to logfile
 		case tcell.KeyCtrlD:
 			window.sendEvent(newDebugMessage(fmt.Sprint(window.playlist)))
+			window.sendEvent(newDebugMessage(fmt.Sprint(window.searchResults)))
 			return true
 
 		// forcefully clear all playlist data, even if playback already started
@@ -352,18 +353,22 @@ func (window *windowLayout) handlePlayerControls(key rune) bool {
 
 	case 's', 'S':
 		player.lowerVolume()
+		window.displayIfHidden("volume " + player.getVolume())
 		return true
 
 	case 'w', 'W':
 		player.raiseVolume()
+		window.displayIfHidden("volume " + player.getVolume())
 		return true
 
 	case 'm', 'M':
 		player.mute()
+		window.displayIfHidden("volume " + player.getVolume())
 		return true
 
 	case 'r', 'R':
 		player.nextMode()
+		window.displayIfHidden("mode " + player.getPlaybackMode())
 		return true
 
 	case 'b', 'B':
@@ -388,6 +393,12 @@ func (window *windowLayout) handlePlayerControls(key rune) bool {
 
 	default:
 		return false
+	}
+}
+
+func (window *windowLayout) displayIfHidden(message string) {
+	if !window.playerVisible {
+		window.sendEvent(newMessage(message))
 	}
 }
 

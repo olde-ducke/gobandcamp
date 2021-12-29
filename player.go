@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"math/rand"
 	"time"
 
@@ -114,6 +115,22 @@ func (player *beepPlayer) mute() {
 		player.stream.volume.Silent = player.muted
 		speaker.Unlock()
 	}
+}
+
+func (player *beepPlayer) getVolume() string {
+	if player.muted {
+		return "mute"
+	} else {
+		return fmt.Sprintf("%4.0f", (100 + player.volume*10))
+	}
+}
+
+func (player *beepPlayer) getCurrentTrack() int {
+	return player.currentTrack
+}
+
+func (player *beepPlayer) getPlaybackMode() string {
+	return player.playbackMode.String()
 }
 
 func (player *beepPlayer) seek(forward bool) bool {

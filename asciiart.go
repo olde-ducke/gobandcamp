@@ -181,7 +181,7 @@ func (art *artArea) HandleEvent(event tcell.Event) bool {
 func (model *artModel) checkDrawingMode() {
 	// TODO: finish threshold checking
 	_, color, _ := window.style.Decompose()
-	if color.Hex() > trColor && model.artDrawingMode == 5 {
+	if max(color.RGB()) > colorTreshold && model.artDrawingMode == 5 {
 		if !model.options.Reversed {
 			model.options.Reversed = true
 			model.refitArt()
@@ -224,6 +224,21 @@ func getPlaceholderImage() image.Image {
 		checkFatalError(err)
 	}
 	return cover
+}
+
+// returns value from HSV for given RGB color
+func max(R, G, B int32) int32 {
+	maxC := R
+
+	if G > maxC {
+		maxC = G
+	}
+
+	if B > maxC {
+		maxC = B
+	}
+
+	return maxC
 }
 
 func init() {
