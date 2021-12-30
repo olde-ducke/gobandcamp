@@ -11,7 +11,7 @@ var metaData, mediaData string
 var wantData = &album{
 	album:       true,
 	single:      false,
-	imageSrc:    "https://example.com/gopher_255644.png",
+	artID:       255644,
 	title:       "album_name_test",
 	artist:      "artist_name_test",
 	date:        "01 jan 1970",
@@ -94,8 +94,8 @@ func TestParseAlbumJSONFake(t *testing.T) {
 
 	// check album cover url
 	// TODO: change album art to art_id ???
-	if gotData.imageSrc != wantData.imageSrc {
-		t.Errorf(formatStr, "wrong album art utl", wantData.imageSrc, gotData.imageSrc)
+	if gotData.artID != wantData.artID {
+		t.Errorf(formatStr, "wrong album art utl", wantData.artID, gotData.artID)
 	}
 
 	// check album metadata

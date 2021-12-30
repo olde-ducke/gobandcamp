@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 	"math/rand"
-	"strings"
+	"strconv"
 	"time"
 
 	"github.com/gdamore/tcell/v2"
@@ -63,6 +63,8 @@ type recolorable interface {
 	SetStyle(tcell.Style)
 }
 
+// TODO: remove bgColor and fgColor?
+// can be obtained from style
 type windowLayout struct {
 	views.BoxLayout
 	screen tcell.Screen
@@ -83,6 +85,7 @@ type windowLayout struct {
 	accentColor tcell.Color
 	style       tcell.Style
 	asciionly   bool
+	imageSize   int
 
 	searchResults *Result
 	// TODO: image cache
@@ -149,31 +152,42 @@ func (window *windowLayout) sendEvent(event tcell.Event) {
 	//window.HandleEvent(event)
 }
 
+// TODO: store image format somewhere, for now only jpg will work
 // a<album_art_id>_nn.jpg
-// other images stored without type prefix?
-// not all sizes are listed here, all up to _16 are existing files
-// _10 - original, whatever size it was
-// _16 - 700x700
-// _7  - 160x160
-// _3  - 100x100
-func (window *windowLayout) getImageURL(size int) string {
+// other images (avatars etc) stored without type prefix?
+// _16, _5 - 700x700, _16 mentioned in browser (?)
+// _15     - 135x135
+// _14     - 368x368
+// _13     - 380x380
+// _12     - 138x138
+// _11     - 172x172
+// _10     - original aspect ratio, scaled down, stored in json as image_src
+// _9      - 210x210
+// _8      - 124x124
+// _7      - 150x150, _7 mentioned in browser (?)
+// _6, _3  - 100x100, _3 used as favicon(?)
+// _4      - 300x300
+// _2      - 350x350
+// _1, _0  - original (?)
+func (window *windowLayout) getImageURL(artID int) string {
 	var s string
 
-	if window.playlist == nil {
-		return ""
+	switch window.imageSize {
+	case 3:
+		s = "_16.jpg"
+	case 2:
+		s = "_14_.jpg"
+	case 1:
+		s = "_7.jpg"
+	case 0:
+		s = "_3.jpg"
+	default:
+		// return window.playlist.imageSrc
+		s = "_10.jpg"
 	}
 
-	switch size {
-	case 3:
-		s = "_16"
-	case 2:
-		s = "_7"
-	case 1:
-		s = "_3"
-	default:
-		return window.playlist.imageSrc
-	}
-	return strings.Replace(window.playlist.imageSrc, "_10", s, 1)
+	return "https://f4.bcbits.com/img/a" +
+		strconv.Itoa(artID) + s
 }
 
 func (window *windowLayout) getItemURL() string {
@@ -227,7 +241,7 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 			player.currentTrack = 0
 			window.getNewTrack(player.currentTrack)
 
-			imageURL := window.getImageURL(2)
+			imageURL := window.getImageURL(window.playlist.artID)
 			window.coverKey = imageURL
 			wg.Add(1)
 			go downloadCover(imageURL)

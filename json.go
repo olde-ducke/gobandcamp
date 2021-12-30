@@ -14,9 +14,10 @@ import (
 
 // output types
 type album struct {
+	// imageSrc    string
 	album       bool
 	single      bool
-	imageSrc    string
+	artID       int
 	title       string
 	artist      string
 	date        string
@@ -35,14 +36,14 @@ type track struct {
 }
 
 type trAlbum struct {
-	ByArtist      Artist   `json:"byArtist"`      // field "name" contains artist/band name
-	Name          string   `json:"name"`          // album/track name
-	DatePublished string   `json:"datePublished"` // release date
-	Image         string   `json:"image"`         // link to album art
-	Tags          []string `json:"keywords"`      // tags/keywords
-	Tracks        Track    `json:"track"`         // container for track data
-	InAlbum       Album    `json:"inAlbum"`       // album name
-	RecordingOf   Lyrics   `json:"recordingOf"`   // same as in album json
+	ByArtist      Artist `json:"byArtist"`      // field "name" contains artist/band name
+	Name          string `json:"name"`          // album/track name
+	DatePublished string `json:"datePublished"` // release date
+	// Image         string   `json:"image"`         // link to album art
+	Tags        []string `json:"keywords"`    // tags/keywords
+	Tracks      Track    `json:"track"`       // container for track data
+	InAlbum     Album    `json:"inAlbum"`     // album name
+	RecordingOf Lyrics   `json:"recordingOf"` // same as in album json
 }
 
 type Artist struct {
@@ -80,12 +81,14 @@ type Album struct {
 
 type media struct {
 	//AlbumIsPreorder bool   `json:"album_is_preorder"` // unused, useless
+	ArtId     int    `json:"art_id"`
 	URL       string `json:"url"` // either album or track URL
 	Trackinfo []struct {
 		Duration float64 `json:"duration"` // duration in seconds
 		File     struct {
 			MP3128 string `json:"mp3-128"` // media url
 			// higher quality mp3-v0 available only after login
+			// and only for some items
 		} `json:"file"`
 	} `json:"trackinfo"` // file data
 }
@@ -110,9 +113,10 @@ func parseTrAlbumJSON(metadataJSON, mediaJSON string, isAlbum bool) (*album, err
 
 func extractAlbum(metadata *trAlbum, mediadata *media) (*album, error) {
 	albumMetadata := &album{
+		// imageSrc:    metadata.Image,
 		album:       true,
 		single:      false,
-		imageSrc:    metadata.Image,
+		artID:       mediadata.ArtId,
 		title:       metadata.Name,
 		artist:      metadata.ByArtist.Name,
 		date:        parseDate(metadata.DatePublished),
@@ -140,8 +144,9 @@ func extractAlbum(metadata *trAlbum, mediadata *media) (*album, error) {
 
 func extractTrack(metadata *trAlbum, mediadata *media) (*album, error) {
 	albumMetadata := &album{
+		// imageSrc:    metadata.Image,
 		album:       false,
-		imageSrc:    metadata.Image,
+		artID:       mediadata.ArtId,
 		title:       metadata.InAlbum.Name,
 		artist:      metadata.ByArtist.Name,
 		date:        parseDate(metadata.DatePublished),

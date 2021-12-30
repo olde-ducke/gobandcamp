@@ -3,7 +3,6 @@ package main
 import (
 	_ "embed"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -590,22 +589,14 @@ func (model *searchResultsModel) triggerNewDownload(currPos, offy int) {
 		}
 	}
 
-	artId := window.searchResults.Items[currPos].ArtId
-	if artId == 0 {
+	artID := window.searchResults.Items[currPos].ArtId
+	url := window.getImageURL(artID)
+	if url == "" {
 		window.sendEvent(newCoverDownloaded(nil, ""))
 		window.coverKey = ""
 		return
 	}
-
-	// TODO: change item json parsing to collect
-	// art_id instead of direct url, since url is
-	// modified anyway, there's really no need for
-	// it in the first place
-	// this should be combined with image size
-	// selection and moved to function
-	url := "https://f4.bcbits.com/img/a" +
-		strconv.Itoa(artId) + "_7.jpg"
-	window.coverKey = url
+	window.coverKey = window.getImageURL(artID)
 	wg.Add(1)
-	go downloadCover(url)
+	go downloadCover(window.coverKey)
 }
