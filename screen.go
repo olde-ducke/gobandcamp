@@ -10,11 +10,9 @@ import (
 	"github.com/gdamore/tcell/v2/views"
 )
 
+// TODO: should be parsed from argv/config file (?)
 // by default none of the colors are used, to keep default terminal look
 // only used for light/dark themes
-// actual bandcamp color (one of) is 0x61929c, but windows for some reason
-// gave 0x5f8787 instead of something something grey, which looks
-// rather nice
 const (
 	accentColor tcell.Color = tcell.ColorIsRGB | tcell.Color(0x61929c) |
 		tcell.ColorValid
@@ -89,7 +87,10 @@ type windowLayout struct {
 
 	searchResults *Result
 	// TODO: image cache
-	coverKey string
+	coverKey    string
+	coverBG     tcell.Color
+	coverFG     tcell.Color
+	coverAccent tcell.Color
 
 	boundx, boundy int
 	playlist       *album
@@ -152,9 +153,14 @@ func (window *windowLayout) sendEvent(event tcell.Event) {
 	//window.HandleEvent(event)
 }
 
-// TODO: store image format somewhere, for now only jpg will work
-// a<album_art_id>_nn.jpg
-// other images (avatars etc) stored without type prefix?
+// TODO: store image format somewhere?, for now only jpg will work,
+// image formats stored in separate json unfortunately, never encountered
+// anything other than jpeg, but probably there is a reason for bandcamp
+// to store image format
+// TODO: hardcoded url, might break, template for url should be collected
+// somewhere
+// ahttps://f4.bcbits.com/img/a<art_id>_nn.jpg
+// other images (avatars, etc) stored without type prefix?
 // _16, _5 - 700x700, _16 mentioned in browser (?)
 // _15     - 135x135
 // _14     - 368x368
@@ -170,6 +176,10 @@ func (window *windowLayout) sendEvent(event tcell.Event) {
 // _2      - 350x350
 // _1, _0  - original (?)
 func (window *windowLayout) getImageURL(artID int) string {
+	if artID == 0 {
+		return ""
+	}
+
 	var s string
 
 	switch window.imageSize {
@@ -208,6 +218,13 @@ func (window *windowLayout) getTrackURL(track int) (string, bool) {
 	} else {
 		return "", false
 	}
+}
+
+func (window *windowLayout) getArtID() int {
+	if window.playlist == nil {
+		return 0
+	}
+	return window.playlist.artID
 }
 
 func (window *windowLayout) getNewTrack(track int) {
@@ -318,7 +335,7 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 				window.style = getRandomStyle()
 				window.accentColor = getRandomColor()
 			} else {
-				window.setTheme(4)
+				window.setTheme(5)
 			}
 			return true
 
@@ -484,7 +501,7 @@ func getRandomColor() tcell.Color {
 }
 
 func (window *windowLayout) changeTheme() {
-	window.theme = (window.theme + 1) % 3
+	window.theme = (window.theme + 1) % 5
 	window.setTheme(window.theme)
 }
 
@@ -496,17 +513,33 @@ func (window *windowLayout) changeTheme() {
 func (window *windowLayout) setTheme(theme int) {
 	switch theme {
 
-	case 1, 2:
-		window.fgColor, window.bgColor = window.bgColor, window.fgColor
+	case 1:
+		window.bgColor, window.fgColor, window.accentColor =
+			bgColor, fgColor, accentColor
 		window.style = tcell.StyleDefault.Background(window.bgColor).
 			Foreground(window.fgColor)
-		window.accentColor = accentColor
+
+	case 2:
+		window.bgColor, window.fgColor, window.accentColor =
+			fgColor, bgColor, accentColor
+		window.style = tcell.StyleDefault.Background(window.bgColor).
+			Foreground(window.fgColor)
 
 	// TODO: theme based on colors from cover
-	// case 3:
+	case 3:
+		window.bgColor, window.fgColor, window.accentColor =
+			window.coverBG, window.coverFG, window.coverAccent
+		window.style = tcell.StyleDefault.Background(window.bgColor).
+			Foreground(window.fgColor)
+
+	case 4:
+		window.bgColor, window.fgColor, window.accentColor =
+			window.coverFG, window.coverBG, window.coverAccent
+		window.style = tcell.StyleDefault.Background(window.bgColor).
+			Foreground(window.fgColor)
 
 	// only triggered by pressing Ctrl+T
-	case 4:
+	case 5:
 		window.style = getRandomStyle()
 		window.accentColor = getRandomColor()
 
@@ -558,6 +591,7 @@ func init() {
 	window.hMargin, window.vMargin = 3, 1
 	window.bgColor = bgColor
 	window.fgColor = fgColor
+	window.imageSize = 1
 
 	window.widgets[spacerV1] = &spacer{views.NewText(), false}
 	window.widgets[spacerH1] = &spacer{views.NewText(), false}

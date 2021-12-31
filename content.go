@@ -518,7 +518,7 @@ func (content *contentArea) switchModel(model int) {
 	if content.currentModel != resultsModel {
 		// TODO: for now, redownload image again
 		// no cache for images yet
-		if url := window.getImageURL(window.playlist.artID); url != "" {
+		if url := window.getImageURL(window.getArtID()); url != "" {
 			if window.coverKey != url {
 				window.coverKey = url
 				wg.Add(1)

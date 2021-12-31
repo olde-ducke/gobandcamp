@@ -129,7 +129,9 @@ func generateCharMatrix(text string, matrix [][]rune) (maxx int, maxy int) {
 		}
 
 		// ignore zero-width spaces and other silly things here
-		if r == '\r' || r == '\u200b' {
+		// \uFE00 - \uFE0F - variation selectors, don't print anything
+		// selectors for emoticons/emojis
+		if r == '\r' || r == '\u200B' || r >= '\uFE00' && r <= '\uFE0F' {
 			continue
 		} else if r == '\n' {
 			x = 0
@@ -175,9 +177,12 @@ func generateCharMatrix(text string, matrix [][]rune) (maxx int, maxy int) {
 
 		// barely tested, places space after symbol, that way tcell doesn't
 		// skip every second symbol
+		// http://www.unicode.org/Public/emoji/1.0//emoji-data.txt
 		if r >= '\u2E80' && r <= '\u9FFF' ||
 			r >= '\uAC00' && r <= '\uD7AF' ||
 			r >= '\uFF00' && r <= '\uFFEF' {
+			// r >= '\u2638' && r <= '\u2668' ||
+			// r >= '\U0001F600'
 
 			x++
 			matrix[y] = append(matrix[y], ' ')

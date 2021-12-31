@@ -6,12 +6,15 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"sort"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/gdamore/tcell/v2/views"
 	"github.com/olde-ducke/image2ascii/ascii"
 	"github.com/olde-ducke/image2ascii/convert"
 )
+
+const alphaTreshold = 72
 
 //go:embed assets/gopher.png
 var gopherPNG []byte
@@ -47,7 +50,7 @@ func (model *artModel) GetCell(x, y int) (rune, tcell.Style, []rune, int) {
 	}
 
 	// magic number
-	if model.asciiart[y][x].A > 72 {
+	if model.asciiart[y][x].A > alphaTreshold {
 
 		switch model.artDrawingMode {
 
@@ -148,6 +151,12 @@ func (art *artArea) HandleEvent(event tcell.Event) bool {
 			art.model.cover = event.value()
 			art.model.refitArt()
 			window.recalculateBounds()
+			window.coverBG, window.coverFG, window.coverAccent = art.model.calculatePallet()
+			if window.theme == 3 {
+				window.setTheme(3)
+			} else if window.theme == 4 {
+				window.setTheme(4)
+			}
 			return true
 		}
 
@@ -179,7 +188,6 @@ func (art *artArea) HandleEvent(event tcell.Event) bool {
 // and reversing is still enabled, reverse to default and redraw,
 // looks bad on white either way, but at least is more recognisable
 func (model *artModel) checkDrawingMode() {
-	// TODO: finish threshold checking
 	_, color, _ := window.style.Decompose()
 	if max(color.RGB()) > colorTreshold && model.artDrawingMode == 5 {
 		if !model.options.Reversed {
@@ -226,19 +234,113 @@ func getPlaceholderImage() image.Image {
 	return cover
 }
 
-// returns value from HSV for given RGB color
-func max(R, G, B int32) int32 {
-	maxC := R
-
-	if G > maxC {
-		maxC = G
+// sort by Value (HSV), and return min, max, some other colors
+// very naive, works out something decent 80-90% of the time
+func (model *artModel) calculatePallet() (tcell.Color, tcell.Color, tcell.Color) {
+	if model.cover == nil {
+		model.cover = getPlaceholderImage()
 	}
 
-	if B > maxC {
-		maxC = B
+	var output []pixel
+	for y := 0; y < model.cover.Bounds().Dy(); y++ {
+		for x := 0; x < model.cover.Bounds().Dx(); x++ {
+			r, g, b, a := model.cover.At(x, y).RGBA()
+
+			var px pixel
+			if a > alphaTreshold {
+				px.r = uint8(r >> 8)
+				px.g = uint8(g >> 8)
+				px.b = uint8(b >> 8)
+				px.v = maxUINT8(px.r, px.g, px.b)
+			} else {
+				px.r = 0
+				px.g = 0
+				px.b = 0
+				px.v = 0
+			}
+
+			output = append(output, px)
+		}
+	}
+
+	v := func(p1, p2 *pixel) bool {
+		return p1.v < p2.v
+	}
+
+	by(v).Sort(output)
+	// window.sendEvent(newDebugMessage(fmt.Sprint(output)))
+	return tcell.FromImageColor(color.RGBA{
+			R: output[0].r,
+			G: output[0].g,
+			B: output[0].b,
+			A: 255,
+		}),
+		tcell.FromImageColor(color.RGBA{
+			R: output[len(output)*4/5].r,
+			G: output[len(output)*4/5].g,
+			B: output[len(output)*4/5].b,
+			A: 255,
+		}),
+		tcell.FromImageColor(color.RGBA{
+			R: output[len(output)-1].r,
+			G: output[len(output)-1].g,
+			B: output[len(output)-1].b,
+			A: 255,
+		})
+}
+
+// returns value from HSV for given RGB color
+func max(r, g, b int32) int32 {
+	maxC := r
+
+	if g > maxC {
+		maxC = g
+	}
+
+	if b > maxC {
+		maxC = b
 	}
 
 	return maxC
+}
+
+// same, but for uint8
+func maxUINT8(r, g, b uint8) uint8 {
+	return uint8(max(int32(r), int32(g), int32(b)))
+}
+
+type pixel struct {
+	r uint8
+	g uint8
+	b uint8
+	v uint8
+}
+
+type by func(p1, p2 *pixel) bool
+
+func (by by) Sort(pixels []pixel) {
+	ps := &pixelSorter{
+		pixels: pixels,
+		by:     by,
+	}
+	sort.Sort(ps)
+}
+
+type pixelSorter struct {
+	pixels []pixel
+	by     func(p1, p2 *pixel) bool
+}
+
+func (ps *pixelSorter) Len() int {
+	return len(ps.pixels)
+}
+
+func (ps *pixelSorter) Swap(i, j int) {
+	ps.pixels[i], ps.pixels[j] = ps.pixels[j], ps.pixels[i]
+}
+
+func (ps *pixelSorter) Less(i, j int) bool {
+	return ps.by(&ps.pixels[i], &ps.pixels[j])
 }
 
 func init() {
@@ -258,5 +360,6 @@ func init() {
 		model,
 	}
 	coverArt.SetModel(model)
+	window.coverBG, window.coverFG, window.coverAccent = model.calculatePallet()
 	window.widgets[art] = coverArt
 }
