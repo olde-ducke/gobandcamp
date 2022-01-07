@@ -67,9 +67,6 @@ func (content *contentArea) Draw() {
 				style = style.Reverse(true)
 			}
 
-			//if {}
-			// TODO: finish line truncation idea
-
 			// flip flag
 			if ch == '\ue000' || ch == '\ue001' {
 				altStyle = !altStyle

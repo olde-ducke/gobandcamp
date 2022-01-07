@@ -456,9 +456,9 @@ func (window *windowLayout) getPlayerStatus() string {
 	if window.asciionly {
 		return [7]string{"[]", " >", "||",
 			"<<", ">>", "|<",
-			">|"}[player.status]
+			">|"}[player.getStatus()]
 	} else {
-		return player.status.String()
+		return player.getStatus().String()
 	}
 }
 

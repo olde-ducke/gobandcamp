@@ -95,10 +95,6 @@ loop:
 
 		case <-update:
 			window.sendEvent(&eventUpdate{})
-			// TODO: remove
-			if player.status == seekBWD || player.status == seekFWD {
-				player.status = player.bufferedStatus
-			}
 
 		case text := <-text:
 			switch text := text.(type) {

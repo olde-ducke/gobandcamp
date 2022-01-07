@@ -133,21 +133,28 @@ func (player *beepPlayer) getPlaybackMode() string {
 	return player.playbackMode.String()
 }
 
+func (player *beepPlayer) getStatus() playbackStatus {
+	if player.bufferedStatus < 0 {
+		return player.status
+	}
+	status := player.bufferedStatus
+	player.bufferedStatus = -1
+	return status
+}
+
 func (player *beepPlayer) seek(forward bool) bool {
 	if !player.isPlaying() || !player.isPlaying() {
 		return false
 	}
 
 	var pos = player.format.SampleRate.N(time.Second * player.timeStep)
-	var newStatus playbackStatus
 
 	if forward {
-		newStatus = seekFWD
+		player.bufferedStatus = seekFWD
 	} else {
-		newStatus = seekBWD
+		player.bufferedStatus = seekBWD
 		pos *= -1
 	}
-	player.bufferStatus(newStatus)
 
 	speaker.Lock()
 	newPos := player.stream.streamer.Position()
@@ -208,8 +215,7 @@ func (player *beepPlayer) getCurrentTrackPosition() time.Duration {
 
 // play/pause/seekFWD/seekBWD count as active state
 func (player *beepPlayer) isPlaying() bool {
-	return player.status == playing || player.status == paused ||
-		player.status == seekFWD || player.status == seekBWD
+	return player.status == playing || player.status == paused
 }
 
 func (player *beepPlayer) isReady() bool {
@@ -379,12 +385,14 @@ func (player *beepPlayer) clearStream() {
 	}
 }
 
+/*
 func (player *beepPlayer) bufferStatus(newStatus playbackStatus) {
 	if player.status != seekBWD && player.status != seekFWD {
 		player.bufferedStatus = player.status
 		player.status = newStatus
 	}
 }
+*/
 
 func (player *beepPlayer) playPause() bool {
 	if !player.isReady() {
