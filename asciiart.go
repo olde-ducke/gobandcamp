@@ -10,6 +10,7 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/gdamore/tcell/v2/views"
+	"github.com/nfnt/resize"
 	"github.com/olde-ducke/image2ascii/ascii"
 	"github.com/olde-ducke/image2ascii/convert"
 )
@@ -234,17 +235,18 @@ func getPlaceholderImage() image.Image {
 	return cover
 }
 
-// sort by Value (HSV), and return min, max, some other colors
 // very naive, works out something decent 80-90% of the time
 func (model *artModel) calculatePallet() (tcell.Color, tcell.Color, tcell.Color) {
 	if model.cover == nil {
 		model.cover = getPlaceholderImage()
 	}
 
-	var output []pixel
-	for y := 0; y < model.cover.Bounds().Dy(); y++ {
-		for x := 0; x < model.cover.Bounds().Dx(); x++ {
-			r, g, b, a := model.cover.At(x, y).RGBA()
+	img := resize.Resize(25, 25, model.cover, resize.NearestNeighbor)
+
+	colors := make(map[uint8]pixel)
+	for y := 0; y < img.Bounds().Dy(); y++ {
+		for x := 0; x < img.Bounds().Dx(); x++ {
+			r, g, b, a := img.At(x, y).RGBA()
 
 			var px pixel
 			if a > alphaTreshold {
@@ -259,8 +261,14 @@ func (model *artModel) calculatePallet() (tcell.Color, tcell.Color, tcell.Color)
 				px.v = 0
 			}
 
-			output = append(output, px)
+			// output = append(output, px)
+			colors[px.v] = px
 		}
+	}
+
+	var output []pixel
+	for _, value := range colors {
+		output = append(output, value)
 	}
 
 	v := func(p1, p2 *pixel) bool {
@@ -276,9 +284,9 @@ func (model *artModel) calculatePallet() (tcell.Color, tcell.Color, tcell.Color)
 			A: 255,
 		}),
 		tcell.FromImageColor(color.RGBA{
-			R: output[len(output)*4/5].r,
-			G: output[len(output)*4/5].g,
-			B: output[len(output)*4/5].b,
+			R: output[len(output)/2].r,
+			G: output[len(output)/2].g,
+			B: output[len(output)/2].b,
 			A: 255,
 		}),
 		tcell.FromImageColor(color.RGBA{

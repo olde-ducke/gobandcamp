@@ -183,6 +183,8 @@ func (window *windowLayout) getImageURL(artID int) string {
 	var s string
 
 	switch window.imageSize {
+	case 4:
+		s = "_0.jpg"
 	case 3:
 		s = "_16.jpg"
 	case 2:
@@ -192,7 +194,6 @@ func (window *windowLayout) getImageURL(artID int) string {
 	case 0:
 		s = "_3.jpg"
 	default:
-		// return window.playlist.imageSrc
 		s = "_10.jpg"
 	}
 
