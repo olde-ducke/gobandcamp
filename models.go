@@ -128,6 +128,33 @@ func generateCharMatrix(text string, matrix [][]rune) (maxx int, maxy int) {
 			x--
 		}
 
+		// FIXME: for some reason unicode has separate combining
+		// character for diacritics, adding combining characters
+		// to the mix breaks everyhing, more reasonable solution
+		// is replacing previous character with already existing
+		// ones (next in unicode, not completely sure), will work
+		// only for hiragana/katakana, will be ignored otherwise
+		if r == '\u3099' {
+			if n := len(matrix[y]); n > 1 {
+				// go back two positions, since hiragana/katakana
+				// should be padded with spaces
+				n -= 2
+				// if symbol is in hiragana or katakana range
+				// then replace with next unicode symbol
+				if matrix[y][n] >= '\u3040' && matrix[y][n] < '\u30FF' {
+					matrix[y][n] += 1
+				}
+			}
+			continue
+		}
+
+		// same as above but replace combining character with
+		// regular symbol of this diacritic, japanese symbols
+		// don't have this one with other symbols
+		if r == '\u309A' {
+			r = '\u309C'
+		}
+
 		// ignore zero-width spaces and other silly things here
 		// \uFE00 - \uFE0F - variation selectors, don't print anything
 		// selectors for emoticons/emojis
@@ -183,7 +210,6 @@ func generateCharMatrix(text string, matrix [][]rune) (maxx int, maxy int) {
 			r >= '\uFF00' && r <= '\uFFEF' {
 			// r >= '\u2638' && r <= '\u2668' ||
 			// r >= '\U0001F600'
-
 			x++
 			matrix[y] = append(matrix[y], ' ')
 		}
