@@ -1,6 +1,6 @@
 package main
 
-import (
+/*import (
 	"fmt"
 	"strings"
 
@@ -188,4 +188,4 @@ func init() {
 	textField.previous = make([]rune, 1)
 	textField.previous[0] = ' '
 	window.widgets[field] = textField
-}
+}*/

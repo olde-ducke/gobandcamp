@@ -1,6 +1,6 @@
 package main
 
-import (
+/*import (
 	_ "embed"
 	"fmt"
 	"strings"
@@ -630,4 +630,4 @@ func (model *searchResultsModel) triggerNewDownload(currPos, offy int) {
 	window.coverKey = window.getImageURL(artID)
 	wg.Add(1)
 	go downloadCover(window.coverKey)
-}
+}*/

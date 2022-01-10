@@ -1,6 +1,6 @@
 package main
 
-import (
+/*import (
 	"time"
 
 	"github.com/gdamore/tcell/v2"
@@ -50,4 +50,4 @@ func init() {
 	messageBox := &messageBox{views.NewText()}
 	messageBox.SetText("messages will show up here, press [Esc] to quit")
 	window.widgets[message] = messageBox
-}
+}*/

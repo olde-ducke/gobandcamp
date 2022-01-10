@@ -1,6 +1,6 @@
 package main
 
-import (
+/*import (
 	"strings"
 	"sync"
 
@@ -35,12 +35,12 @@ func (content *contentArea) Draw() {
 	}
 
 	// why???
-	/*vw, vh := content.view.Size()
-	for y := 0; y < vh; y++ {
-		for x := 0; x < vw; x++ {
-			content.view.SetContent(x, y, ' ', nil, content.style)
-		}
-	}*/
+	// vw, vh := content.view.Size()
+	// for y := 0; y < vh; y++ {
+	//	for x := 0; x < vw; x++ {
+	//		content.view.SetContent(x, y, ' ', nil, content.style)
+	//	}
+	// }
 
 	ex, ey := model.GetBounds()
 	vx, vy := port.Size()
@@ -612,4 +612,4 @@ func init() {
 	// contentWidget.switchModel(welcomeModel)
 	contentWidget.previousModel = playerModel
 	window.widgets[content] = contentWidget
-}
+}*/

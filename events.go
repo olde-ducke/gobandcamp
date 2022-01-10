@@ -1,6 +1,6 @@
 package main
 
-import (
+/*import (
 	"image"
 
 	"github.com/gdamore/tcell/v2"
@@ -159,4 +159,4 @@ func newErrorMessage(err error) *eventErrorMessage {
 
 func (event *eventErrorMessage) String() string {
 	return event.message.Error()
-}
+}*/

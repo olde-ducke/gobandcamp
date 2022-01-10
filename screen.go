@@ -1,6 +1,6 @@
 package main
 
-import (
+/*import (
 	"fmt"
 	"math/rand"
 	"strconv"
@@ -567,24 +567,24 @@ func (s *spacer) Size() (int, int) {
 	return window.hMargin, window.vMargin
 }
 
-/* func getDummyData() *album {
-	return &album{
-		single:      false,
-		album:       true,
-		imageSrc:    "",
-		title:       "---",
-		artist:      "---",
-		date:        "---",
-		url:         "https://golang.org",
-		tags:        "gopher music png",
-		totalTracks: 1,
-		tracks: []track{{
-			trackNumber: 1,
-			title:       "---",
-			duration:    0.0,
-		}},
-	}
-} */
+// func getDummyData() *album {
+//	return &album{
+//		single:      false,
+//		album:       true,
+//		imageSrc:    "",
+//		title:       "---",
+//		artist:      "---",
+//		date:        "---",
+//		url:         "https://golang.org",
+//		tags:        "gopher music png",
+//		totalTracks: 1,
+//		tracks: []track{{
+//			trackNumber: 1,
+//			title:       "---",
+//			duration:    0.0,
+//		}},
+//	}
+//}
 
 func init() {
 	var err error
@@ -623,4 +623,4 @@ func init() {
 	checkFatalError(err)
 	app.SetScreen(window.screen)
 	app.SetRootWidget(window)
-}
+}*/

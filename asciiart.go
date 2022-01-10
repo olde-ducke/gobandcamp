@@ -1,6 +1,6 @@
 package main
 
-import (
+/*import (
 	"bytes"
 	_ "embed"
 	"image"
@@ -370,4 +370,4 @@ func init() {
 	coverArt.SetModel(model)
 	window.coverBG, window.coverFG, window.coverAccent = model.calculatePallet()
 	window.widgets[art] = coverArt
-}
+}*/
