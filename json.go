@@ -4,7 +4,6 @@ import (
 	//"encoding/json"
 
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -96,10 +95,12 @@ type media struct {
 func parseTrAlbumJSON(metadataJSON, mediaJSON string, isAlbum bool) (*album, error) {
 	var metadata trAlbum
 	var mediadata media
+
 	err := json.Unmarshal([]byte(metadataJSON), &metadata)
 	if err != nil {
 		return nil, err
 	}
+
 	err = json.Unmarshal([]byte(mediaJSON), &mediadata)
 	if err != nil {
 		return nil, err
@@ -112,6 +113,10 @@ func parseTrAlbumJSON(metadataJSON, mediaJSON string, isAlbum bool) (*album, err
 }
 
 func extractAlbum(metadata *trAlbum, mediadata *media) (*album, error) {
+	date, err := parseDate(metadata.DatePublished)
+	if err != nil {
+		return nil, err
+	}
 	albumMetadata := &album{
 		// imageSrc:    metadata.Image,
 		album:       true,
@@ -119,7 +124,7 @@ func extractAlbum(metadata *trAlbum, mediadata *media) (*album, error) {
 		artID:       mediadata.ArtId,
 		title:       metadata.Name,
 		artist:      metadata.ByArtist.Name,
-		date:        parseDate(metadata.DatePublished),
+		date:        date,
 		url:         mediadata.URL,
 		tags:        strings.Join(metadata.Tags, " "),
 		totalTracks: metadata.Tracks.NumberOfItems,
@@ -143,18 +148,24 @@ func extractAlbum(metadata *trAlbum, mediadata *media) (*album, error) {
 }
 
 func extractTrack(metadata *trAlbum, mediadata *media) (*album, error) {
+	date, err := parseDate(metadata.DatePublished)
+	if err != nil {
+		return nil, err
+	}
 	albumMetadata := &album{
 		// imageSrc:    metadata.Image,
 		album:       false,
 		artID:       mediadata.ArtId,
 		title:       metadata.InAlbum.Name,
 		artist:      metadata.ByArtist.Name,
-		date:        parseDate(metadata.DatePublished),
+		date:        date,
 		url:         mediadata.URL,
 		tags:        strings.Join(metadata.Tags, " "),
 		totalTracks: 1,
 	}
 
+	// FIXME: would crash if InAlbum is nil, same with others
+	// needs more thorough check
 	if metadata.InAlbum.AlbumReleaseType == "SingleRelease" {
 		albumMetadata.single = true
 	}
@@ -173,19 +184,15 @@ func extractTrack(metadata *trAlbum, mediadata *media) (*album, error) {
 		return nil, errors.New("not enough data was parsed")
 	}
 
-	return albumMetadata, nil
+	return albumMetadata, err
 }
 
-func parseDate(input string) (strDate string) {
+func parseDate(input string) (string, error) {
 	date, err := time.Parse("02 Jan 2006 15:04:05 GMT", input)
 	if err != nil {
-		window.sendEvent(newErrorMessage(err))
-		strDate = "---"
-	} else {
-		y, m, d := date.Date()
-		strDate = fmt.Sprintf("%02d %s %4d", d, strings.ToLower(m.String()[:3]), y)
+		return "---", err
 	}
-	return strDate
+	return date.Format("2 jan 2006"), nil
 }
 
 // tag search results
@@ -264,8 +271,7 @@ func parseTagSearchJSON(dataBlobJSON string, highlights bool) (*Result, error) {
 	}
 
 	if index > len(dataBlob.Hubs.Tabs)-1 {
-		window.sendEvent(newDebugMessage(fmt.Sprint(dataBlob.Hubs.Tabs)))
-		return nil, errors.New("tag page JSON parser: index out of range")
+		return nil, errors.New("tag page JSON parser: ./json.go:265: tab index out of range")
 	}
 
 	key := dataBlob.Hubs.Tabs[index].DigDeeper.InitialSettings

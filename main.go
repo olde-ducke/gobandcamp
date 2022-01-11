@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"runtime"
 	"runtime/pprof"
@@ -30,12 +31,13 @@ func init() {
 	cache = newCache(4)
 }
 
-func run(quit chan struct{}) {
+/*func run(quit chan struct{}) {
 	err := app.Run()
 	checkFatalError(err)
 	quit <- struct{}{}
 	wg.Done()
 }
+*/
 
 // TODO: combine with input args
 var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to `file`")
@@ -82,31 +84,46 @@ func main() {
 
 	// TODO: remove wg.Add() from downloaders
 	// for now, let them finish gracefully
-	wg.Add(1)
-	go run(quit)
+
+	// wg.Add(1)
+	// go run(quit)
 
 loop:
 	for {
 		select {
 
 		case <-quit:
-			writeToLogFile("[ext]:main loop exit")
+			writeToLogFile("[ext]: main loop exit")
+			log.Println("[ext]: main loop exit")
 			break loop
 
 		case <-update:
-			window.sendEvent(&eventUpdate{})
+			// TODO: replace with app.Update ???
+			// TODO: consider switching event sending
+			// to app and defining app as interface
+			// window.sendEvent(&eventUpdate{})
+			log.Println("[dbg]: update")
 
 		case text := <-text:
 			switch text := text.(type) {
+
 			case string:
 				writeToLogFile("[dbg]: " + text)
+				log.Println("[dbg]: " + text)
+
 			case error:
 				writeToLogFile("[err]: " + text.Error())
-				window.sendEvent(newErrorMessage(text))
+				// window.sendEvent(newErrorMessage(text))
+				log.Println("[err]: " + text.Error())
+
+			case info:
+				writeToLogFile("[msg]: " + text.String())
+				log.Println("[err]: " + text.String())
 			}
 
 		case <-next:
-			window.sendEvent(&eventNextTrack{})
+			// window.sendEvent(&eventNextTrack{})
+			log.Println("next")
 
 		default:
 			time.Sleep(50 * time.Millisecond)

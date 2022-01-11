@@ -114,6 +114,8 @@ func (field *textField) Clear() {
 	field.SetCursorX(0)
 }
 
+*/
+
 type arguments struct {
 	tags     []string
 	location []string
@@ -122,6 +124,7 @@ type arguments struct {
 	flag     int
 }
 
+/*
 func parseInput(input string) {
 	commands := strings.Split(input, " ")
 	if strings.Contains(commands[0], "http://") || strings.Contains(commands[0], "https://") {

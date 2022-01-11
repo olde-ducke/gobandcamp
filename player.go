@@ -311,7 +311,8 @@ func (player *beepPlayer) delaySwitching() {
 	track := player.currentTrack
 	time.Sleep(time.Second / 2)
 	if track == player.currentTrack {
-		window.sendEvent(newTrack(player.currentTrack))
+		// window.sendEvent(newTrack(player.currentTrack))
+		player.text <- "new track should start playing here"
 	}
 }
 

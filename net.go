@@ -15,20 +15,35 @@ import (
 	"time"
 )
 
+const userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/97.0.4692.71 Safari/537.36"
+
+var originError = errors.New("response came not from bandcamp.com")
+var unexpectedError = errors.New("unexpected page format")
+
 var client = http.Client{Timeout: 120 * time.Second}
+
+type info struct {
+	s string
+}
+
+func (i *info) String() string {
+	return i.s
+}
+
+func newInfoMessage(text string) *info {
+	return &info{text}
+}
 
 // TODO: cancel response body readings for unfinished tracks
 // will solve a lot of problems
 // TODO: maybe it is a good idea to check domain everytime, just in case?
-func download(link string, mobile bool, checkDomain bool) (io.ReadCloser, string) {
-	window.sendEvent(newDebugMessage(link))
+func download(link string, mobile bool, checkDomain bool) (io.ReadCloser, string, error) {
 	request, err := http.NewRequest("GET", link, nil)
 	if err != nil {
-		window.sendEvent(newErrorMessage(err))
-		return nil, ""
+		return nil, "", err
 	}
 	// pretend that we are Chrome on Win10
-	request.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 12_0_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/95.0.4638.69 Safari/537.36")
+	request.Header.Set("User-Agent", userAgent)
 	// set mobile view, html weights a bit less than desktop version
 	if mobile {
 		request.Header.Set("Cookie", "mvp=p")
@@ -41,39 +56,41 @@ func download(link string, mobile bool, checkDomain bool) (io.ReadCloser, string
 		// images at the moment
 		// basically try http instead of https, and don't report error
 		if strings.Contains(link, "https://") {
-			window.sendEvent(newDebugMessage(err.Error() + "; trying over http://"))
+			// window.sendEvent(newDebugMessage(err.Error() + "; trying over http://"))
 			return download(strings.Replace(link, "https://", "http://", 1),
 				mobile, checkDomain)
 		}
-		window.sendEvent(newErrorMessage(err))
-		return nil, ""
+		return nil, "", err
 	}
-	window.sendEvent(newDebugMessage(response.Status))
+	// window.sendEvent(newDebugMessage(response.Status))
 
 	// not all artists are hosted on bandname.bandcamp.com,
 	// deal with aliases by reading canonical names from response
 	if checkDomain {
 		if !strings.Contains(response.Header.Get("Link"),
 			"bandcamp.com") {
-			window.sendEvent(newErrorMessage(errors.New("response came not from bandcamp.com")))
-			window.sendEvent(newDebugMessage(fmt.Sprint(response)))
+			// window.sendEvent(newDebugMessage(fmt.Sprint(response)))
 			response.Body.Close()
-			return nil, ""
+			return nil, "", originError
 		}
 	}
-	return response.Body, response.Header.Get("content-type")
+	return response.Body, response.Header.Get("content-type"), nil
 }
 
-func processMediaPage(link string) {
+func processMediaPage(link string, message chan<- interface{}) {
 	defer wg.Done()
-	window.sendEvent(newMessage("fetching media page..."))
-	reader, _ := download(link, false, true)
-	if reader == nil {
-		window.sendEvent(newItem(nil))
+	message <- newInfoMessage("fetching media page...")
+	message <- link
+
+	reader, _, err := download(link, false, true)
+	if err != nil {
+		// window.sendEvent(newItem(nil))
+		message <- "here nil data must be sent, but why exactly?"
+		message <- err
 		return
 	}
 	defer reader.Close()
-	window.sendEvent(newMessage("parsing..."))
+	message <- newInfoMessage("parsing...")
 
 	scanner := bufio.NewScanner(reader)
 	// NOTE: might fail here
@@ -83,7 +100,6 @@ func processMediaPage(link string) {
 	scanner.Buffer(buffer, 131072)
 	var metaDataJSON string
 	var mediaDataJSON string
-	var err error
 	var isAlbum bool
 
 	// TODO: expects only album/track pages and artist page with pinned item
@@ -106,76 +122,81 @@ func processMediaPage(link string) {
 	}
 
 	if err != nil {
-		window.sendEvent(newErrorMessage(err))
+		message <- err
 		return
 	}
 
 	if metaDataJSON != "" || mediaDataJSON != "" {
 		if !isAlbum {
-			window.sendEvent(newMessage("found track data"))
+			message <- newInfoMessage("found track data")
 		} else {
-			window.sendEvent(newMessage("found album data"))
+			message <- newInfoMessage("found album data")
 		}
 
-		metadata, err := parseTrAlbumJSON(metaDataJSON, mediaDataJSON, isAlbum)
-
-		if err == nil {
-			window.sendEvent(newItem(metadata))
+		_, err := parseTrAlbumJSON(metaDataJSON, mediaDataJSON, isAlbum)
+		if err != nil {
+			message <- err
 		} else {
-			window.sendEvent(newErrorMessage(err))
+			// window.sendEvent(newItem(metadata))
+			message <- "here data should be sent, but alas"
 		}
 
 	} else {
-		window.sendEvent(newErrorMessage(errors.New("unexpected page format")))
+		message <- unexpectedError
 	}
 }
 
-func downloadMedia(link string, track int) {
+func downloadMedia(link string, track int, message chan<- interface{}) {
 	defer wg.Done()
 	var err error
 	key := getTruncatedURL(link)
 
 	// TODO: move this check to upper level?
 	if _, ok := cache.get(key); ok {
-		window.sendEvent(newTrackDownloaded(key))
-		window.sendEvent(newMessage(fmt.Sprintf("playing track %d from cache",
-			track+1)))
+		// window.sendEvent(newTrackDownloaded(key))
+		message <- newInfoMessage(fmt.Sprintf("playing track %d from cache",
+			track+1))
 		return
 	}
-	window.sendEvent(newMessage(fmt.Sprintf("fetching track %d...", track+1)))
+	message <- newInfoMessage(fmt.Sprintf("fetching track %d...", track+1))
 	// NOTE: media location suggests that there is always only mp3 files on server
 	// for now ignore type of media
-	reader, _ := download(link, false, false)
-	if reader == nil {
-		return // error should be reported on other end already
+	message <- link
+	reader, _, err := download(link, false, false)
+	if err != nil {
+		message <- err
+		return
 	}
 	defer reader.Close()
-	window.sendEvent(newMessage(fmt.Sprintf("downloading track %d...", track+1)))
+	message <- newInfoMessage(fmt.Sprintf("downloading track %d...", track+1))
 
 	body, err := io.ReadAll(reader)
 	if err != nil {
-		window.sendEvent(newErrorMessage(err))
+		message <- err
 		return
 	}
 
 	cache.set(getTruncatedURL(link), body)
-	window.sendEvent(newTrackDownloaded(key))
-	window.sendEvent(newMessage(fmt.Sprintf("track %d downloaded", track+1)))
+	// window.sendEvent(newTrackDownloaded(key))
+	message <- "here new track should be sent, but alas"
+	message <- newInfoMessage(fmt.Sprintf("track %d downloaded", track+1))
 }
 
-func downloadCover(link string) {
+func downloadCover(link string, message chan<- interface{}) {
 	defer wg.Done()
-	window.sendEvent(newDebugMessage("fetching album cover..."))
-	reader, format := download(link, false, false)
-	if reader == nil {
-		window.sendEvent(newCoverDownloaded(nil, ""))
+	message <- "fetching album cover..."
+	message <- link
+	reader, format, err := download(link, false, false)
+	if err != nil {
+		// window.sendEvent(newCoverDownloaded(nil, ""))
+		message <- err
+		message <- "here empty album cover should be sent, but alas"
 		return
 	}
 	defer reader.Close()
-	window.sendEvent(newDebugMessage("downloading album cover..."))
+	message <- "downloading album cover..."
 
 	var img image.Image
-	var err error
 	switch format {
 
 	case "image/jpeg":
@@ -190,18 +211,21 @@ func downloadCover(link string) {
 	}
 
 	if err != nil {
-		window.sendEvent(newErrorMessage(err))
-		window.sendEvent(newCoverDownloaded(nil, ""))
+		message <- err
+		// window.sendEvent(newCoverDownloaded(nil, ""))
+		message <- "here empty album cover should be sent, but alas, here image dimensions:" +
+			fmt.Sprint(img.Bounds())
 		return
 	}
 
-	window.sendEvent(newDebugMessage("album cover downloaded"))
-	window.sendEvent(newCoverDownloaded(img, link))
+	message <- "album cover downloaded"
+	// window.sendEvent(newCoverDownloaded(img, link))
+	message <- "here album cover should be sent, but alas"
 }
 
-func processTagPage(args arguments) {
+func processTagPage(args *arguments, message chan<- interface{}) {
 	defer wg.Done()
-	window.sendEvent(newMessage("fetching tag search page..."))
+	message <- newInfoMessage("fetching tag search page...")
 
 	sbuilder := strings.Builder{}
 	defer sbuilder.Reset()
@@ -229,12 +253,13 @@ func processTagPage(args arguments) {
 		fmt.Fprint(&sbuilder, "&f=", args.format)
 	}
 
-	reader, _ := download(sbuilder.String(), false, true)
-	if reader == nil {
+	reader, _, err := download(sbuilder.String(), false, true)
+	if err != nil {
+		message <- err
 		return
 	}
 	defer reader.Close()
-	window.sendEvent(newMessage("parsing..."))
+	message <- newInfoMessage("parsing...")
 
 	scanner := bufio.NewScanner(reader)
 	var dataBlobJSON string
@@ -242,7 +267,6 @@ func processTagPage(args arguments) {
 	// 64k is not enough for these pages
 	// buffer with size 1048576 reads json with 178 items
 	var buffer []byte
-	var err error
 	scanner.Buffer(buffer, 1048576)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -252,22 +276,23 @@ func processTagPage(args arguments) {
 		}
 	}
 	if err != nil {
-		window.sendEvent(newErrorMessage(err))
+		message <- err
 		return
 	}
-	window.sendEvent(newMessage("found data"))
+	message <- newInfoMessage("found data")
 
 	results, err := parseTagSearchJSON(dataBlobJSON, inHighlights)
 	if err != nil {
-		window.sendEvent(newErrorMessage(err))
+		message <- err
 		return
 	}
 
 	if results == nil || len(results.Items) == 0 {
-		window.sendEvent(newMessage("nothing was found"))
+		message <- newInfoMessage("nothing was found")
 		return
 	}
-	window.sendEvent(newTagSearch(results))
+	// window.sendEvent(newTagSearch(results))
+	message <- "here search results should be sent, but alas"
 }
 
 func extractJSON(prefix, line, suffix string) (string, error) {
@@ -276,7 +301,7 @@ func extractJSON(prefix, line, suffix string) (string, error) {
 	end := strings.Index(line[start:], suffix)
 	end += start
 	if start == -1 || end == -1 || end < start {
-		return "", errors.New("unexpected page format")
+		return "", unexpectedError
 	}
 	replacer := strings.NewReplacer(`&quot;`, `"`, `&amp;`, `&`, `&#39;`, `'`)
 	return replacer.Replace(line[start:end]), nil
@@ -292,9 +317,9 @@ func getTruncatedURL(link string) string {
 	}
 }
 
-func getAdditionalResults(result *Result) {
+func getAdditionalResults(result *Result, message chan<- interface{}) {
 	defer wg.Done()
-	window.sendEvent(newMessage("pulling additional results..."))
+	message <- newInfoMessage("pulling additional results...")
 	jsonString := "{\"filters\":" + result.filters + ",\"page\":" +
 		strconv.Itoa(result.page) + "}"
 	buffer := bytes.NewBuffer([]byte(jsonString))
@@ -302,8 +327,9 @@ func getAdditionalResults(result *Result) {
 	request, err := http.NewRequest("POST",
 		"https://bandcamp.com/api/hub/2/dig_deeper", buffer)
 	if err != nil {
-		window.sendEvent(newAdditionalTagSearch(nil))
-		window.sendEvent(newErrorMessage(err))
+		// window.sendEvent(newAdditionalTagSearch(nil))
+		message <- "empty search results must be sent, but alas"
+		message <- err
 		return
 	}
 	// pretend that we are Chrome on Win10
@@ -311,23 +337,27 @@ func getAdditionalResults(result *Result) {
 
 	response, err := client.Do(request)
 	if err != nil {
-		window.sendEvent(newAdditionalTagSearch(nil))
-		window.sendEvent(newErrorMessage(err))
+		// window.sendEvent(newAdditionalTagSearch(nil))
+		message <- "empty search results must be sent, but alas"
+		message <- err
 		return
 	}
 
 	body, err := io.ReadAll(response.Body)
 	if err != nil {
-		window.sendEvent(newAdditionalTagSearch(nil))
-		window.sendEvent(newErrorMessage(err))
+		// window.sendEvent(newAdditionalTagSearch(nil))
+		message <- "empty search results must be sent, but alas"
+		message <- err
 		return
 	}
 
-	additionalResult, err := extractResults(body)
+	_, err = extractResults(body)
 	if err != nil {
-		window.sendEvent(newAdditionalTagSearch(nil))
-		window.sendEvent(newErrorMessage(err))
+		// window.sendEvent(newAdditionalTagSearch(nil))
+		message <- "empty search results must be sent, but alas"
+		message <- err
 		return
 	}
-	window.sendEvent(newAdditionalTagSearch(additionalResult))
+	// window.sendEvent(newAdditionalTagSearch(additionalResult))
+	message <- "additional search results must be sent, but alas"
 }
