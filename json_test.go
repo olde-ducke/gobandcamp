@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"testing"
+	"time"
 )
 
 var metaData, mediaData string
@@ -14,9 +15,9 @@ var wantData = &album{
 	artID:       255644,
 	title:       "album_name_test",
 	artist:      "artist_name_test",
-	date:        "01 jan 1970",
+	date:        time.Date(1970, time.January, 1, 0, 0, 0, 0, time.FixedZone("GMT", 0)),
 	url:         "https://gopher.example.com/album/album_name_test",
-	tags:        "gopher music png",
+	tags:        []string{"gopher", "music", "png"},
 	totalTracks: 3,
 	tracks: []track{
 		{
@@ -107,12 +108,14 @@ func TestParseAlbumJSONFake(t *testing.T) {
 		t.Errorf(formatStr, "wrong artist name", wantData.artist, gotData.artist)
 	}
 
-	if gotData.date != wantData.date {
+	if !gotData.date.Equal(wantData.date) {
 		t.Errorf(formatStr, "wrong release date", wantData.date, gotData.date)
 	}
 
-	if gotData.tags != wantData.tags {
-		t.Errorf(formatStr, "wrong tags", wantData.tags, gotData.tags)
+	for i, tag := range gotData.tags {
+		if tag != wantData.tags[i] {
+			t.Errorf(formatStr, "wrong tags", wantData.tags, gotData.tags)
+		}
 	}
 
 	if gotData.url != wantData.url {

@@ -4,7 +4,6 @@ import (
 	//"encoding/json"
 
 	"errors"
-	"strings"
 	"time"
 
 	json "github.com/json-iterator/go"
@@ -19,9 +18,9 @@ type album struct {
 	artID       int
 	title       string
 	artist      string
-	date        string
+	date        time.Time
 	url         string
-	tags        string
+	tags        []string
 	totalTracks int
 	tracks      []track
 }
@@ -126,7 +125,7 @@ func extractAlbum(metadata *trAlbum, mediadata *media) (*album, error) {
 		artist:      metadata.ByArtist.Name,
 		date:        date,
 		url:         mediadata.URL,
-		tags:        strings.Join(metadata.Tags, " "),
+		tags:        metadata.Tags,
 		totalTracks: metadata.Tracks.NumberOfItems,
 	}
 
@@ -160,7 +159,7 @@ func extractTrack(metadata *trAlbum, mediadata *media) (*album, error) {
 		artist:      metadata.ByArtist.Name,
 		date:        date,
 		url:         mediadata.URL,
-		tags:        strings.Join(metadata.Tags, " "),
+		tags:        metadata.Tags,
 		totalTracks: 1,
 	}
 
@@ -187,12 +186,12 @@ func extractTrack(metadata *trAlbum, mediadata *media) (*album, error) {
 	return albumMetadata, err
 }
 
-func parseDate(input string) (string, error) {
-	date, err := time.Parse("02 Jan 2006 15:04:05 GMT", input)
+func parseDate(input string) (time.Time, error) {
+	date, err := time.Parse("02 Jan 2006 15:04:05 MST", input)
 	if err != nil {
-		return "---", err
+		return date, err
 	}
-	return date.Format("2 jan 2006"), nil
+	return date, nil
 }
 
 // tag search results
@@ -287,10 +286,6 @@ func parseTagSearchJSON(dataBlobJSON string, highlights bool) (*Result, error) {
 func extractResults(results []byte) (*Result, error) {
 
 	var result Result
-	/*if !json.Valid(results) {
-		window.sendEvent(newDebugMessage(string(results)))
-		return &result, errors.New("extractResults: got invalid JSON")
-	}*/
 
 	err := json.Unmarshal(results, &result)
 	if err != nil {

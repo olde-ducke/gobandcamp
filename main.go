@@ -7,23 +7,19 @@ import (
 	"os"
 	"runtime"
 	"runtime/pprof"
+	"strings"
 	"sync"
 	"time"
 )
 
-// TODO: finish return of exit code
-var exitCode = 0
-
 var cache *FIFO
 var player *beepPlayer
-var logFile *os.File
 var wg sync.WaitGroup
 
 func checkFatalError(err error) {
 	if err != nil {
-		writeToLogFile("[err]:" + err.Error())
 		fmt.Fprintln(os.Stderr, err)
-		exitCode = 1
+		os.Exit(1)
 	}
 }
 
@@ -31,49 +27,76 @@ func init() {
 	cache = newCache(4)
 }
 
+type ui interface {
+	run(quit chan<- struct{})
+	update()
+	displayMessage(string)
+}
+
 /*func run(quit chan struct{}) {
 	err := app.Run()
 	checkFatalError(err)
 	quit <- struct{}{}
 	wg.Done()
-}
-*/
-
-// TODO: combine with input args
-var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to `file`")
-var memprofile = flag.String("memprofile", "", "write memory profile to `file`")
-var debug = flag.Bool("debug", false, "write debug output to 'dump.log'")
-
-func writeToLogFile(str string) {
-	if *debug {
-		logFile.WriteString(time.Now().Format(time.ANSIC) + str + "\n")
-	}
-}
+}*/
 
 func main() {
-	ticker := time.NewTicker(time.Second)
-	quit := make(chan struct{})
-	update := ticker.C
-	next := make(chan struct{})
-	text := make(chan interface{})
-
+	var cpuprofile, memprofile, link, tag, sort, format string
+	var debug bool
+	flag.StringVar(&link, "u", "", "play media item")
+	flag.StringVar(&link, "url", "", "play media item")
+	flag.StringVar(&tag, "t", "", "tags for tag search")
+	flag.StringVar(&tag, "tag", "", "tags for tag search")
+	flag.StringVar(&sort, "s", "", "sorting method")
+	flag.StringVar(&sort, "sort", "", "sorting method")
+	flag.StringVar(&format, "f", "", "physical format")
+	flag.StringVar(&format, "format", "", "physical format")
+	flag.StringVar(&cpuprofile, "cpuprofile", "", "write cpu profile to `file`")
+	flag.StringVar(&memprofile, "memprofile", "", "write memory profile to `file`")
+	flag.BoolVar(&debug, "debug", false, "write debug output to 'dump.log'")
 	flag.Parse()
 
-	if *debug {
-		var err error
-		logFile, err = os.Create("dump.log")
+	ticker := time.NewTicker(time.Second)
+	update := ticker.C
+	next := make(chan struct{})
+	quit := make(chan struct{})
+	message := make(chan interface{})
+
+	var logger debugLogger
+
+	if debug {
+		err := logger.initialize()
 		checkFatalError(err)
 	}
 
-	if *cpuprofile != "" {
-		file, err := os.Create(*cpuprofile)
+	if cpuprofile != "" {
+		file, err := os.Create(cpuprofile)
 		checkFatalError(err)
 		defer file.Close()
 		err = pprof.StartCPUProfile(file)
 		checkFatalError(err)
 	}
 
-	player = newBeepPlayer(text, next)
+	if mediaURL, ok := isValidURL(link); ok {
+		wg.Add(1)
+		go processMediaPage(mediaURL, message)
+	}
+
+	if tag != "" {
+		sort = filterSort(sort)
+		format = filterFormat(format)
+
+		wg.Add(1)
+		go processTagPage(&arguments{
+			tags:   strings.Fields(tag),
+			sort:   sort,
+			format: format,
+		}, message)
+
+	}
+
+	player = newBeepPlayer(message, next)
+	userInterface := newHeadless()
 
 	// TODO: test if needed anymore
 	// window.recalculateBounds()
@@ -86,15 +109,15 @@ func main() {
 	// for now, let them finish gracefully
 
 	// wg.Add(1)
-	// go run(quit)
+	go userInterface.run(quit)
 
 loop:
 	for {
 		select {
 
 		case <-quit:
-			writeToLogFile("[ext]: main loop exit")
-			log.Println("[ext]: main loop exit")
+			logger.writeToLogFile("[ext]: main loop exit")
+			log.Println("\x1b[32m[ext]:\x1b[0m main loop exit")
 			break loop
 
 		case <-update:
@@ -102,23 +125,29 @@ loop:
 			// TODO: consider switching event sending
 			// to app and defining app as interface
 			// window.sendEvent(&eventUpdate{})
-			log.Println("[dbg]: update")
+			// log.Println("[upd]: update")
+			// logger.writeToLogFile("[upd]: update")
+			userInterface.update()
 
-		case text := <-text:
+		case text := <-message:
 			switch text := text.(type) {
 
 			case string:
-				writeToLogFile("[dbg]: " + text)
-				log.Println("[dbg]: " + text)
+				logger.writeToLogFile("[dbg]: " + text)
+				if debug {
+					userInterface.displayMessage("\x1b[33m[dbg]:\x1b[0m " + text)
+				}
 
 			case error:
-				writeToLogFile("[err]: " + text.Error())
+				logger.writeToLogFile("[err]: " + text.Error())
 				// window.sendEvent(newErrorMessage(text))
-				log.Println("[err]: " + text.Error())
+				// log.Println("[err]: " + text.Error())
+				userInterface.displayMessage("\x1b[31m[err]\x1b[0m: " + text.Error())
 
-			case info:
-				writeToLogFile("[msg]: " + text.String())
-				log.Println("[err]: " + text.String())
+			case *info:
+				logger.writeToLogFile("[msg]: " + text.String())
+				// log.Println("[msg]: " + text.String())
+				userInterface.displayMessage("\x1b[36m[msg]:\x1b[0m " + text.String())
 			}
 
 		case <-next:
@@ -130,29 +159,27 @@ loop:
 		}
 	}
 
+	close(message)
 	ticker.Stop()
 	wg.Wait()
 
-	if *debug {
-		writeToLogFile("[ext]: closing debug file")
-		err := logFile.Close()
-		if err != nil {
-			exitCode = 1
-		}
+	if debug {
+		// logger.writeToLogFile("[ext]: closing debug file")
+		logger.finalize()
 	}
 
-	if *cpuprofile != "" {
+	if cpuprofile != "" {
 		pprof.StopCPUProfile()
 	}
 
-	if *memprofile != "" {
-		file, err := os.Create(*memprofile)
+	if memprofile != "" {
+		file, err := os.Create(memprofile)
 		checkFatalError(err)
-		defer file.Close()
 		runtime.GC()
 		err = pprof.WriteHeapProfile(file)
 		checkFatalError(err)
+		file.Close()
 	}
 
-	os.Exit(exitCode)
+	os.Exit(0)
 }

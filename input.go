@@ -1,5 +1,10 @@
 package main
 
+import (
+	"net/url"
+	"strings"
+)
+
 /*import (
 	"fmt"
 	"strings"
@@ -122,6 +127,31 @@ type arguments struct {
 	sort     string
 	format   string
 	flag     int
+}
+
+func isValidURL(input string) (string, bool) {
+	u, err := url.Parse(input)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		if !strings.HasSuffix(u.Path, ".com") {
+			return "", false
+		}
+		u.Scheme = "https"
+	}
+	return u.String(), true
+}
+
+func filterSort(sort string) string {
+	if sort != "random" && sort != "date" && sort != "highlights" {
+		sort = ""
+	}
+	return sort
+}
+
+func filterFormat(format string) string {
+	if format != "cd" && format != "cassette" && format != "vinyl" {
+		format = ""
+	}
+	return format
 }
 
 /*

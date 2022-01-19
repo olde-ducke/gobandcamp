@@ -37,7 +37,7 @@ func newInfoMessage(text string) *info {
 // TODO: cancel response body readings for unfinished tracks
 // will solve a lot of problems
 // TODO: maybe it is a good idea to check domain everytime, just in case?
-func download(link string, mobile bool, checkDomain bool) (io.ReadCloser, string, error) {
+func download(link string, mobile, checkDomain bool) (io.ReadCloser, string, error) {
 	request, err := http.NewRequest("GET", link, nil)
 	if err != nil {
 		return nil, "", err
@@ -94,8 +94,8 @@ func processMediaPage(link string, message chan<- interface{}) {
 
 	scanner := bufio.NewScanner(reader)
 	// NOTE: might fail here
-	// 64k is not enough for all pages apparently
-	// failed on a page with 43 tracks
+	// ~~64~~128k is not enough for all pages apparently
+	// failed on a page with ~~43~~ 105 tracks
 	var buffer []byte
 	scanner.Buffer(buffer, 131072)
 	var metaDataJSON string
@@ -253,7 +253,9 @@ func processTagPage(args *arguments, message chan<- interface{}) {
 		fmt.Fprint(&sbuilder, "&f=", args.format)
 	}
 
-	reader, _, err := download(sbuilder.String(), false, true)
+	url := sbuilder.String()
+	message <- url
+	reader, _, err := download(url, false, true)
 	if err != nil {
 		message <- err
 		return
@@ -328,17 +330,17 @@ func getAdditionalResults(result *Result, message chan<- interface{}) {
 		"https://bandcamp.com/api/hub/2/dig_deeper", buffer)
 	if err != nil {
 		// window.sendEvent(newAdditionalTagSearch(nil))
-		message <- "empty search results must be sent, but alas"
+		message <- "empty search results must be sent, but alas (should they?)"
 		message <- err
 		return
 	}
 	// pretend that we are Chrome on Win10
-	request.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 12_0_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/95.0.4638.69 Safari/537.36")
+	request.Header.Set("User-Agent", userAgent)
 
 	response, err := client.Do(request)
 	if err != nil {
 		// window.sendEvent(newAdditionalTagSearch(nil))
-		message <- "empty search results must be sent, but alas"
+		message <- "empty search results must be sent, but alas (should they?)"
 		message <- err
 		return
 	}
