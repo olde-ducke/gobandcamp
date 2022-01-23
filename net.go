@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"image"
@@ -13,15 +14,19 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/net/html"
 )
 
 const userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/97.0.4692.71 Safari/537.36"
+const chunkSize = 2048
 
 var originError = errors.New("response came not from bandcamp.com")
 var unexpectedError = errors.New("unexpected page format")
 
 var client = http.Client{Timeout: 120 * time.Second}
 
+// TODO: remove
 type info struct {
 	s string
 }
@@ -33,6 +38,229 @@ func (i *info) String() string {
 func newInfoMessage(text string) *info {
 	return &info{text}
 }
+
+// ############
+
+type options struct {
+	ctx    context.Context
+	url    string
+	method string
+	body   io.Reader
+	// headers map[string]string
+}
+
+func makeRequest(ops *options, f func(*http.Response, error) error) error {
+	request, err := http.NewRequest(ops.method, ops.url, ops.body)
+	if err != nil {
+		return err
+	}
+
+	// request.Header.Set("Cookie", "mvp=p")
+	// TODO: set cookie properly and not directly as header?
+	// but not sure what's the point doing it that way, header
+	// itself has only value, and setting to mobile view
+	// is situational, since it breaks tag searching
+	// at least in highlights, which are not accessible
+	// through api, regular search on mobile is also
+	// different though
+	// Domain: can be .bandcamp.com or whatever it
+	// actually is
+	// HostOnly: false
+	// HttpOnly: false
+	// Path: /
+	// SameSite: Lax
+	// Secure: false
+	// maxage = 90 days
+	// TODO: make proper chrome-like headers? there's
+	// absolutely no point in setting only user-agent,
+	// either properly mimic chrome, or do nothing at all
+
+	ch := make(chan error, 1)
+	request = request.WithContext(ops.ctx)
+	go func() { ch <- f(client.Do(request)) }()
+	select {
+	case <-ops.ctx.Done():
+		<-ch
+		return ops.ctx.Err()
+	case err := <-ch:
+		return err
+	}
+}
+
+func processmediapage(ctx context.Context, link string, dbg, msg func(string)) (string, error) {
+	dbg(link)
+	msg("fetching")
+	ops := options{
+		ctx:    ctx,
+		url:    link,
+		method: "GET",
+	}
+	err := makeRequest(&ops, func(response *http.Response, err error) error {
+		if err != nil {
+			return err
+		}
+		defer response.Body.Close()
+
+		if response.StatusCode > 200 {
+			return errors.New(response.Status)
+		}
+		msg(response.Status)
+
+		contentType := response.Header.Get("Content-Type")
+		dbg(contentType)
+
+		doc, err := html.Parse(response.Body)
+		if err != nil {
+			return err
+		}
+
+		inf, _ := getAttrVal(doc, "meta", "name")
+		dbg(inf)
+		inf, _ = getValByAttr(doc, &html.Attribute{
+			Key: "property",
+			Val: "og:type",
+		}, "meta", "content")
+		dbg(inf)
+		return nil
+	})
+
+	return "test", err
+
+}
+
+func getAttr(node *html.Node, attr string) (string, bool) {
+	for _, a := range node.Attr {
+		if a.Key == attr {
+			return a.Val, true
+		}
+	}
+	return "", false
+}
+
+func getAttrVal(node *html.Node, tag, attr string) (string, bool) {
+	if node.Type == html.ElementNode && node.Data == tag {
+		if val, ok := getAttr(node, attr); ok {
+			return val, ok
+		}
+
+	}
+
+	for child := node.FirstChild; child != nil; child = child.NextSibling {
+		if val, ok := getAttrVal(child, tag, attr); ok {
+			return val, ok
+		}
+	}
+
+	return "", false
+}
+
+func getValByAttr(node *html.Node, attr *html.Attribute, tag, target string) (string, bool) {
+	if node.Type == html.ElementNode && node.Data == tag {
+		if hasAttr(node, attr) {
+			return getAttrVal(node, tag, target)
+		}
+	}
+
+	for child := node.FirstChild; child != nil; child = child.NextSibling {
+		if val, ok := getValByAttr(child, attr, tag, target); ok {
+			return val, ok
+		}
+	}
+
+	return "", false
+}
+
+func hasAttr(node *html.Node, attr *html.Attribute) bool {
+	if node.Type == html.ElementNode {
+		val, ok := getAttr(node, attr.Key)
+		if ok && val == attr.Val {
+			return true
+		}
+	}
+	return false
+}
+
+func downloadmedia(ctx context.Context, link string, dbg, msg func(string)) (string, error) {
+	dbg(link)
+	msg("fetching")
+	ops := options{
+		ctx:    ctx,
+		url:    link,
+		method: "GET",
+	}
+	err := makeRequest(&ops, func(response *http.Response, err error) error {
+		if err != nil {
+			return err
+		}
+		defer response.Body.Close()
+
+		if response.StatusCode > 200 {
+			return errors.New(response.Status)
+		}
+		msg(response.Status)
+
+		lengthValue := response.Header.Get("Content-Length")
+		length, err := strconv.Atoi(lengthValue)
+		if err != nil {
+			dbg(err.Error())
+		}
+
+		body, err := readAll(response.Body, length)
+		if err != nil {
+			return err
+		}
+
+		if length > 0 && len(body) != cap(body) {
+			dbg("wrong Content-Length value")
+		}
+		return nil
+	})
+	return "test", err
+}
+
+// same as io.ReadAll, but won't allocate new memory if size
+// is known beforehand, if size is off by few bytes, will
+// allocate a lot more than actually needed, since it tries
+// to fit everything in allocated space first, and allocates
+// new space only if read fails and EOF is not reached,
+// Content-Size should not be wrong, but as google search
+// results say, there were instances of it being wrong,
+// won't work with files (since they aren't null-terminated?)
+func readAll(src io.Reader, size int) ([]byte, error) {
+	var (
+		newPos, n int
+		err       error
+	)
+	allocSize := chunkSize
+	if size > 0 {
+		allocSize = size
+	}
+	buf := make([]byte, 0, allocSize)
+
+	for err == nil {
+		// should not happen
+		if len(buf) == cap(buf) && n == 0 {
+			buf = append(buf, 0)[:len(buf)]
+		}
+
+		newPos = len(buf) + chunkSize
+		if newPos > cap(buf) {
+			newPos = cap(buf)
+		}
+
+		n, err = src.Read(buf[len(buf):newPos])
+		buf = buf[:len(buf)+n]
+	}
+
+	if err == io.EOF {
+		err = nil
+	}
+
+	return buf, err
+
+}
+
+// ### remove
 
 // TODO: cancel response body readings for unfinished tracks
 // will solve a lot of problems

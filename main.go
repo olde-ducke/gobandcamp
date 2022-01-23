@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -54,6 +55,7 @@ func main() {
 	flag.StringVar(&cpuprofile, "cpuprofile", "", "write cpu profile to `file`")
 	flag.StringVar(&memprofile, "memprofile", "", "write memory profile to `file`")
 	flag.BoolVar(&debug, "debug", false, "write debug output to 'dump.log'")
+	flag.BoolVar(&debug, "tryhttp", true, "try http requests if https fails")
 	flag.Parse()
 
 	ticker := time.NewTicker(time.Second)
@@ -98,6 +100,21 @@ func main() {
 	player = newBeepPlayer(message, next)
 	userInterface := newHeadless()
 
+	//########################
+	// throw away
+	go func() {
+		ctx, _ := context.WithCancel(context.Background())
+		link = "https://example.com"
+		result, err := processmediapage(ctx, link, func(dbg string) { message <- dbg },
+			func(msg string) { message <- "album art 1 " + msg })
+		if err != nil {
+			message <- err
+		} else {
+			message <- result
+		}
+	}()
+	//##############################
+
 	// TODO: test if needed anymore
 	// window.recalculateBounds()
 
@@ -108,7 +125,6 @@ func main() {
 	// TODO: remove wg.Add() from downloaders
 	// for now, let them finish gracefully
 
-	// wg.Add(1)
 	go userInterface.run(quit)
 
 loop:

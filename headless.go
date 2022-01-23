@@ -16,7 +16,7 @@ func (h *headless) run(quit chan<- struct{}) {
 	h.wg.Add(1)
 	go h.start()
 	h.wg.Wait()
-	quit <- struct{}{}
+	defer func() { quit <- struct{}{} }()
 }
 
 func (h *headless) update() {
@@ -28,9 +28,8 @@ func (h *headless) displayMessage(message string) {
 }
 
 func (h *headless) start() {
-
-	scanner := bufio.NewScanner(os.Stdin)
 	var input string
+	scanner := bufio.NewScanner(os.Stdin)
 loop:
 	for scanner.Scan() {
 		input = scanner.Text()
@@ -38,6 +37,10 @@ loop:
 		case "q":
 			break loop
 		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		fmt.Println(err)
 	}
 	h.wg.Done()
 }
