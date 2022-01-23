@@ -106,6 +106,13 @@ func processmediapage(ctx context.Context, link string, dbg, msg func(string)) (
 		}
 		msg(response.Status)
 
+		// check canonical name in response header
+		// must be artist.bandcamp.com
+		canonical := response.Header.Get("link")
+		if !strings.Contains(canonical, "bandcamp.com") {
+			return originError
+		}
+
 		contentType := response.Header.Get("Content-Type")
 		dbg(contentType)
 
@@ -114,13 +121,49 @@ func processmediapage(ctx context.Context, link string, dbg, msg func(string)) (
 			return err
 		}
 
-		inf, _ := getAttrVal(doc, "meta", "name")
-		dbg(inf)
-		inf, _ = getValByAttr(doc, &html.Attribute{
+		mediadata, ok := getAttrVal(doc, "script", "data-tralbum")
+		if !ok {
+			dbg("failed to parse mediadata")
+			return unexpectedError
+		}
+
+		metadata, ok := getTextByAttr(doc, &html.Attribute{
+			Key: "type",
+			Val: "application/ld+json",
+		}, "script")
+		if !ok {
+			return unexpectedError
+		}
+
+		itemType, ok := getValByAttr(doc, &html.Attribute{
 			Key: "property",
 			Val: "og:type",
 		}, "meta", "content")
-		dbg(inf)
+		dbg(itemType)
+		if !ok {
+			return unexpectedError
+		}
+
+		var isAlbum bool
+		switch itemType {
+		case "album":
+			isAlbum = true
+			msg("found album data")
+		case "song":
+			isAlbum = false
+			msg("found track data")
+		default:
+			// TODO: parse albums/tracks from discography page
+			return unexpectedError
+		}
+
+		result, err := parseTrAlbumJSON(metadata, mediadata, isAlbum)
+		if err != nil {
+			return err
+		}
+		dbg(fmt.Sprint(result))
+		dbg(mediadata)
+
 		return nil
 	})
 
@@ -142,7 +185,6 @@ func getAttrVal(node *html.Node, tag, attr string) (string, bool) {
 		if val, ok := getAttr(node, attr); ok {
 			return val, ok
 		}
-
 	}
 
 	for child := node.FirstChild; child != nil; child = child.NextSibling {
@@ -178,6 +220,26 @@ func hasAttr(node *html.Node, attr *html.Attribute) bool {
 		}
 	}
 	return false
+}
+
+func getTextByAttr(node *html.Node, attr *html.Attribute, tag string) (string, bool) {
+	if node.Type == html.ElementNode && node.Data == tag {
+		if hasAttr(node, attr) {
+			if child := node.FirstChild; child != nil {
+				if child.Type == html.TextNode {
+					return child.Data, true
+				}
+			}
+		}
+	}
+
+	for child := node.FirstChild; child != nil; child = child.NextSibling {
+		if val, ok := getTextByAttr(child, attr, tag); ok {
+			return val, ok
+		}
+	}
+
+	return "", false
 }
 
 func downloadmedia(ctx context.Context, link string, dbg, msg func(string)) (string, error) {

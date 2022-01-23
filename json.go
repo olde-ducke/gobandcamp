@@ -270,7 +270,7 @@ func parseTagSearchJSON(dataBlobJSON string, highlights bool) (*Result, error) {
 	}
 
 	if index > len(dataBlob.Hubs.Tabs)-1 {
-		return nil, errors.New("tag page JSON parser: ./json.go:265: tab index out of range")
+		return nil, errors.New("tag page JSON parser: ./json.go:272: tab index out of range")
 	}
 
 	key := dataBlob.Hubs.Tabs[index].DigDeeper.InitialSettings
