@@ -113,34 +113,21 @@ func processmediapage(ctx context.Context, link string, dbg, msg func(string)) (
 			return originError
 		}
 
-		contentType := response.Header.Get("Content-Type")
-		dbg(contentType)
+		// contentType := response.Header.Get("Content-Type")
+		// dbg(contentType)
 
 		doc, err := html.Parse(response.Body)
 		if err != nil {
 			return err
 		}
 
-		mediadata, ok := getAttrVal(doc, "script", "data-tralbum")
-		if !ok {
-			dbg("failed to parse mediadata")
-			return unexpectedError
-		}
-
-		metadata, ok := getTextByAttr(doc, &html.Attribute{
-			Key: "type",
-			Val: "application/ld+json",
-		}, "script")
-		if !ok {
-			return unexpectedError
-		}
-
-		itemType, ok := getValByAttr(doc, &html.Attribute{
+		itemType, ok := getValWithAttr(doc, &html.Attribute{
 			Key: "property",
 			Val: "og:type",
 		}, "meta", "content")
 		dbg(itemType)
 		if !ok {
+			dbg("failed to parse page type")
 			return unexpectedError
 		}
 
@@ -152,8 +139,32 @@ func processmediapage(ctx context.Context, link string, dbg, msg func(string)) (
 		case "song":
 			isAlbum = false
 			msg("found track data")
+		case "band":
+			msg("found discography?")
+			dbg(fmt.Sprint(getValues(doc, &html.Attribute{
+				Key: "id",
+				Val: "music-grid",
+			}, "ol", "a", "href")))
+			return unexpectedError
 		default:
 			// TODO: parse albums/tracks from discography page
+			return unexpectedError
+		}
+
+		mediadata, ok := getValWithAttr(doc, &html.Attribute{
+			Key: "type",
+			Val: "text/javascript",
+		}, "script", "data-tralbum")
+		if !ok {
+			dbg("failed to parse mediadata")
+			return unexpectedError
+		}
+
+		metadata, ok := getTextWithAttr(doc, &html.Attribute{
+			Key: "type",
+			Val: "application/ld+json",
+		}, "script")
+		if !ok {
 			return unexpectedError
 		}
 
@@ -171,50 +182,20 @@ func processmediapage(ctx context.Context, link string, dbg, msg func(string)) (
 
 }
 
-func getAttr(node *html.Node, attr string) (string, bool) {
+// FIXME: might be not very effective
+// write similar with tokenizer and compare?
+func getAttrVal(node *html.Node, attrKey string) (string, bool) {
 	for _, a := range node.Attr {
-		if a.Key == attr {
+		if a.Key == attrKey {
 			return a.Val, true
 		}
 	}
 	return "", false
 }
 
-func getAttrVal(node *html.Node, tag, attr string) (string, bool) {
-	if node.Type == html.ElementNode && node.Data == tag {
-		if val, ok := getAttr(node, attr); ok {
-			return val, ok
-		}
-	}
-
-	for child := node.FirstChild; child != nil; child = child.NextSibling {
-		if val, ok := getAttrVal(child, tag, attr); ok {
-			return val, ok
-		}
-	}
-
-	return "", false
-}
-
-func getValByAttr(node *html.Node, attr *html.Attribute, tag, target string) (string, bool) {
-	if node.Type == html.ElementNode && node.Data == tag {
-		if hasAttr(node, attr) {
-			return getAttrVal(node, tag, target)
-		}
-	}
-
-	for child := node.FirstChild; child != nil; child = child.NextSibling {
-		if val, ok := getValByAttr(child, attr, tag, target); ok {
-			return val, ok
-		}
-	}
-
-	return "", false
-}
-
 func hasAttr(node *html.Node, attr *html.Attribute) bool {
 	if node.Type == html.ElementNode {
-		val, ok := getAttr(node, attr.Key)
+		val, ok := getAttrVal(node, attr.Key)
 		if ok && val == attr.Val {
 			return true
 		}
@@ -222,7 +203,72 @@ func hasAttr(node *html.Node, attr *html.Attribute) bool {
 	return false
 }
 
-func getTextByAttr(node *html.Node, attr *html.Attribute, tag string) (string, bool) {
+// returns first encountered node with tag and attribute
+func getNodeWithAttr(node *html.Node, attr *html.Attribute, tag string) (*html.Node, bool) {
+	if node.Type == html.ElementNode && node.Data == tag {
+		if hasAttr(node, attr) {
+			return node, true
+		}
+	}
+
+	for child := node.FirstChild; child != nil; child = child.NextSibling {
+		if result, ok := getNodeWithAttr(child, attr, tag); ok {
+			return result, ok
+		}
+	}
+
+	return nil, false
+}
+
+// returns first encountered node with tag
+func getNodeWithTag(node *html.Node, tag string) (*html.Node, bool) {
+	if node.Type == html.ElementNode && node.Data == tag {
+		return node, true
+	}
+
+	for child := node.FirstChild; child != nil; child = child.NextSibling {
+		if result, ok := getNodeWithTag(child, tag); ok {
+			return result, ok
+		}
+	}
+
+	return nil, false
+}
+
+func getValues(node *html.Node, attr *html.Attribute, parentTag, tag, key string) []string {
+	node, ok := getNodeWithAttr(node, attr, parentTag)
+	if !ok {
+		return nil
+	}
+
+	var result []string
+	for child := node.FirstChild; child != nil; child = child.NextSibling {
+		if next, ok := getNodeWithTag(child, tag); ok {
+			if val, ok := getAttrVal(next, key); ok {
+				result = append(result, val)
+			}
+		}
+	}
+	return result
+}
+
+func getValWithAttr(node *html.Node, attr *html.Attribute, tag, target string) (string, bool) {
+	if node.Type == html.ElementNode && node.Data == tag {
+		if hasAttr(node, attr) {
+			return getAttrVal(node, target)
+		}
+	}
+
+	for child := node.FirstChild; child != nil; child = child.NextSibling {
+		if val, ok := getValWithAttr(child, attr, tag, target); ok {
+			return val, ok
+		}
+	}
+
+	return "", false
+}
+
+func getTextWithAttr(node *html.Node, attr *html.Attribute, tag string) (string, bool) {
 	if node.Type == html.ElementNode && node.Data == tag {
 		if hasAttr(node, attr) {
 			if child := node.FirstChild; child != nil {
@@ -234,7 +280,7 @@ func getTextByAttr(node *html.Node, attr *html.Attribute, tag string) (string, b
 	}
 
 	for child := node.FirstChild; child != nil; child = child.NextSibling {
-		if val, ok := getTextByAttr(child, attr, tag); ok {
+		if val, ok := getTextWithAttr(child, attr, tag); ok {
 			return val, ok
 		}
 	}

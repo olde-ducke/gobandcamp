@@ -104,7 +104,7 @@ func main() {
 	// throw away
 	go func() {
 		ctx, _ := context.WithCancel(context.Background())
-		link = "https://example.com"
+		link = "https://modestmouse.bandcamp.com"
 		result, err := processmediapage(ctx, link, func(dbg string) { message <- dbg },
 			func(msg string) { message <- "album art 1 " + msg })
 		if err != nil {

@@ -223,9 +223,10 @@ type Results struct {
 }
 
 type Result struct {
-	page          int
-	filters       string
-	waiting       bool
+	// TODO: remove first three
+	page          int          `json:"-"`
+	filters       string       `json:"-"`
+	waiting       bool         `json:"-"`
 	MoreAvailable bool         `json:"more_available"`
 	Items         []SearchItem `json:"items"`
 }
