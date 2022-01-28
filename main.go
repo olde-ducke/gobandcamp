@@ -8,18 +8,16 @@ import (
 	"os"
 	"runtime"
 	"runtime/pprof"
-	"strings"
 	"sync"
 	"time"
 )
 
 var cache *FIFO
 var player *beepPlayer
-var wg sync.WaitGroup
 
 func checkFatalError(err error) {
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		log.Fatal(err)
 		os.Exit(1)
 	}
 }
@@ -31,7 +29,7 @@ func init() {
 type ui interface {
 	run(quit chan<- struct{})
 	update()
-	displayMessage(string)
+	displayMessage(*message)
 }
 
 /*func run(quit chan struct{}) {
@@ -41,9 +39,62 @@ type ui interface {
 	wg.Done()
 }*/
 
+// TODO: move to different file
+const formatString = "%s [%s]: %s%s\n"
+
+type messageType int
+
+const (
+	debugMessage messageType = iota
+	errorMessage
+	textMessage
+)
+
+var types = [3]string{"dbg", "err", "msg"}
+
+func (t messageType) String() string {
+	return types[t]
+}
+
+type message struct {
+	Prefix string
+
+	msgType   messageType
+	text      string
+	timestamp time.Time
+}
+
+func (msg *message) When() time.Time {
+	return msg.timestamp
+}
+
+func (msg *message) Type() messageType {
+	return msg.msgType
+}
+
+func (msg *message) String() string {
+	return fmt.Sprintf(formatString, msg.timestamp.Format(time.ANSIC),
+		msg.msgType, msg.Prefix, msg.text)
+}
+
+func (msg *message) Text() string {
+	return msg.Prefix + msg.text
+}
+
+func newMessage(t messageType, str string) *message {
+	return &message{
+		msgType:   t,
+		text:      str,
+		timestamp: time.Now(),
+	}
+}
+
+// ***************************
+
 func main() {
 	var cpuprofile, memprofile, link, tag, sort, format string
-	var debug bool
+	var debug, tryhttp bool
+
 	flag.StringVar(&link, "u", "", "play media item")
 	flag.StringVar(&link, "url", "", "play media item")
 	flag.StringVar(&tag, "t", "", "tags for tag search")
@@ -55,20 +106,42 @@ func main() {
 	flag.StringVar(&cpuprofile, "cpuprofile", "", "write cpu profile to `file`")
 	flag.StringVar(&memprofile, "memprofile", "", "write memory profile to `file`")
 	flag.BoolVar(&debug, "debug", false, "write debug output to 'dump.log'")
-	flag.BoolVar(&debug, "tryhttp", true, "try http requests if https fails")
+	flag.BoolVar(&tryhttp, "tryhttp", true, "try http requests if https fails")
 	flag.Parse()
 
 	ticker := time.NewTicker(time.Second)
 	update := ticker.C
 	next := make(chan struct{})
 	quit := make(chan struct{})
-	message := make(chan interface{})
+	finish := make(chan struct{})
+	text := make(chan *message)
 
-	var logger debugLogger
+	var quitting bool
+	var wg sync.WaitGroup
+	var logFile *os.File
+	var err error
+	var dbg func(string)
 
+	// open file to write logs if needed and create
+	// debug logging function, if debug is set to false
+	// dbg function is empty and won't fill queue with
+	// messages
 	if debug {
-		err := logger.initialize()
+		logFile, err = os.Create("dump.log")
 		checkFatalError(err)
+
+		dbg = func(str string) {
+			msg := newMessage(debugMessage, str)
+			// NOTE: new goroutines will be started within goroutines
+			// might break something
+			wg.Add(1)
+			go func() {
+				text <- msg
+				defer wg.Done()
+			}()
+		}
+	} else {
+		dbg = func(msg string) {}
 	}
 
 	if cpuprofile != "" {
@@ -79,38 +152,56 @@ func main() {
 		checkFatalError(err)
 	}
 
-	if mediaURL, ok := isValidURL(link); ok {
-		wg.Add(1)
-		go processMediaPage(mediaURL, message)
-	}
+	// if mediaURL, ok := isValidURL(link); ok {
+	// wg.Add(1)
+	// go processMediaPage(mediaURL, text)
+	// }
 
 	if tag != "" {
-		sort = filterSort(sort)
-		format = filterFormat(format)
+		/*
+			sort = filterSort(sort)
+			format = filterFormat(format)
 
-		wg.Add(1)
-		go processTagPage(&arguments{
-			tags:   strings.Fields(tag),
-			sort:   sort,
-			format: format,
-		}, message)
-
+			wg.Add(1)
+			go processTagPage(&arguments{
+				tags:   strings.Fields(tag),
+				sort:   sort,
+				format: format,
+			}, text)
+		*/
 	}
 
-	player = newBeepPlayer(message, next)
+	player = newBeepPlayer(dbg, next)
 	userInterface := newHeadless()
 
 	//########################
 	// throw away
+
+	prefix := "prefix "
+	ctx, cancel := context.WithCancel(context.Background())
+
+	wg.Add(1)
 	go func() {
-		ctx, _ := context.WithCancel(context.Background())
+		defer wg.Done()
 		link = "https://modestmouse.bandcamp.com"
-		result, err := processmediapage(ctx, link, func(dbg string) { message <- dbg },
-			func(msg string) { message <- "album art 1 " + msg })
+		result, err := processmediapage(ctx, link, dbg,
+			func(str string) {
+				msg := newMessage(textMessage, str)
+				msg.Prefix = prefix
+				// do not wait for other end, send and forget
+				wg.Add(1)
+				go func() {
+					text <- msg
+					defer wg.Done()
+				}()
+			})
 		if err != nil {
-			message <- err
+			msg := newMessage(errorMessage, err.Error())
+			text <- msg
 		} else {
-			message <- result
+			msg := newMessage(textMessage, result)
+			msg.Prefix = prefix
+			text <- msg
 		}
 	}()
 	//##############################
@@ -132,8 +223,21 @@ loop:
 		select {
 
 		case <-quit:
-			logger.writeToLogFile("[ext]: main loop exit")
-			log.Println("\x1b[32m[ext]:\x1b[0m main loop exit")
+			if quitting {
+				continue
+			}
+			dbg("got signal to finish")
+			quitting = true
+			ticker.Stop()
+			cancel()
+
+			// wait for other goroutines and send final signal
+			go func() {
+				wg.Wait()
+				defer close(finish)
+			}()
+
+		case <-finish:
 			break loop
 
 		case <-update:
@@ -141,33 +245,16 @@ loop:
 			// TODO: consider switching event sending
 			// to app and defining app as interface
 			// window.sendEvent(&eventUpdate{})
-			// log.Println("[upd]: update")
 			// logger.writeToLogFile("[upd]: update")
 			userInterface.update()
 
-		case text := <-message:
-			switch text := text.(type) {
-
-			case string:
-				logger.writeToLogFile("[dbg]: " + text)
-				if debug {
-					userInterface.displayMessage("\x1b[33m[dbg]:\x1b[0m " + text)
-				}
-
-			case error:
-				logger.writeToLogFile("[err]: " + text.Error())
-				// window.sendEvent(newErrorMessage(text))
-				// log.Println("[err]: " + text.Error())
-				userInterface.displayMessage("\x1b[31m[err]\x1b[0m: " + text.Error())
-
-			case *info:
-				logger.writeToLogFile("[msg]: " + text.String())
-				// log.Println("[msg]: " + text.String())
-				userInterface.displayMessage("\x1b[36m[msg]:\x1b[0m " + text.String())
+		case msg := <-text:
+			userInterface.displayMessage(msg)
+			if logFile != nil {
+				logFile.WriteString(msg.String())
 			}
 
 		case <-next:
-			// window.sendEvent(&eventNextTrack{})
 			log.Println("next")
 
 		default:
@@ -175,13 +262,8 @@ loop:
 		}
 	}
 
-	close(message)
-	ticker.Stop()
-	wg.Wait()
-
 	if debug {
-		// logger.writeToLogFile("[ext]: closing debug file")
-		logger.finalize()
+		logFile.Close()
 	}
 
 	if cpuprofile != "" {

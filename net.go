@@ -1,14 +1,9 @@
 package main
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"image"
-	"image/jpeg"
-	"image/png"
 	"io"
 	"net/http"
 	"strconv"
@@ -369,7 +364,7 @@ func readAll(src io.Reader, size int) ([]byte, error) {
 }
 
 // ### remove
-
+/*
 // TODO: cancel response body readings for unfinished tracks
 // will solve a lot of problems
 // TODO: maybe it is a good idea to check domain everytime, just in case?
@@ -559,7 +554,7 @@ func downloadCover(link string, message chan<- interface{}) {
 	message <- "here album cover should be sent, but alas"
 }
 
-func processTagPage(args *arguments, message chan<- interface{}) {
+/*func processTagPage(args *arguments, message chan<- interface{}) {
 	defer wg.Done()
 	message <- newInfoMessage("fetching tag search page...")
 
@@ -699,3 +694,4 @@ func getAdditionalResults(result *Result, message chan<- interface{}) {
 	// window.sendEvent(newAdditionalTagSearch(additionalResult))
 	message <- "additional search results must be sent, but alas"
 }
+*/

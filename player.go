@@ -21,8 +21,10 @@ const (
 	random
 )
 
+var modes = [4]string{"normal", "repeat", "repeat one", "random"}
+
 func (mode playbackMode) String() string {
-	return [4]string{"normal", "repeat", "repeat one", "random"}[mode]
+	return modes[mode]
 }
 
 type playbackStatus int
@@ -37,17 +39,19 @@ const (
 	skipFWD
 )
 
+var statuses = [7]string{" \u25a1", " \u25b9", "\u25af\u25af",
+	"\u25c3\u25c3", "\u25b9\u25b9", "\u25af\u25c3",
+	"\u25b9\u25af"}
+
 // □ ▹ ▯▯ ◃◃ ▹▹ ▯◃ ▹▯
 // fancy stuff, but doesn't work everywhere
 func (status playbackStatus) String() string {
-	return [7]string{" \u25a1", " \u25b9", "\u25af\u25af",
-		"\u25c3\u25c3", "\u25b9\u25b9", "\u25af\u25c3",
-		"\u25b9\u25af"}[status]
+	return statuses[status]
 }
 
 type beepPlayer struct {
 	currentTrack int
-	totalTracks  int
+	totalTracks  int // TODO: remove
 	stream       *mediaStream
 	format       beep.Format
 	timeStep     time.Duration
@@ -58,13 +62,17 @@ type beepPlayer struct {
 	volume         float64
 	muted          bool
 
-	text chan<- interface{}
+	// for debug reporting
+	dbg func(string)
+
+	// TODO remove
+	// text chan<- interface{}
 	next chan<- struct{}
 }
 
-func newBeepPlayer(text chan<- interface{}, next chan<- struct{}) *beepPlayer {
+func newBeepPlayer(dbg func(string), next chan<- struct{}) *beepPlayer {
 	initializeDevice()
-	return &beepPlayer{timeStep: 2, text: text, next: next}
+	return &beepPlayer{timeStep: 2, dbg: dbg, next: next}
 }
 
 // device initialization
@@ -142,9 +150,9 @@ func (player *beepPlayer) getStatus() playbackStatus {
 	return status
 }
 
-func (player *beepPlayer) seek(forward bool) bool {
+func (player *beepPlayer) seek(forward bool) (bool, error) {
 	if !player.isPlaying() || !player.isPlaying() {
-		return false
+		return false, nil
 	}
 
 	var pos = player.format.SampleRate.N(time.Second * player.timeStep)
@@ -183,20 +191,21 @@ func (player *beepPlayer) seek(forward bool) bool {
 		// above, all other errors just reported on screen, nothing
 		// could be done about them (?)
 		if err.Error() != "mp3: EOF" {
-			player.text <- err
+			return false, err
 		}
 	}
 	speaker.Unlock()
 
-	return true
+	return true, nil
 }
 
+// FIXME: doesn't return error
 func (player *beepPlayer) resetPosition() {
 	if player.isReady() {
-		player.text <- "reset position"
+		player.dbg("reset position")
 		speaker.Lock()
 		if err := player.stream.streamer.Seek(0); err != nil {
-			player.text <- err
+			player.dbg(err.Error())
 		}
 		speaker.Unlock()
 	}
@@ -232,7 +241,7 @@ func (player *beepPlayer) skip(forward bool) bool {
 		return true
 	}
 
-	player.text <- "skip track"
+	player.dbg("skip track")
 	player.stop()
 	player.clearStream()
 
@@ -257,7 +266,7 @@ func (player *beepPlayer) nextMode() {
 }
 
 func (player *beepPlayer) nextTrack() {
-	player.text <- "next track"
+	player.dbg("next track")
 	switch player.playbackMode {
 
 	case random:
@@ -312,7 +321,7 @@ func (player *beepPlayer) delaySwitching() {
 	time.Sleep(time.Second / 2)
 	if track == player.currentTrack {
 		// window.sendEvent(newTrack(player.currentTrack))
-		player.text <- "new track should start playing here"
+		player.dbg("new track should start playing here")
 	}
 }
 
@@ -328,30 +337,30 @@ func (player *beepPlayer) setTrack(track int) {
 	go player.delaySwitching()
 }
 
-func (player *beepPlayer) play(key string) {
+func (player *beepPlayer) play(key string) error {
 	//player.clear()
 	//player.currentTrack = track
 	streamer, format, err := mp3.Decode(wrapInRSC(key))
 	if err != nil {
-		player.text <- err
-		return
+		return err
 	}
 	speaker.Lock()
 	player.format = format
 	player.stream = newStream(format.SampleRate, streamer, player.volume, player.muted)
 	player.status = playing
 	speaker.Unlock()
-	player.text <- "playback started"
+	player.dbg("playback started")
 	// deadlocks if anything speaker related is done inside callback
 	// since it's locking device itself
 	speaker.Play(beep.Seq(player.stream.volume, beep.Callback(
 		func() {
 			player.next <- struct{}{}
 		})))
+	return nil
 }
 
 func (player *beepPlayer) restart() {
-	player.text <- "restart playback"
+	player.dbg("restart playback")
 	speaker.Clear()
 	speaker.Play(beep.Seq(player.stream.volume, beep.Callback(
 		func() {
@@ -362,7 +371,7 @@ func (player *beepPlayer) restart() {
 
 // stop is actually pause with position reset
 func (player *beepPlayer) stop() {
-	player.text <- "playback stopped"
+	player.dbg("playback stopped")
 	player.status = stopped
 	if player.isReady() {
 		player.resetPosition()
@@ -372,8 +381,10 @@ func (player *beepPlayer) stop() {
 	}
 }
 
+// FIXME: doesn't return error, wait, it can't even return error
+// no matter what is happening, since Close always returns nil
 func (player *beepPlayer) clearStream() {
-	player.text <- "clearing buffer"
+	player.dbg("clearing buffer")
 	speaker.Clear()
 	if player.isReady() {
 		speaker.Lock()
@@ -381,7 +392,7 @@ func (player *beepPlayer) clearStream() {
 		player.stream = nil
 		speaker.Unlock()
 		if err != nil {
-			player.text <- err
+			player.dbg(err.Error())
 		}
 	}
 }
