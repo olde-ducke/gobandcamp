@@ -75,11 +75,6 @@ func main() {
 
 	// TODO: test if needed anymore
 	// window.recalculateBounds()
-
-	// FIXME: behaves weird after coming from suspend (high CPU load)
-	// FIXME: device does not reinitialize after suspend
-	// FIXME: takes device to itself, doesn't allow any other program to use it, and can't use it, if device is already being used
-
 	// TODO: remove wg.Add() from downloaders
 	// for now, let them finish gracefully
 	wg.Add(1)
