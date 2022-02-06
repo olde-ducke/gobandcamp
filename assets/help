@@ -72,10 +72,6 @@
   url corrupts if it can't fit screen or truncated from right side
   sometimes fails to parse tag search page (buffer is running out of memory again?)
   cursor acts weird sometimes
- linux:
-  locks sound playback from other sources
-  playback can't initialize if device is being used by something else
-  device can not reinitialize after suspend, high CPU load when that happens
  win:
   flashing screen, not sure what's the problem
   generally less responsive than on linux

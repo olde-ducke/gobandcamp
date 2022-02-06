@@ -300,10 +300,14 @@ func TestGetValues(t *testing.T) {
 
 	var got []string
 	for j := 0; j < 4; j++ {
-		got = getValues(doc, &html.Attribute{
+		node, ok := getNodeWithAttr(doc, &html.Attribute{
 			Key: "id",
 			Val: "ordered list",
-		}, "ol", tags[j], attr[j])
+		}, "ol")
+		if !ok {
+			t.Fatal("\nnode not found, expected node with tag <ol>\n")
+		}
+		got = getValues(node, tags[j], attr[j])
 
 		if len(got) != len(want[j]) {
 			t.Fatalf("\ngot wrong number of results:\nwant: %d\n got: %d", len(want[j]), len(got))

@@ -183,7 +183,7 @@ func main() {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		link = "https://modestmouse.bandcamp.com"
+		link = "https://example.com"
 		result, err := processmediapage(ctx, link, dbg,
 			func(str string) {
 				msg := newMessage(textMessage, str)
@@ -208,13 +208,6 @@ func main() {
 
 	// TODO: test if needed anymore
 	// window.recalculateBounds()
-
-	// FIXME: behaves weird after coming from suspend (high CPU load)
-	// FIXME: device does not reinitialize after suspend
-	// FIXME: takes device to itself, doesn't allow any other program to use it, and can't use it, if device is already being used
-
-	// TODO: remove wg.Add() from downloaders
-	// for now, let them finish gracefully
 
 	go userInterface.run(quit)
 

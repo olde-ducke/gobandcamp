@@ -1,14 +1,14 @@
 package main
 
 import (
-	//"encoding/json"
-
 	"errors"
 	"time"
 
 	json "github.com/json-iterator/go"
-	//"encoding/json"
 )
+
+var timeFormat = "02 Jan 2006 15:04:05 MST"
+var timeZone = time.FixedZone("UTC", 0)
 
 // output types
 type album struct {
@@ -19,6 +19,7 @@ type album struct {
 	title       string
 	artist      string
 	date        time.Time
+	dateErr     error
 	url         string
 	tags        []string
 	totalTracks int
@@ -113,9 +114,6 @@ func parseTrAlbumJSON(metadataJSON, mediaJSON string, isAlbum bool) (*album, err
 
 func extractAlbum(metadata *trAlbum, mediadata *media) (*album, error) {
 	date, err := parseDate(metadata.DatePublished)
-	if err != nil {
-		return nil, err
-	}
 	albumMetadata := &album{
 		// imageSrc:    metadata.Image,
 		album:       true,
@@ -124,6 +122,7 @@ func extractAlbum(metadata *trAlbum, mediadata *media) (*album, error) {
 		title:       metadata.Name,
 		artist:      metadata.ByArtist.Name,
 		date:        date,
+		dateErr:     err,
 		url:         mediadata.URL,
 		tags:        metadata.Tags,
 		totalTracks: metadata.Tracks.NumberOfItems,
@@ -148,9 +147,6 @@ func extractAlbum(metadata *trAlbum, mediadata *media) (*album, error) {
 
 func extractTrack(metadata *trAlbum, mediadata *media) (*album, error) {
 	date, err := parseDate(metadata.DatePublished)
-	if err != nil {
-		return nil, err
-	}
 	albumMetadata := &album{
 		// imageSrc:    metadata.Image,
 		album:       false,
@@ -158,6 +154,7 @@ func extractTrack(metadata *trAlbum, mediadata *media) (*album, error) {
 		title:       metadata.InAlbum.Name,
 		artist:      metadata.ByArtist.Name,
 		date:        date,
+		dateErr:     err,
 		url:         mediadata.URL,
 		tags:        metadata.Tags,
 		totalTracks: 1,
@@ -183,11 +180,11 @@ func extractTrack(metadata *trAlbum, mediadata *media) (*album, error) {
 		return nil, errors.New("not enough data was parsed")
 	}
 
-	return albumMetadata, err
+	return albumMetadata, nil
 }
 
 func parseDate(input string) (time.Time, error) {
-	date, err := time.Parse("02 Jan 2006 15:04:05 MST", input)
+	date, err := time.ParseInLocation(timeFormat, input, timeZone)
 	if err != nil {
 		return date, err
 	}
@@ -271,7 +268,7 @@ func parseTagSearchJSON(dataBlobJSON string, highlights bool) (*Result, error) {
 	}
 
 	if index > len(dataBlob.Hubs.Tabs)-1 {
-		return nil, errors.New("tag page JSON parser: ./json.go:272: tab index out of range")
+		return nil, errors.New("tag page JSON parser: ./json.go:271: tab index out of range")
 	}
 
 	key := dataBlob.Hubs.Tabs[index].DigDeeper.InitialSettings

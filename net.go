@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -21,20 +22,15 @@ var unexpectedError = errors.New("unexpected page format")
 
 var client = http.Client{Timeout: 120 * time.Second}
 
-// TODO: remove
-type info struct {
-	s string
+// cache key = media url without any parameters
+func getTruncatedURL(link string) string {
+	if strings.Contains(link, "?") {
+		index := strings.Index(link, "?")
+		return link[:index]
+	} else {
+		return ""
+	}
 }
-
-func (i *info) String() string {
-	return i.s
-}
-
-func newInfoMessage(text string) *info {
-	return &info{text}
-}
-
-// ############
 
 type options struct {
 	ctx    context.Context
@@ -120,7 +116,6 @@ func processmediapage(ctx context.Context, link string, dbg, msg func(string)) (
 			Key: "property",
 			Val: "og:type",
 		}, "meta", "content")
-		dbg(itemType)
 		if !ok {
 			dbg("failed to parse page type")
 			return unexpectedError
@@ -131,16 +126,33 @@ func processmediapage(ctx context.Context, link string, dbg, msg func(string)) (
 		case "album":
 			isAlbum = true
 			msg("found album data")
+
 		case "song":
 			isAlbum = false
 			msg("found track data")
+
 		case "band":
 			msg("found discography?")
-			dbg(fmt.Sprint(getValues(doc, &html.Attribute{
+			node, ok := getNodeWithAttr(doc, &html.Attribute{
 				Key: "id",
 				Val: "music-grid",
-			}, "ol", "a", "href")))
+			}, "ol")
+			if !ok {
+				return unexpectedError
+			}
+			result := getValues(node, "a", "href")
+			if result != nil {
+				url, err := url.Parse(link)
+				if err != nil {
+					return err
+				}
+				for _, path := range result {
+					url.Path = path
+					go processmediapage(ctx, url.String(), dbg, func(string) {})
+				}
+			}
 			return unexpectedError
+
 		default:
 			// TODO: parse albums/tracks from discography page
 			return unexpectedError
@@ -168,7 +180,7 @@ func processmediapage(ctx context.Context, link string, dbg, msg func(string)) (
 			return err
 		}
 		dbg(fmt.Sprint(result))
-		dbg(mediadata)
+		dbg(strings.ReplaceAll(mediadata, ",", "\n"))
 
 		return nil
 	})
@@ -230,9 +242,14 @@ func getNodeWithTag(node *html.Node, tag string) (*html.Node, bool) {
 	return nil, false
 }
 
-func getValues(node *html.Node, attr *html.Attribute, parentTag, tag, key string) []string {
-	node, ok := getNodeWithAttr(node, attr, parentTag)
-	if !ok {
+// extracts all tag attributes from inner tags
+// FIXME: will return only class1:
+// <div class="class1">
+// 	<div class="class2">
+// 	</div>
+// </div>
+func getValues(node *html.Node, tag, key string) []string {
+	if node.Type != html.ElementNode {
 		return nil
 	}
 
@@ -291,6 +308,7 @@ func downloadmedia(ctx context.Context, link string, dbg, msg func(string)) (str
 		url:    link,
 		method: "GET",
 	}
+	var dataType string
 	err := makeRequest(&ops, func(response *http.Response, err error) error {
 		if err != nil {
 			return err
@@ -308,6 +326,8 @@ func downloadmedia(ctx context.Context, link string, dbg, msg func(string)) (str
 			dbg(err.Error())
 		}
 
+		dataType = response.Header.Get("content-type")
+
 		body, err := readAll(response.Body, length)
 		if err != nil {
 			return err
@@ -318,7 +338,7 @@ func downloadmedia(ctx context.Context, link string, dbg, msg func(string)) (str
 		}
 		return nil
 	})
-	return "test", err
+	return dataType, err
 }
 
 // same as io.ReadAll, but won't allocate new memory if size
@@ -638,16 +658,6 @@ func extractJSON(prefix, line, suffix string) (string, error) {
 	}
 	replacer := strings.NewReplacer(`&quot;`, `"`, `&amp;`, `&`, `&#39;`, `'`)
 	return replacer.Replace(line[start:end]), nil
-}
-
-// cache key = media url without any parameters
-func getTruncatedURL(link string) string {
-	if strings.Contains(link, "?") {
-		index := strings.Index(link, "?")
-		return link[:index]
-	} else {
-		return ""
-	}
 }
 
 func getAdditionalResults(result *Result, message chan<- interface{}) {

@@ -173,10 +173,10 @@ func (player *beepPlayer) seek(forward bool) (bool, error) {
 	}
 
 	if newPos >= player.stream.streamer.Len() {
-		// FIXME: crashes when seeking past ending of the last track
+		// FIXME: crashes when seeking past ending of the last track,
 		// if offset from end to -5, it doesn't crash
 		// crashes only on len -1, -2, -3, -4
-		// -5 - or less fine, 0 - fine, but errors with EOF
+		// -5 - or less fine, 0 - fine, but errors with EOF,
 		// crashes with index out of range in beep sources
 		newPos = player.stream.streamer.Len()
 	}
@@ -396,15 +396,6 @@ func (player *beepPlayer) clearStream() {
 		}
 	}
 }
-
-/*
-func (player *beepPlayer) bufferStatus(newStatus playbackStatus) {
-	if player.status != seekBWD && player.status != seekFWD {
-		player.bufferedStatus = player.status
-		player.status = newStatus
-	}
-}
-*/
 
 func (player *beepPlayer) playPause() bool {
 	if !player.isReady() {

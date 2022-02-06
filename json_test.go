@@ -16,6 +16,7 @@ var wantData = &album{
 	title:       "album_name_test",
 	artist:      "artist_name_test",
 	date:        time.Date(1970, time.January, 1, 0, 0, 0, 0, time.FixedZone("GMT", 0)),
+	dateErr:     nil,
 	url:         "https://gopher.example.com/album/album_name_test",
 	tags:        []string{"gopher", "music", "png"},
 	totalTracks: 3,
@@ -112,6 +113,11 @@ func TestParseAlbumJSONFake(t *testing.T) {
 		t.Errorf(formatStr, "wrong release date", wantData.date, gotData.date)
 	}
 
+	if gotData.dateErr != wantData.dateErr {
+		t.Errorf(formatStr, "parseDate failed with error:", wantData.dateErr,
+			gotData.dateErr)
+	}
+
 	for i, tag := range gotData.tags {
 		if tag != wantData.tags[i] {
 			t.Errorf(formatStr, "wrong tags", wantData.tags, gotData.tags)
@@ -151,14 +157,29 @@ func TestParseAlbumJSONFake(t *testing.T) {
 				"lyrics:\n", gotData.tracks[i].lyrics)
 		}
 
-		// from net.go
-		wantURL := getTruncatedURL(track.url)
-		gotURL := getTruncatedURL(gotData.tracks[i].url)
-		if gotURL != wantURL {
+		if gotData.tracks[i].url != track.url {
 			t.Errorf(formatStrLong, "wrong track url",
-				"track:", track.trackNumber, "\ntruncated url:", wantURL,
-				"track:", gotData.tracks[i].trackNumber, "\ntruncated url:", gotURL)
+				"track:", track.trackNumber, "\ntruncated url:", track.url,
+				"track:", gotData.tracks[i].trackNumber, "\ntruncated url:",
+				gotData.tracks[i].url)
 		}
+	}
+}
+
+func TestParseDate(t *testing.T) {
+	testTime := "02 Jan 2006 15:04:05 UTC"
+	want := time.Date(2006, 1, 02, 8, 04, 05, 0, time.FixedZone("MST", -7*60*60))
+	got, err := parseDate(testTime)
+	if !got.Equal(want) || err != nil {
+		t.Errorf("\nparseDate failed:\nwant: %s, <nil>\n got: %s, %v\n",
+			want, got, err)
+	}
+
+	want = time.Time{}
+	got, err = parseDate("")
+	if !got.Equal(want) || err == nil {
+		t.Errorf("\nparseDate failed:\nwant: %s, <error value>\n got: %s, %v\n",
+			want, got, err)
 	}
 }
 
