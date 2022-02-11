@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"net/url"
 	"time"
 
 	json "github.com/json-iterator/go"
@@ -10,28 +11,52 @@ import (
 var timeFormat = "02 Jan 2006 15:04:05 MST"
 var timeZone = time.FixedZone("UTC", 0)
 
+// FIXME: naming is a mess
+
 // output types
 type album struct {
-	// imageSrc    string
-	album       bool
-	single      bool
-	artID       int
-	title       string
-	artist      string
-	date        time.Time
-	dateErr     error
-	url         string
-	tags        []string
-	totalTracks int
-	tracks      []track
+	id                   int
+	artId                int
+	hasAudio             bool
+	isBonus              bool
+	isPreorder           bool
+	albumIsPreorder      bool
+	hasDiscounts         bool
+	isPrivateStream      bool
+	trAlbumSubscribeOnly bool
+	itemType             string
+	artist               string
+	url                  string
+	freeDownloadPage     string
+	releaseType          string
+	albumReleaseDate     time.Time
+	dateErr              error
+	bandId               int
+	title                string
+	modDate              time.Time
+	tags                 []string
+	totalTracks          int
+	tracks               []track
 }
 
 type track struct {
-	trackNumber int
-	title       string
-	duration    float64
-	lyrics      string
-	url         string
+	trackId         int
+	streaming       int
+	playCount       int
+	isCapped        bool
+	hasLyrics       bool
+	unreleasedTrack bool
+	hasFreeDownload bool
+	albumPreorder   bool
+	private         bool
+	artist          string // for overrides
+	url             string
+	trackNumber     int
+	title           string
+	duration        float64
+	lyrics          string
+	mp3128          string
+	mp3v0           string
 }
 
 type trAlbum struct {
@@ -41,8 +66,8 @@ type trAlbum struct {
 	// Image         string   `json:"image"`         // link to album art
 	Tags        []string `json:"keywords"`    // tags/keywords
 	Tracks      Track    `json:"track"`       // container for track data
-	InAlbum     Album    `json:"inAlbum"`     // album name
-	RecordingOf Lyrics   `json:"recordingOf"` // same as in album json
+	InAlbum     Album    `json:"inAlbum"`     // album name for tracks
+	RecordingOf Lyrics   `json:"recordingOf"` // container for lyrics
 }
 
 type Artist struct {
@@ -55,8 +80,8 @@ type Track struct {
 }
 
 type ListElement struct {
-	Position  int  `json:"position"` // track number
-	TrackInfo Item `json:"item"`     // further container for track data
+	// Position  int  `json:"position"` // track number
+	TrackInfo Item `json:"item"` // further container for track data
 }
 
 type Item struct {
@@ -74,112 +99,221 @@ type Text struct {
 
 type Album struct {
 	Name             string `json:"name"`             // album name for track
-	AlbumReleaseType string `json:"albumReleaseType"` // only present in singles
+	AlbumReleaseType string `json:"albumReleaseType"` // not sure anymore
 	NumTracks        int    `json:"numTracks"`        // same
+	ByArtist         Artist `json:"byArtist"`         // field "name" contains artist/band name
 }
 
-type media struct {
-	//AlbumIsPreorder bool   `json:"album_is_preorder"` // unused, useless
-	ArtId     int    `json:"art_id"`
-	URL       string `json:"url"` // either album or track URL
+// data-tralbum
+type dataTrAlbum struct {
+	Id                   int    `json:"id"`                      // item id
+	ArtId                int    `json:"art_id"`                  // album cover ID
+	HasAudio             bool   `json:"hasAudio"`                //
+	IsBonus              bool   `json:"is_bonus"`                //
+	IsPreorder           bool   `json:"is_preorder"`             //
+	AlbumIsPreorder      bool   `json:"album_is_preorder"`       // TODO: test bools, might be usefull
+	HasDiscounts         bool   `json:"has_discounts"`           //
+	IsPrivateStream      bool   `json:"is_private_stream"`       //
+	TrAlbumSubscribeOnly bool   `json:"tralbum_subscriber_only"` //
+	ItemType             string `json:"item_type"`               //
+	AlbumURL             string `json:"album_url"`               // doesn't exist on albums, null for singles
+	URL                  string `json:"url"`                     // either album or track URL
+	FreeDownloadPage     string `json:"freeDownloadPage"`        //
+	Current              struct {
+		AlbumId int    `json:"album_id"` // doesn't exist on albums
+		BandId  int    `json:"band_id"`  //
+		ModDate string `json:"mod_date"` //
+	} `json:"current"`
 	Trackinfo []struct {
-		Duration float64 `json:"duration"` // duration in seconds
-		File     struct {
+		TrackId         int     `json:"track_id"`          //
+		Streaming       int     `json:"streaming"`         //
+		PlayCount       int     `json:"play_count"`        //
+		TrackNum        int     `json:"track_num"`         //
+		IsCapped        bool    `json:"is_capped"`         //
+		HasLyrics       bool    `json:"has_lyrics"`        //
+		UnreleasedTrack bool    `json:"unreleased_track"`  //
+		HasFreeDownload bool    `json:"has_free_download"` //
+		AlbumPreorder   bool    `json:"album_preorder"`    //
+		Private         bool    `json:"private"`           //
+		Artist          string  `json:"artist"`            // on albums with several artist might not be null
+		TitleLink       string  `json:"title_link"`        //
+		Duration        float64 `json:"duration"`          // duration in seconds
+		File            struct {
 			MP3128 string `json:"mp3-128"` // media url
-			// higher quality mp3-v0 available only after login
-			// and only for some items
-		} `json:"file"`
-	} `json:"trackinfo"` // file data
+			MP3V0  string `json:"mp3-v0"`  // available after login for bought items
+		} `json:"file"` // file data
+	} `json:"trackinfo"` // track list
 }
 
-func parseTrAlbumJSON(metadataJSON, mediaJSON string, isAlbum bool) (*album, error) {
+// parses out data from ld+json and data-tralbum sections of media
+// pages, hich combined contain all usefull metadata of media,
+// expects valid escaped json strings as input
+func parseTrAlbumJSON(ldJSON, tralbumJSON string) (*album, error) {
 	var metadata trAlbum
-	var mediadata media
+	var mediadata dataTrAlbum
 
-	err := json.Unmarshal([]byte(metadataJSON), &metadata)
+	err := json.Unmarshal([]byte(ldJSON), &metadata)
 	if err != nil {
 		return nil, err
 	}
 
-	err = json.Unmarshal([]byte(mediaJSON), &mediadata)
+	err = json.Unmarshal([]byte(tralbumJSON), &mediadata)
 	if err != nil {
 		return nil, err
 	}
 
-	if isAlbum {
+	metadataLen, mediadataLen := len(metadata.Tracks.ItemListElement), len(mediadata.Trackinfo)
+	if metadataLen != 0 && metadataLen != mediadataLen || mediadataLen == 0 {
+		return nil, errors.New("no media tracks were found")
+	}
+
+	// NOTE: in net.go page type is collected already,
+	// but by not passing it to json.go we can let it
+	// decide what to do with found data itself, so it
+	// can be used without need to know type beforehand
+	switch mediadata.ItemType {
+	case "album":
 		return extractAlbum(&metadata, &mediadata)
+	case "track":
+		return extractTrack(&metadata, &mediadata)
+	default:
+		return nil, errors.New("unexpected data")
 	}
-	return extractTrack(&metadata, &mediadata)
 }
 
-func extractAlbum(metadata *trAlbum, mediadata *media) (*album, error) {
-	date, err := parseDate(metadata.DatePublished)
+func extractAlbum(metadata *trAlbum, mediadata *dataTrAlbum) (*album, error) {
+	releaseDate, err := parseDate(metadata.DatePublished)
+	// FIXME: if one wrong, second would also be wrong
+	modDate, _ := parseDate(mediadata.Current.ModDate)
 	albumMetadata := &album{
-		// imageSrc:    metadata.Image,
-		album:       true,
-		single:      false,
-		artID:       mediadata.ArtId,
-		title:       metadata.Name,
-		artist:      metadata.ByArtist.Name,
-		date:        date,
-		dateErr:     err,
-		url:         mediadata.URL,
-		tags:        metadata.Tags,
-		totalTracks: metadata.Tracks.NumberOfItems,
+		id:                   mediadata.Id,
+		artId:                mediadata.ArtId,
+		hasAudio:             mediadata.HasAudio,
+		isBonus:              mediadata.IsBonus,
+		isPreorder:           mediadata.IsPreorder,
+		albumIsPreorder:      mediadata.AlbumIsPreorder,
+		hasDiscounts:         mediadata.HasDiscounts,
+		isPrivateStream:      mediadata.IsPrivateStream,
+		trAlbumSubscribeOnly: mediadata.TrAlbumSubscribeOnly,
+		itemType:             mediadata.ItemType,
+		artist:               metadata.ByArtist.Name,
+		url:                  mediadata.URL,
+		freeDownloadPage:     mediadata.FreeDownloadPage,
+		releaseType:          "",
+		albumReleaseDate:     releaseDate,
+		dateErr:              err,
+		bandId:               mediadata.Current.BandId,
+		title:                metadata.Name,
+		modDate:              modDate,
+		tags:                 metadata.Tags,
+		totalTracks:          metadata.Tracks.NumberOfItems,
+		tracks:               make([]track, len(mediadata.Trackinfo)),
 	}
 
-	if len(metadata.Tracks.ItemListElement) == len(mediadata.Trackinfo) {
-		for i, item := range metadata.Tracks.ItemListElement {
-			albumMetadata.tracks = append(albumMetadata.tracks,
-				track{
-					trackNumber: item.Position,
-					title:       item.TrackInfo.Name,
-					duration:    mediadata.Trackinfo[i].Duration,
-					lyrics:      item.TrackInfo.RecordingOf.Lyrics.Text,
-					url:         mediadata.Trackinfo[i].File.MP3128,
-				})
+	u, err := url.Parse(albumMetadata.url)
+	if err != nil {
+		return nil, errors.New("json: album parser: failed to parse album url")
+	}
+
+	for i, item := range metadata.Tracks.ItemListElement {
+		u.Path = mediadata.Trackinfo[i].TitleLink
+		albumMetadata.tracks[i] = track{
+			trackId:         mediadata.Trackinfo[i].TrackId,
+			streaming:       mediadata.Trackinfo[i].Streaming,
+			playCount:       mediadata.Trackinfo[i].PlayCount,
+			isCapped:        mediadata.Trackinfo[i].IsCapped,
+			hasLyrics:       mediadata.Trackinfo[i].HasLyrics,
+			unreleasedTrack: mediadata.Trackinfo[i].UnreleasedTrack,
+			hasFreeDownload: mediadata.Trackinfo[i].HasFreeDownload,
+			albumPreorder:   mediadata.Trackinfo[i].AlbumPreorder,
+			private:         mediadata.Trackinfo[i].Private,
+			artist:          mediadata.Trackinfo[i].Artist,
+			url:             u.String(),
+			trackNumber:     mediadata.Trackinfo[i].TrackNum,
+			title:           item.TrackInfo.Name,
+			duration:        mediadata.Trackinfo[i].Duration,
+			lyrics:          item.TrackInfo.RecordingOf.Lyrics.Text,
+			mp3128:          mediadata.Trackinfo[i].File.MP3128,
+			mp3v0:           mediadata.Trackinfo[i].File.MP3V0,
 		}
-	} else {
-		return nil, errors.New("not enough data was parsed")
 	}
 	return albumMetadata, nil
 }
 
-func extractTrack(metadata *trAlbum, mediadata *media) (*album, error) {
-	date, err := parseDate(metadata.DatePublished)
+func extractTrack(metadata *trAlbum, mediadata *dataTrAlbum) (*album, error) {
+	releaseDate, err := parseDate(metadata.DatePublished)
+	// FIXME: same for both track and album
+	modDate, _ := parseDate(mediadata.Current.ModDate)
+
+	// NOTE: field albumURL doesn't exist for albums and
+	// single tracks without albums
+	var albumURL string
+	if mediadata.AlbumURL != "" {
+		u, err := url.Parse(mediadata.URL)
+		if err == nil {
+			// NOTE: albumURL can be empty
+			u.Path = mediadata.AlbumURL
+			albumURL = u.String()
+		}
+	}
+
+	// TODO: collect publishers name
+	// NOTE: actual artist name can be in one of five places:
+	// tralbum: .artist, .current.artist, .trackinfo[n].artist
+	// ld+json: .byArtist.name, .inAlbum..byArtist.name, last
+	// one usually has name that bandcamp displays on media
+	// page, values for tracks in data-tralbum have artist on
+	// items from various artists, first two are inconsistent,
+	// can't see any logic behind value they actually hold
+	var artist string
+	if artist = metadata.InAlbum.ByArtist.Name; artist == "" {
+		artist = metadata.ByArtist.Name
+	}
+
 	albumMetadata := &album{
-		// imageSrc:    metadata.Image,
-		album:       false,
-		artID:       mediadata.ArtId,
-		title:       metadata.InAlbum.Name,
-		artist:      metadata.ByArtist.Name,
-		date:        date,
-		dateErr:     err,
-		url:         mediadata.URL,
-		tags:        metadata.Tags,
-		totalTracks: 1,
+		id:                   mediadata.Current.AlbumId,
+		artId:                mediadata.ArtId,
+		hasAudio:             mediadata.HasAudio,
+		isBonus:              mediadata.IsBonus,
+		isPreorder:           mediadata.IsPreorder,
+		albumIsPreorder:      mediadata.AlbumIsPreorder,
+		hasDiscounts:         mediadata.HasDiscounts,
+		isPrivateStream:      mediadata.IsPrivateStream,
+		trAlbumSubscribeOnly: mediadata.TrAlbumSubscribeOnly,
+		itemType:             mediadata.ItemType,
+		artist:               artist,
+		url:                  albumURL,
+		freeDownloadPage:     mediadata.FreeDownloadPage,
+		releaseType:          metadata.InAlbum.AlbumReleaseType,
+		albumReleaseDate:     releaseDate,
+		dateErr:              err,
+		bandId:               mediadata.Current.BandId,
+		title:                metadata.InAlbum.Name,
+		modDate:              modDate,
+		tags:                 metadata.Tags,
+		totalTracks:          -1,               // still don't know how to extract total number from track page
+		tracks:               make([]track, 1), // really hope that 'track' means 1 track always
 	}
 
-	// FIXME: would crash if InAlbum is nil, same with others
-	// needs more thorough check
-	if metadata.InAlbum.AlbumReleaseType == "SingleRelease" {
-		albumMetadata.single = true
+	albumMetadata.tracks[0] = track{
+		trackId:         mediadata.Trackinfo[0].TrackId,
+		streaming:       mediadata.Trackinfo[0].Streaming,
+		playCount:       mediadata.Trackinfo[0].PlayCount,
+		isCapped:        mediadata.Trackinfo[0].IsCapped,
+		hasLyrics:       mediadata.Trackinfo[0].HasLyrics,
+		unreleasedTrack: mediadata.Trackinfo[0].UnreleasedTrack,
+		hasFreeDownload: mediadata.Trackinfo[0].HasFreeDownload,
+		albumPreorder:   mediadata.Trackinfo[0].AlbumPreorder,
+		private:         mediadata.Trackinfo[0].Private,
+		artist:          mediadata.Trackinfo[0].Artist,
+		url:             mediadata.URL,
+		trackNumber:     mediadata.Trackinfo[0].TrackNum,
+		title:           metadata.Name,
+		duration:        mediadata.Trackinfo[0].Duration,
+		lyrics:          metadata.RecordingOf.Lyrics.Text,
+		mp3128:          mediadata.Trackinfo[0].File.MP3128,
+		mp3v0:           mediadata.Trackinfo[0].File.MP3V0,
 	}
-
-	if len(mediadata.Trackinfo) > 0 {
-		albumMetadata.tracks = append(albumMetadata.tracks,
-			track{
-				trackNumber: 1,
-				title:       metadata.Name,
-				duration:    mediadata.Trackinfo[0].Duration,
-				lyrics:      metadata.RecordingOf.Lyrics.Text,
-				url:         mediadata.Trackinfo[0].File.MP3128,
-			},
-		)
-	} else {
-		return nil, errors.New("not enough data was parsed")
-	}
-
 	return albumMetadata, nil
 }
 

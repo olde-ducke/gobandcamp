@@ -93,19 +93,18 @@ func processmediapage(ctx context.Context, link string, dbg, msg func(string)) (
 		defer response.Body.Close()
 
 		if response.StatusCode > 200 {
+			// FIXME: delete, got 404 from example.com
+			// single time, reasons unknown
+			dbg(fmt.Sprint(response.Header))
 			return errors.New(response.Status)
 		}
 		msg(response.Status)
 
 		// check canonical name in response header
 		// must be artist.bandcamp.com
-		canonical := response.Header.Get("link")
-		if !strings.Contains(canonical, "bandcamp.com") {
+		if !strings.Contains(response.Header.Get("link"), "bandcamp.com") {
 			return originError
 		}
-
-		// contentType := response.Header.Get("Content-Type")
-		// dbg(contentType)
 
 		doc, err := html.Parse(response.Body)
 		if err != nil {
@@ -121,18 +120,16 @@ func processmediapage(ctx context.Context, link string, dbg, msg func(string)) (
 			return unexpectedError
 		}
 
-		var isAlbum bool
 		switch itemType {
 		case "album":
-			isAlbum = true
 			msg("found album data")
 
 		case "song":
-			isAlbum = false
 			msg("found track data")
 
 		case "band":
 			msg("found discography?")
+			// TODO: finish
 			node, ok := getNodeWithAttr(doc, &html.Attribute{
 				Key: "id",
 				Val: "music-grid",
@@ -175,7 +172,7 @@ func processmediapage(ctx context.Context, link string, dbg, msg func(string)) (
 			return unexpectedError
 		}
 
-		result, err := parseTrAlbumJSON(metadata, mediadata, isAlbum)
+		result, err := parseTrAlbumJSON(metadata, mediadata)
 		if err != nil {
 			return err
 		}

@@ -1,6 +1,12 @@
 package main
 
 import (
+	"testing"
+	"time"
+)
+
+/*
+import (
 	"bufio"
 	"log"
 	"os"
@@ -164,7 +170,7 @@ func TestParseAlbumJSONFake(t *testing.T) {
 				gotData.tracks[i].url)
 		}
 	}
-}
+}*/
 
 func TestParseDate(t *testing.T) {
 	testTime := "02 Jan 2006 15:04:05 UTC"
@@ -183,6 +189,7 @@ func TestParseDate(t *testing.T) {
 	}
 }
 
+/*
 func init() {
 	file, err := os.Open("testdata/album_metada.json")
 	if err != nil {
@@ -196,4 +203,4 @@ func init() {
 	if err = file.Close(); err != nil {
 		log.Fatal(err)
 	}
-}
+}*/
