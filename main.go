@@ -8,12 +8,18 @@ import (
 	"os"
 	"runtime"
 	"runtime/pprof"
+	"strconv"
 	"sync"
 	"time"
 )
 
 var cache *FIFO
+var dbg func(string)
 var player *beepPlayer
+var parser parseWorker
+var downloader downloadWorker
+var userInterface = newHeadless()
+var text = make(chan *message)
 
 func checkFatalError(err error) {
 	if err != nil {
@@ -91,6 +97,100 @@ func newMessage(t messageType, str string) *message {
 
 // ***************************
 
+func handleInput(input string) {
+	u, ok := isValidURL(input)
+	if !ok {
+		userInterface.displayMessage(newMessage(errorMessage, "unrecognised command"))
+		return
+	}
+	parser.run(u)
+}
+
+type parseWorker struct {
+	cancelPrev func()
+	cancelCurr func()
+	wg         *sync.WaitGroup
+}
+
+func (w *parseWorker) stop() {
+	w.cancelPrev()
+	w.cancelCurr()
+}
+
+func (w *parseWorker) cancelPrevJob(cancel func()) {
+	w.cancelPrev()
+	w.cancelPrev = w.cancelCurr
+	w.cancelCurr = cancel
+}
+
+func (w *parseWorker) run(link string) {
+	ctx, cancel := context.WithCancel(context.Background())
+	w.cancelPrevJob(cancel)
+
+	w.wg.Add(1)
+	go func() {
+		defer w.wg.Done()
+		result, err := processmediapage(ctx, link, dbg,
+			func(str string) {
+				msg := newMessage(textMessage, str)
+				// msg.Prefix = prefix
+				// do not wait for other end, send and forget
+				w.wg.Add(1)
+				go func() {
+					text <- msg
+					defer w.wg.Done()
+				}()
+			})
+		if err != nil {
+			text <- newMessage(errorMessage, err.Error())
+		} else {
+			playlist = result
+			downloader.run(playlist[0].mp3128, 0)
+			player.totalTracks = len(playlist)
+		}
+	}()
+}
+
+type downloadWorker struct {
+	parseWorker
+}
+
+func (w *downloadWorker) run(link string, n int) {
+	ctx, cancel := context.WithCancel(context.Background())
+	w.cancelPrevJob(cancel)
+
+	prefix := "track " + strconv.Itoa(n+1) + " "
+
+	w.wg.Add(1)
+	go func() {
+		defer w.wg.Done()
+		result, err := downloadmedia(ctx, link, dbg,
+			func(str string) {
+				msg := newMessage(textMessage, str)
+				msg.Prefix = prefix
+				// do not wait for other end, send and forget
+				w.wg.Add(1)
+				go func() {
+					text <- msg
+					defer w.wg.Done()
+				}()
+			})
+		if err != nil {
+			text <- newMessage(errorMessage, prefix+err.Error())
+		} else {
+			key := getTruncatedURL(link)
+			if key == "" {
+				text <- newMessage(errorMessage, "incorrect cache key")
+				return
+			}
+			cache.set(key, result)
+			player.play(result)
+		}
+	}()
+}
+
+var playlist []track
+
 func main() {
 	var cpuprofile, memprofile, link, tag, sort, format string
 	var debug, tryhttp bool
@@ -114,13 +214,11 @@ func main() {
 	next := make(chan struct{})
 	quit := make(chan struct{})
 	finish := make(chan struct{})
-	text := make(chan *message)
 
 	var quitting bool
 	var wg sync.WaitGroup
 	var logFile *os.File
 	var err error
-	var dbg func(string)
 
 	// open file to write logs if needed and create
 	// debug logging function, if debug is set to false
@@ -143,6 +241,15 @@ func main() {
 	} else {
 		dbg = func(msg string) {}
 	}
+	player = newBeepPlayer(dbg)
+
+	parser.cancelPrev = func() {}
+	parser.cancelCurr = func() {}
+	parser.wg = &wg
+
+	downloader.cancelPrev = func() {}
+	downloader.cancelCurr = func() {}
+	downloader.wg = &wg
 
 	if cpuprofile != "" {
 		file, err := os.Create(cpuprofile)
@@ -171,39 +278,12 @@ func main() {
 		*/
 	}
 
-	player = newBeepPlayer(dbg, next)
-	userInterface := newHeadless()
-
 	//########################
 	// throw away
 
-	prefix := "prefix "
-	ctx, cancel := context.WithCancel(context.Background())
+	/* prefix := "prefix "
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		link = "https://example.com"
-		result, err := processmediapage(ctx, link, dbg,
-			func(str string) {
-				msg := newMessage(textMessage, str)
-				msg.Prefix = prefix
-				// do not wait for other end, send and forget
-				wg.Add(1)
-				go func() {
-					text <- msg
-					defer wg.Done()
-				}()
-			})
-		if err != nil {
-			msg := newMessage(errorMessage, err.Error())
-			text <- msg
-		} else {
-			msg := newMessage(textMessage, result)
-			msg.Prefix = prefix
-			text <- msg
-		}
-	}()
+	 */
 	//##############################
 
 	// TODO: test if needed anymore
@@ -222,7 +302,9 @@ loop:
 			dbg("got signal to finish")
 			quitting = true
 			ticker.Stop()
-			cancel()
+			parser.stop()
+			downloader.stop()
+			player.clearStream()
 
 			// wait for other goroutines and send final signal
 			go func() {

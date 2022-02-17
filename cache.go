@@ -23,7 +23,7 @@ func newCache(size int) *FIFO {
 func (fifo *FIFO) set(key interface{}, value []byte) {
 	fifo.Lock()
 	defer fifo.Unlock()
-	//defer fifo.dump()
+	defer fifo.dump()
 	if _, ok := fifo.cache[key]; ok {
 		return
 	}
@@ -43,13 +43,12 @@ func (fifo *FIFO) set(key interface{}, value []byte) {
 
 func (fifo *FIFO) get(key string) ([]byte, bool) {
 	fifo.Lock()
-	//fifo.dump()
+	fifo.dump()
 	value, ok := fifo.cache[key]
 	fifo.Unlock()
 	return value, ok
 }
 
-/*
 func (fifo *FIFO) dump() {
 	enqueue := fifo.queue.Front()
 	for i := 0; i < fifo.size; i++ {
@@ -59,7 +58,6 @@ func (fifo *FIFO) dump() {
 			value = enqueue.Value
 			enqueue = enqueue.Next()
 		}
-		window.sendEvent(newDebugMessage(value.(string)))
+		dbg("cache: " + value.(string))
 	}
 }
-*/

@@ -36,7 +36,6 @@ type album struct {
 	modDate              time.Time
 	tags                 []string
 	totalTracks          int
-	tracks               []track
 }
 
 type track struct {
@@ -57,6 +56,8 @@ type track struct {
 	lyrics          string
 	mp3128          string
 	mp3v0           string
+
+	item *album
 }
 
 type trAlbum struct {
@@ -148,7 +149,7 @@ type dataTrAlbum struct {
 // parses out data from ld+json and data-tralbum sections of media
 // pages, hich combined contain all usefull metadata of media,
 // expects valid escaped json strings as input
-func parseTrAlbumJSON(ldJSON, tralbumJSON string) (*album, error) {
+func parseTrAlbumJSON(ldJSON, tralbumJSON string) ([]track, error) {
 	var metadata trAlbum
 	var mediadata dataTrAlbum
 
@@ -181,11 +182,11 @@ func parseTrAlbumJSON(ldJSON, tralbumJSON string) (*album, error) {
 	}
 }
 
-func extractAlbum(metadata *trAlbum, mediadata *dataTrAlbum) (*album, error) {
+func extractAlbum(metadata *trAlbum, mediadata *dataTrAlbum) ([]track, error) {
 	releaseDate, err := parseDate(metadata.DatePublished)
 	// FIXME: if one wrong, second would also be wrong
 	modDate, _ := parseDate(mediadata.Current.ModDate)
-	albumMetadata := &album{
+	albumMetadata := album{
 		id:                   mediadata.Id,
 		artId:                mediadata.ArtId,
 		hasAudio:             mediadata.HasAudio,
@@ -207,9 +208,9 @@ func extractAlbum(metadata *trAlbum, mediadata *dataTrAlbum) (*album, error) {
 		modDate:              modDate,
 		tags:                 metadata.Tags,
 		totalTracks:          metadata.Tracks.NumberOfItems,
-		tracks:               make([]track, len(mediadata.Trackinfo)),
 	}
 
+	tracks := make([]track, len(mediadata.Trackinfo))
 	u, err := url.Parse(albumMetadata.url)
 	if err != nil {
 		return nil, errors.New("json: album parser: failed to parse album url")
@@ -217,7 +218,7 @@ func extractAlbum(metadata *trAlbum, mediadata *dataTrAlbum) (*album, error) {
 
 	for i, item := range metadata.Tracks.ItemListElement {
 		u.Path = mediadata.Trackinfo[i].TitleLink
-		albumMetadata.tracks[i] = track{
+		tracks[i] = track{
 			trackId:         mediadata.Trackinfo[i].TrackId,
 			streaming:       mediadata.Trackinfo[i].Streaming,
 			playCount:       mediadata.Trackinfo[i].PlayCount,
@@ -235,12 +236,14 @@ func extractAlbum(metadata *trAlbum, mediadata *dataTrAlbum) (*album, error) {
 			lyrics:          item.TrackInfo.RecordingOf.Lyrics.Text,
 			mp3128:          mediadata.Trackinfo[i].File.MP3128,
 			mp3v0:           mediadata.Trackinfo[i].File.MP3V0,
+
+			item: &albumMetadata,
 		}
 	}
-	return albumMetadata, nil
+	return tracks, nil
 }
 
-func extractTrack(metadata *trAlbum, mediadata *dataTrAlbum) (*album, error) {
+func extractTrack(metadata *trAlbum, mediadata *dataTrAlbum) ([]track, error) {
 	releaseDate, err := parseDate(metadata.DatePublished)
 	// FIXME: same for both track and album
 	modDate, _ := parseDate(mediadata.Current.ModDate)
@@ -291,11 +294,12 @@ func extractTrack(metadata *trAlbum, mediadata *dataTrAlbum) (*album, error) {
 		title:                metadata.InAlbum.Name,
 		modDate:              modDate,
 		tags:                 metadata.Tags,
-		totalTracks:          -1,               // still don't know how to extract total number from track page
-		tracks:               make([]track, 1), // really hope that 'track' means 1 track always
+		totalTracks:          -1, // still don't know how to extract total number from track page
 	}
 
-	albumMetadata.tracks[0] = track{
+	tracks := make([]track, 1) // really hope that 'track' means 1 track always
+
+	tracks[0] = track{
 		trackId:         mediadata.Trackinfo[0].TrackId,
 		streaming:       mediadata.Trackinfo[0].Streaming,
 		playCount:       mediadata.Trackinfo[0].PlayCount,
@@ -313,8 +317,10 @@ func extractTrack(metadata *trAlbum, mediadata *dataTrAlbum) (*album, error) {
 		lyrics:          metadata.RecordingOf.Lyrics.Text,
 		mp3128:          mediadata.Trackinfo[0].File.MP3128,
 		mp3v0:           mediadata.Trackinfo[0].File.MP3V0,
+
+		item: albumMetadata,
 	}
-	return albumMetadata, nil
+	return tracks, nil
 }
 
 func parseDate(input string) (time.Time, error) {

@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"math/rand"
 	"time"
 
@@ -67,12 +69,11 @@ type beepPlayer struct {
 
 	// TODO remove
 	// text chan<- interface{}
-	next chan<- struct{}
 }
 
-func newBeepPlayer(dbg func(string), next chan<- struct{}) *beepPlayer {
+func newBeepPlayer(dbg func(string)) *beepPlayer {
 	initializeDevice()
-	return &beepPlayer{timeStep: 2, dbg: dbg, next: next}
+	return &beepPlayer{timeStep: 2, dbg: dbg}
 }
 
 // device initialization
@@ -201,7 +202,8 @@ func (player *beepPlayer) seek(forward bool) (bool, error) {
 
 // FIXME: doesn't return error
 func (player *beepPlayer) resetPosition() {
-	if player.isReady() {
+	//	if player.isReady() {
+	if player.isPlaying() {
 		player.dbg("reset position")
 		speaker.Lock()
 		if err := player.stream.streamer.Seek(0); err != nil {
@@ -257,7 +259,6 @@ func (player *beepPlayer) skip(forward bool) bool {
 	}
 
 	// TODO: remove after response reading cancellation is implemented
-	go player.delaySwitching()
 	return true
 }
 
@@ -289,7 +290,6 @@ func (player *beepPlayer) nextTrack() {
 		}
 
 		player.clearStream()
-		go player.delaySwitching()
 
 	// beep does have loop one, but stream should be set
 	// up to loop from the very start to play indefinetly,
@@ -314,17 +314,6 @@ func (player *beepPlayer) nextTrack() {
 	}
 }
 
-// to prevent downloading every item on fast track switching
-// probably dumb idea
-func (player *beepPlayer) delaySwitching() {
-	track := player.currentTrack
-	time.Sleep(time.Second / 2)
-	if track == player.currentTrack {
-		// window.sendEvent(newTrack(player.currentTrack))
-		player.dbg("new track should start playing here")
-	}
-}
-
 func (player *beepPlayer) setTrack(track int) {
 	player.stop()
 	player.clearStream()
@@ -334,13 +323,13 @@ func (player *beepPlayer) setTrack(track int) {
 		player.status = skipBWD
 	}
 	player.currentTrack = track
-	go player.delaySwitching()
 }
 
-func (player *beepPlayer) play(key string) error {
+func (player *beepPlayer) play(data []byte) error {
 	//player.clear()
 	//player.currentTrack = track
-	streamer, format, err := mp3.Decode(wrapInRSC(key))
+	reader := bytes.NewReader(data)
+	streamer, format, err := mp3.Decode(io.NopCloser(reader))
 	if err != nil {
 		return err
 	}
@@ -354,7 +343,6 @@ func (player *beepPlayer) play(key string) error {
 	// since it's locking device itself
 	speaker.Play(beep.Seq(player.stream.volume, beep.Callback(
 		func() {
-			player.next <- struct{}{}
 		})))
 	return nil
 }
@@ -364,7 +352,6 @@ func (player *beepPlayer) restart() {
 	speaker.Clear()
 	speaker.Play(beep.Seq(player.stream.volume, beep.Callback(
 		func() {
-			player.next <- struct{}{}
 		})))
 	player.status = playing
 }

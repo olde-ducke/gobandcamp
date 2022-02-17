@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"sync"
+	"time"
 )
 
 type headless struct {
@@ -23,7 +24,16 @@ func (h *headless) run(quit chan<- struct{}) {
 }
 
 func (h *headless) update() {
-	fmt.Print("\r" + player.getStatus().String() + "\r")
+	if len(playlist) > 0 {
+		t := player.getCurrentTrack()
+		fmt.Printf("\r \x1b[37m%s\x1b[0m %d/%d %s by %s %s\r", player.getStatus(), t+1,
+			len(playlist),
+			playlist[t].title, playlist[t].item.artist,
+			player.getCurrentTrackPosition().Round(time.Second))
+	} else {
+		fmt.Printf("\r \x1b[37m%s\x1b[0m %d/%d %s by %s %s\r", player.getStatus(),
+			0, 0, "---", "---", "")
+	}
 }
 
 func (h *headless) displayMessage(msg *message) {
@@ -49,6 +59,23 @@ loop:
 		switch input {
 		case "q":
 			break loop
+		case "f", "b":
+			player.skip(true)
+			if len(playlist) > 0 {
+				t := player.currentTrack
+				downloader.stop()
+				downloader.run(playlist[t].mp3128, t)
+			} else {
+				dbg("no data")
+			}
+		case "p":
+			if len(playlist) > 0 {
+				fmt.Println(playlist)
+			} else {
+				dbg("no data")
+			}
+		default:
+			handleInput(input)
 		}
 	}
 

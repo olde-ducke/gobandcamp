@@ -2,7 +2,6 @@ package main
 
 import (
 	"net/url"
-	"strings"
 )
 
 /*import (
@@ -130,12 +129,10 @@ type arguments struct {
 }
 
 func isValidURL(input string) (string, bool) {
+	// FIXME: was broken completely, rewrite from scratch
 	u, err := url.Parse(input)
-	if err != nil || u.Scheme == "" || u.Host == "" {
-		if !strings.HasSuffix(u.Path, ".com") {
-			return "", false
-		}
-		u.Scheme = "https"
+	if err != nil || u == nil {
+		return "", false
 	}
 	return u.String(), true
 }

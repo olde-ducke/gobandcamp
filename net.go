@@ -3,12 +3,12 @@ package main
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/net/html"
@@ -78,7 +78,7 @@ func makeRequest(ops *options, f func(*http.Response, error) error) error {
 	}
 }
 
-func processmediapage(ctx context.Context, link string, dbg, msg func(string)) (string, error) {
+func processmediapage(ctx context.Context, link string, dbg, msg func(string)) ([]track, error) {
 	dbg(link)
 	msg("fetching")
 	ops := options{
@@ -86,6 +86,8 @@ func processmediapage(ctx context.Context, link string, dbg, msg func(string)) (
 		url:    link,
 		method: "GET",
 	}
+
+	var tracks []track
 	err := makeRequest(&ops, func(response *http.Response, err error) error {
 		if err != nil {
 			return err
@@ -93,9 +95,6 @@ func processmediapage(ctx context.Context, link string, dbg, msg func(string)) (
 		defer response.Body.Close()
 
 		if response.StatusCode > 200 {
-			// FIXME: delete, got 404 from example.com
-			// single time, reasons unknown
-			dbg(fmt.Sprint(response.Header))
 			return errors.New(response.Status)
 		}
 		msg(response.Status)
@@ -140,18 +139,40 @@ func processmediapage(ctx context.Context, link string, dbg, msg func(string)) (
 			result := getValues(node, "a", "href")
 			if result != nil {
 				url, err := url.Parse(link)
+				// unecessarry?
 				if err != nil {
 					return err
 				}
-				for _, path := range result {
+
+				buf := make([][]track, len(result))
+				var wg sync.WaitGroup
+				for i, path := range result {
 					url.Path = path
-					go processmediapage(ctx, url.String(), dbg, func(string) {})
+					wg.Add(1)
+					go func(n int, u string) {
+						defer wg.Done()
+						// FIXME: do in subroutines?
+						buf[n], err = processmediapage(ctx, u, dbg, func(string) {})
+						if err == nil {
+							dbg("done with " + u)
+						} else {
+							dbg(err.Error())
+						}
+					}(i, url.String())
 				}
+				wg.Wait()
+
+				for i := 0; i < len(buf); i++ {
+					if len(buf[i]) <= 0 {
+						return unexpectedError
+					}
+					tracks = append(tracks, buf[i]...)
+				}
+				return nil
 			}
 			return unexpectedError
 
 		default:
-			// TODO: parse albums/tracks from discography page
 			return unexpectedError
 		}
 
@@ -172,18 +193,15 @@ func processmediapage(ctx context.Context, link string, dbg, msg func(string)) (
 			return unexpectedError
 		}
 
-		result, err := parseTrAlbumJSON(metadata, mediadata)
+		tracks, err = parseTrAlbumJSON(metadata, mediadata)
 		if err != nil {
 			return err
 		}
-		dbg(fmt.Sprint(result))
-		dbg(strings.ReplaceAll(mediadata, ",", "\n"))
 
 		return nil
 	})
 
-	return "test", err
-
+	return tracks, err
 }
 
 // FIXME: might be not very effective
@@ -297,7 +315,8 @@ func getTextWithAttr(node *html.Node, attr *html.Attribute, tag string) (string,
 	return "", false
 }
 
-func downloadmedia(ctx context.Context, link string, dbg, msg func(string)) (string, error) {
+// TODO: return data format
+func downloadmedia(ctx context.Context, link string, dbg, msg func(string)) ([]byte, error) {
 	dbg(link)
 	msg("fetching")
 	ops := options{
@@ -305,7 +324,8 @@ func downloadmedia(ctx context.Context, link string, dbg, msg func(string)) (str
 		url:    link,
 		method: "GET",
 	}
-	var dataType string
+	var data []byte
+	// var dataType string
 	err := makeRequest(&ops, func(response *http.Response, err error) error {
 		if err != nil {
 			return err
@@ -323,19 +343,19 @@ func downloadmedia(ctx context.Context, link string, dbg, msg func(string)) (str
 			dbg(err.Error())
 		}
 
-		dataType = response.Header.Get("content-type")
+		// dataType = response.Header.Get("content-type")
 
-		body, err := readAll(response.Body, length)
+		data, err = readAll(response.Body, length)
 		if err != nil {
 			return err
 		}
 
-		if length > 0 && len(body) != cap(body) {
+		if length > 0 && len(data) != cap(data) {
 			dbg("wrong Content-Length value")
 		}
 		return nil
 	})
-	return dataType, err
+	return data, err
 }
 
 // same as io.ReadAll, but won't allocate new memory if size
