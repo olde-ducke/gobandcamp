@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"fmt"
-	"log"
 	"os"
 	"sync"
 	"time"
@@ -12,28 +11,35 @@ import (
 type headless struct {
 	wg           sync.WaitGroup
 	formatString string
+	prevMessage  message
 }
 
 func (h *headless) run(quit chan<- struct{}) {
 	h.wg.Add(1)
 	go h.start()
 	h.wg.Wait()
-	log.Printf(h.formatString, "\x1b[32m", "ext",
-		"", "goodbye")
+	h.displayMessage(newMessage(infoMessage, "goodbye"))
 	defer close(quit)
 }
 
 func (h *headless) update() {
-	if len(playlist) > 0 {
-		t := player.getCurrentTrack()
-		fmt.Printf("\r \x1b[37m%s\x1b[0m %d/%d %s by %s %s\r", player.getStatus(), t+1,
-			len(playlist),
-			playlist[t].title, playlist[t].item.artist,
-			player.getCurrentTrackPosition().Round(time.Second))
-	} else {
-		fmt.Printf("\r \x1b[37m%s\x1b[0m %d/%d %s by %s %s\r", player.getStatus(),
-			0, 0, "---", "---", "")
+	title, artist := "---", "---"
+	t := 0
+	total := len(playlist)
+	pos := int(player.getCurrentTrackPosition().Seconds())
+	if total > 0 {
+		t = player.getCurrentTrack()
+		title = playlist[t].title
+		artist = playlist[t].item.artist
+		t++
 	}
+	// fmt.Print("\x1b[s")
+	// fmt.Print("")
+	// fmt.Print("\x1b[0K")
+	fmt.Printf("\x1b[s\x1b[F\x1b[0K%10s %02d:%02d:%02d \x1b[35m[plr]:\x1b[0m %2s \x1b[35m%s\x1b[0m by \x1b[35m%s\x1b[0m\x1b[u",
+		fmt.Sprintf("%d/%d", t, len(playlist)), pos/3600%99, pos/60%60, pos%60,
+		player.getStatus(), title, artist)
+	// fmt.Print("\x1b[u")
 }
 
 func (h *headless) displayMessage(msg *message) {
@@ -45,38 +51,83 @@ func (h *headless) displayMessage(msg *message) {
 		decoration = "\x1b[31m"
 	case textMessage:
 		decoration = "\x1b[36m"
+	default:
+		decoration = "\x1b[32m"
 	}
-	log.Printf(h.formatString, decoration, msg.msgType,
-		msg.Prefix, msg.text)
+	fmt.Printf(h.formatString, msg.When().Format("2006/01/02 15:04:05"),
+		decoration, msg.msgType, msg.Prefix, msg.text)
+	h.update()
 }
 
 func (h *headless) start() {
+	fmt.Println()
 	var input string
 	scanner := bufio.NewScanner(os.Stdin)
 loop:
 	for scanner.Scan() {
 		input = scanner.Text()
+		fmt.Print("\x1b[F\x1b[0K")
 		switch input {
 		case "q":
 			break loop
-		case "f", "b":
-			player.skip(true)
-			if len(playlist) > 0 {
+
+		case "s":
+			player.lowerVolume()
+			h.displayMessage(newMessage(infoMessage, "volume: "+player.getVolume()))
+			continue loop
+
+		case "w":
+			player.raiseVolume()
+			h.displayMessage(newMessage(infoMessage, "volume: "+player.getVolume()))
+			continue loop
+
+		case "m":
+			player.mute()
+			h.displayMessage(newMessage(infoMessage, "volume: "+player.getVolume()))
+			continue loop
+
+		case "a", "d":
+			player.seek(input == "d")
+
+		case "p":
+			player.stop()
+
+		case "r":
+			player.nextMode()
+			h.displayMessage(newMessage(infoMessage, "mode: "+player.getPlaybackMode()))
+			continue loop
+
+		case " ":
+			player.playPause()
+
+		// TODO: remove
+		case "f":
+			if player.skip(true) {
 				t := player.currentTrack
-				downloader.stop()
 				downloader.run(playlist[t].mp3128, t)
 			} else {
 				dbg("no data")
 			}
-		case "p":
-			if len(playlist) > 0 {
-				fmt.Println(playlist)
+
+		case "b":
+			if player.getCurrentTrackPosition() > time.Second*5 {
+				player.resetPosition()
 			} else {
-				dbg("no data")
+				if player.skip(false) {
+					t := player.currentTrack
+					downloader.run(playlist[t].mp3128, t)
+				} else {
+					dbg("no data")
+				}
 			}
+
+		case "print":
+			fmt.Println(playlist[player.getCurrentTrack()].url)
+
 		default:
 			handleInput(input)
 		}
+		h.update()
 	}
 
 	if err := scanner.Err(); err != nil {
@@ -86,5 +137,5 @@ loop:
 }
 
 func newHeadless() ui {
-	return &headless{formatString: "%s[%s]:\x1b[0m %s%s\n"}
+	return &headless{formatString: "\x1b[F\x1b[0K%s %s[%s]:\x1b[0m %s%s\n\n"}
 }

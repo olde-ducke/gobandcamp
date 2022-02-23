@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"io"
 	"math/rand"
 	"time"
 
@@ -135,6 +134,14 @@ func (player *beepPlayer) getVolume() string {
 }
 
 func (player *beepPlayer) getCurrentTrack() int {
+	if player.currentTrack < 0 {
+		player.currentTrack = 0
+	}
+
+	if player.currentTrack > player.totalTracks-1 {
+		player.currentTrack = player.totalTracks - 1
+	}
+
 	return player.currentTrack
 }
 
@@ -152,7 +159,7 @@ func (player *beepPlayer) getStatus() playbackStatus {
 }
 
 func (player *beepPlayer) seek(forward bool) (bool, error) {
-	if !player.isPlaying() || !player.isPlaying() {
+	if !player.isPlaying() {
 		return false, nil
 	}
 
@@ -203,7 +210,7 @@ func (player *beepPlayer) seek(forward bool) (bool, error) {
 // FIXME: doesn't return error
 func (player *beepPlayer) resetPosition() {
 	//	if player.isReady() {
-	if player.isPlaying() {
+	if player.isReady() {
 		player.dbg("reset position")
 		speaker.Lock()
 		if err := player.stream.streamer.Seek(0); err != nil {
@@ -216,8 +223,7 @@ func (player *beepPlayer) resetPosition() {
 func (player *beepPlayer) getCurrentTrackPosition() time.Duration {
 	if player.isReady() {
 		speaker.Lock()
-		position := player.format.SampleRate.D(player.stream.
-			streamer.Position()).Round(time.Second)
+		position := player.format.SampleRate.D(player.stream.streamer.Position())
 		speaker.Unlock()
 		return position
 	}
@@ -258,7 +264,6 @@ func (player *beepPlayer) skip(forward bool) bool {
 		player.status = skipBWD
 	}
 
-	// TODO: remove after response reading cancellation is implemented
 	return true
 }
 
@@ -314,7 +319,11 @@ func (player *beepPlayer) nextTrack() {
 	}
 }
 
-func (player *beepPlayer) setTrack(track int) {
+func (player *beepPlayer) setTrack(track int) bool {
+	if track >= player.totalTracks || track < 0 || track == player.currentTrack {
+		return false
+	}
+
 	player.stop()
 	player.clearStream()
 	if track >= player.currentTrack {
@@ -323,13 +332,14 @@ func (player *beepPlayer) setTrack(track int) {
 		player.status = skipBWD
 	}
 	player.currentTrack = track
+	return true
 }
 
 func (player *beepPlayer) play(data []byte) error {
 	//player.clear()
 	//player.currentTrack = track
 	reader := bytes.NewReader(data)
-	streamer, format, err := mp3.Decode(io.NopCloser(reader))
+	streamer, format, err := mp3.Decode(NopSeekCloser(reader))
 	if err != nil {
 		return err
 	}
@@ -341,18 +351,20 @@ func (player *beepPlayer) play(data []byte) error {
 	player.dbg("playback started")
 	// deadlocks if anything speaker related is done inside callback
 	// since it's locking device itself
-	speaker.Play(beep.Seq(player.stream.volume, beep.Callback(
-		func() {
-		})))
+	// speaker.Play(beep.Seq(player.stream.volume, beep.Callback(
+	//	func() {
+	//	})))
+	speaker.Play(player.stream.volume)
 	return nil
 }
 
 func (player *beepPlayer) restart() {
 	player.dbg("restart playback")
 	speaker.Clear()
-	speaker.Play(beep.Seq(player.stream.volume, beep.Callback(
-		func() {
-		})))
+	//speaker.Play(beep.Seq(player.stream.volume, beep.Callback(
+	//	func() {
+	//	})))
+	speaker.Play(player.stream.volume)
 	player.status = playing
 }
 
@@ -387,10 +399,6 @@ func (player *beepPlayer) clearStream() {
 func (player *beepPlayer) playPause() bool {
 	if !player.isReady() {
 		return false
-	}
-
-	if player.status == seekBWD || player.status == seekFWD {
-		player.status = player.bufferedStatus
 	}
 
 	switch player.status {

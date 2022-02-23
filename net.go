@@ -127,7 +127,7 @@ func processmediapage(ctx context.Context, link string, dbg, msg func(string)) (
 			msg("found track data")
 
 		case "band":
-			msg("found discography?")
+			msg("found discography")
 			// TODO: finish
 			node, ok := getNodeWithAttr(doc, &html.Attribute{
 				Key: "id",

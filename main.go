@@ -54,9 +54,10 @@ const (
 	debugMessage messageType = iota
 	errorMessage
 	textMessage
+	infoMessage
 )
 
-var types = [3]string{"dbg", "err", "msg"}
+var types = [4]string{"dbg", "err", "msg", "inf"}
 
 func (t messageType) String() string {
 	return types[t]
@@ -99,11 +100,18 @@ func newMessage(t messageType, str string) *message {
 
 func handleInput(input string) {
 	u, ok := isValidURL(input)
-	if !ok {
-		userInterface.displayMessage(newMessage(errorMessage, "unrecognised command"))
+	if ok {
+		parser.run(u)
 		return
+	} else if n, err := strconv.Atoi(input); err == nil {
+		if player.setTrack(n - 1) {
+			downloader.run(playlist[player.getCurrentTrack()].mp3128, n-1)
+			return
+		}
 	}
-	parser.run(u)
+
+	userInterface.displayMessage(
+		newMessage(errorMessage, "unrecognised command: \""+input+"\""))
 }
 
 type parseWorker struct {
@@ -118,8 +126,8 @@ func (w *parseWorker) stop() {
 }
 
 func (w *parseWorker) cancelPrevJob(cancel func()) {
-	w.cancelPrev()
 	w.cancelPrev = w.cancelCurr
+	w.cancelPrev()
 	w.cancelCurr = cancel
 }
 
@@ -319,8 +327,6 @@ loop:
 			// TODO: replace with app.Update ???
 			// TODO: consider switching event sending
 			// to app and defining app as interface
-			// window.sendEvent(&eventUpdate{})
-			// logger.writeToLogFile("[upd]: update")
 			userInterface.update()
 
 		case msg := <-text:
