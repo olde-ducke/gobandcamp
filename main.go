@@ -103,11 +103,6 @@ func handleInput(input string) {
 	if ok {
 		parser.run(u)
 		return
-	} else if n, err := strconv.Atoi(input); err == nil {
-		if player.setTrack(n - 1) {
-			downloader.run(playlist[player.getCurrentTrack()].mp3128, n-1)
-			return
-		}
 	}
 
 	userInterface.displayMessage(
@@ -154,7 +149,7 @@ func (w *parseWorker) run(link string) {
 		} else {
 			playlist = result
 			downloader.run(playlist[0].mp3128, 0)
-			player.totalTracks = len(playlist)
+			// player.totalTracks = len(playlist)
 		}
 	}()
 }

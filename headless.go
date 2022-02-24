@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"sync"
-	"time"
 )
 
 type headless struct {
@@ -26,20 +25,20 @@ func (h *headless) update() {
 	title, artist := "---", "---"
 	t := 0
 	total := len(playlist)
-	pos := int(player.getCurrentTrackPosition().Seconds())
+	pos := int(player.getTime().Seconds())
 	if total > 0 {
-		t = player.getCurrentTrack()
+		// t = player.getCurrentTrack()
 		title = playlist[t].title
 		artist = playlist[t].item.artist
 		t++
 	}
-	// fmt.Print("\x1b[s")
-	// fmt.Print("")
-	// fmt.Print("\x1b[0K")
 	fmt.Printf("\x1b[s\x1b[F\x1b[0K%10s %02d:%02d:%02d \x1b[35m[plr]:\x1b[0m %2s \x1b[35m%s\x1b[0m by \x1b[35m%s\x1b[0m\x1b[u",
 		fmt.Sprintf("%d/%d", t, len(playlist)), pos/3600%99, pos/60%60, pos%60,
 		player.getStatus(), title, artist)
-	// fmt.Print("\x1b[u")
+}
+
+func (h *headless) displayInternal(text string) {
+	h.displayMessage(newMessage(infoMessage, text))
 }
 
 func (h *headless) displayMessage(msg *message) {
@@ -73,56 +72,57 @@ loop:
 
 		case "s":
 			player.lowerVolume()
-			h.displayMessage(newMessage(infoMessage, "volume: "+player.getVolume()))
+			h.displayInternal("volume: " + player.getVolume())
 			continue loop
 
 		case "w":
 			player.raiseVolume()
-			h.displayMessage(newMessage(infoMessage, "volume: "+player.getVolume()))
+			h.displayInternal("volume: " + player.getVolume())
 			continue loop
 
 		case "m":
 			player.mute()
-			h.displayMessage(newMessage(infoMessage, "volume: "+player.getVolume()))
+			h.displayInternal("volume: " + player.getVolume())
 			continue loop
 
 		case "a", "d":
-			player.seek(input == "d")
+			offset := 3
+			if input == "a" {
+				offset *= -1
+			}
+			err := player.seekRelative(offset)
+			if err != nil {
+				h.displayInternal(err.Error())
+			}
 
-		case "p":
+		case "o":
 			player.stop()
 
+		case "p":
+			player.pause()
+
 		case "r":
-			player.nextMode()
-			h.displayMessage(newMessage(infoMessage, "mode: "+player.getPlaybackMode()))
+			// TODO: add playback mode switch
+			h.displayInternal("NOTE: NOT IMPLEMENTED")
 			continue loop
 
 		case " ":
 			player.playPause()
 
-		// TODO: remove
 		case "f":
-			if player.skip(true) {
-				t := player.currentTrack
-				downloader.run(playlist[t].mp3128, t)
-			} else {
-				dbg("no data")
-			}
+			// TODO: add next()
+			h.displayInternal("NOTE: NOT IMPLEMENTED")
+			continue loop
 
 		case "b":
-			if player.getCurrentTrackPosition() > time.Second*5 {
-				player.resetPosition()
-			} else {
-				if player.skip(false) {
-					t := player.currentTrack
-					downloader.run(playlist[t].mp3128, t)
-				} else {
-					dbg("no data")
-				}
-			}
+			// TODO: add prev/reset()
+			h.displayInternal("NOTE: NOT IMPLEMENTED")
+			continue loop
 
-		case "print":
-			fmt.Println(playlist[player.getCurrentTrack()].url)
+			// TODO: add playlist/lyrics/other metadata printing
+
+		case "print progress":
+			h.displayInternal(fmt.Sprint(player.getPosition()))
 
 		default:
 			handleInput(input)
