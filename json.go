@@ -14,7 +14,7 @@ var timeZone = time.FixedZone("UTC", 0)
 // FIXME: naming is a mess
 
 // output types
-type album struct {
+type item struct {
 	id                   int
 	artId                int
 	hasAudio             bool
@@ -36,6 +36,7 @@ type album struct {
 	modDate              time.Time
 	tags                 []string
 	totalTracks          int
+	tracks               []track
 }
 
 type track struct {
@@ -56,8 +57,6 @@ type track struct {
 	lyrics          string
 	mp3128          string
 	mp3v0           string
-
-	item *album
 }
 
 type trAlbum struct {
@@ -149,7 +148,7 @@ type dataTrAlbum struct {
 // parses out data from ld+json and data-tralbum sections of media
 // pages, hich combined contain all usefull metadata of media,
 // expects valid escaped json strings as input
-func parseTrAlbumJSON(ldJSON, tralbumJSON string) ([]track, error) {
+func parseTrAlbumJSON(ldJSON, tralbumJSON string) (*item, error) {
 	var metadata trAlbum
 	var mediadata dataTrAlbum
 
@@ -164,8 +163,8 @@ func parseTrAlbumJSON(ldJSON, tralbumJSON string) ([]track, error) {
 	}
 
 	metadataLen, mediadataLen := len(metadata.Tracks.ItemListElement), len(mediadata.Trackinfo)
-	if metadataLen != 0 && metadataLen != mediadataLen || mediadataLen == 0 {
-		return nil, errors.New("no media tracks were found")
+	if metadataLen != 0 && metadataLen != mediadataLen {
+		return nil, errors.New("got different track counts in parsed data")
 	}
 
 	// NOTE: in net.go page type is collected already,
@@ -182,11 +181,11 @@ func parseTrAlbumJSON(ldJSON, tralbumJSON string) ([]track, error) {
 	}
 }
 
-func extractAlbum(metadata *trAlbum, mediadata *dataTrAlbum) ([]track, error) {
+func extractAlbum(metadata *trAlbum, mediadata *dataTrAlbum) (*item, error) {
 	releaseDate, err := parseDate(metadata.DatePublished)
 	// FIXME: if one wrong, second would also be wrong
 	modDate, _ := parseDate(mediadata.Current.ModDate)
-	albumMetadata := album{
+	itemMetadata := &item{
 		id:                   mediadata.Id,
 		artId:                mediadata.ArtId,
 		hasAudio:             mediadata.HasAudio,
@@ -210,15 +209,16 @@ func extractAlbum(metadata *trAlbum, mediadata *dataTrAlbum) ([]track, error) {
 		totalTracks:          metadata.Tracks.NumberOfItems,
 	}
 
-	tracks := make([]track, len(mediadata.Trackinfo))
-	u, err := url.Parse(albumMetadata.url)
+	itemMetadata.tracks = make([]track, len(mediadata.Trackinfo))
+	// FIXME: do not fail?
+	u, err := url.Parse(itemMetadata.url)
 	if err != nil {
 		return nil, errors.New("json: album parser: failed to parse album url")
 	}
 
 	for i, item := range metadata.Tracks.ItemListElement {
 		u.Path = mediadata.Trackinfo[i].TitleLink
-		tracks[i] = track{
+		itemMetadata.tracks[i] = track{
 			trackId:         mediadata.Trackinfo[i].TrackId,
 			streaming:       mediadata.Trackinfo[i].Streaming,
 			playCount:       mediadata.Trackinfo[i].PlayCount,
@@ -236,14 +236,12 @@ func extractAlbum(metadata *trAlbum, mediadata *dataTrAlbum) ([]track, error) {
 			lyrics:          item.TrackInfo.RecordingOf.Lyrics.Text,
 			mp3128:          mediadata.Trackinfo[i].File.MP3128,
 			mp3v0:           mediadata.Trackinfo[i].File.MP3V0,
-
-			item: &albumMetadata,
 		}
 	}
-	return tracks, nil
+	return itemMetadata, nil
 }
 
-func extractTrack(metadata *trAlbum, mediadata *dataTrAlbum) ([]track, error) {
+func extractTrack(metadata *trAlbum, mediadata *dataTrAlbum) (*item, error) {
 	releaseDate, err := parseDate(metadata.DatePublished)
 	// FIXME: same for both track and album
 	modDate, _ := parseDate(mediadata.Current.ModDate)
@@ -273,7 +271,7 @@ func extractTrack(metadata *trAlbum, mediadata *dataTrAlbum) ([]track, error) {
 		artist = metadata.ByArtist.Name
 	}
 
-	albumMetadata := &album{
+	itemMetadata := &item{
 		id:                   mediadata.Current.AlbumId,
 		artId:                mediadata.ArtId,
 		hasAudio:             mediadata.HasAudio,
@@ -297,30 +295,30 @@ func extractTrack(metadata *trAlbum, mediadata *dataTrAlbum) ([]track, error) {
 		totalTracks:          -1, // still don't know how to extract total number from track page
 	}
 
-	tracks := make([]track, 1) // really hope that 'track' means 1 track always
+	itemMetadata.tracks = make([]track, len(mediadata.Trackinfo))
 
-	tracks[0] = track{
-		trackId:         mediadata.Trackinfo[0].TrackId,
-		streaming:       mediadata.Trackinfo[0].Streaming,
-		playCount:       mediadata.Trackinfo[0].PlayCount,
-		isCapped:        mediadata.Trackinfo[0].IsCapped,
-		hasLyrics:       mediadata.Trackinfo[0].HasLyrics,
-		unreleasedTrack: mediadata.Trackinfo[0].UnreleasedTrack,
-		hasFreeDownload: mediadata.Trackinfo[0].HasFreeDownload,
-		albumPreorder:   mediadata.Trackinfo[0].AlbumPreorder,
-		private:         mediadata.Trackinfo[0].Private,
-		artist:          mediadata.Trackinfo[0].Artist,
-		url:             mediadata.URL,
-		trackNumber:     mediadata.Trackinfo[0].TrackNum,
-		title:           metadata.Name,
-		duration:        mediadata.Trackinfo[0].Duration,
-		lyrics:          metadata.RecordingOf.Lyrics.Text,
-		mp3128:          mediadata.Trackinfo[0].File.MP3128,
-		mp3v0:           mediadata.Trackinfo[0].File.MP3V0,
-
-		item: albumMetadata,
+	for i := range mediadata.Trackinfo {
+		itemMetadata.tracks[i] = track{
+			trackId:         mediadata.Trackinfo[i].TrackId,
+			streaming:       mediadata.Trackinfo[i].Streaming,
+			playCount:       mediadata.Trackinfo[i].PlayCount,
+			isCapped:        mediadata.Trackinfo[i].IsCapped,
+			hasLyrics:       mediadata.Trackinfo[i].HasLyrics,
+			unreleasedTrack: mediadata.Trackinfo[i].UnreleasedTrack,
+			hasFreeDownload: mediadata.Trackinfo[i].HasFreeDownload,
+			albumPreorder:   mediadata.Trackinfo[i].AlbumPreorder,
+			private:         mediadata.Trackinfo[i].Private,
+			artist:          mediadata.Trackinfo[i].Artist,
+			url:             mediadata.URL,
+			trackNumber:     mediadata.Trackinfo[i].TrackNum,
+			title:           metadata.Name,
+			duration:        mediadata.Trackinfo[i].Duration,
+			lyrics:          metadata.RecordingOf.Lyrics.Text,
+			mp3128:          mediadata.Trackinfo[i].File.MP3128,
+			mp3v0:           mediadata.Trackinfo[i].File.MP3V0,
+		}
 	}
-	return tracks, nil
+	return itemMetadata, nil
 }
 
 func parseDate(input string) (time.Time, error) {

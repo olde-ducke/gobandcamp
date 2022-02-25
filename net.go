@@ -78,7 +78,7 @@ func makeRequest(ops *options, f func(*http.Response, error) error) error {
 	}
 }
 
-func processmediapage(ctx context.Context, link string, dbg, msg func(string)) ([]track, error) {
+func processmediapage(ctx context.Context, link string, dbg, msg func(string)) ([]item, error) {
 	dbg(link)
 	msg("fetching")
 	ops := options{
@@ -87,7 +87,7 @@ func processmediapage(ctx context.Context, link string, dbg, msg func(string)) (
 		method: "GET",
 	}
 
-	var tracks []track
+	var items []item
 	err := makeRequest(&ops, func(response *http.Response, err error) error {
 		if err != nil {
 			return err
@@ -139,36 +139,35 @@ func processmediapage(ctx context.Context, link string, dbg, msg func(string)) (
 			result := getValues(node, "a", "href")
 			if result != nil {
 				url, err := url.Parse(link)
-				// unecessarry?
+				// FIXME: unecessarry?
 				if err != nil {
 					return err
 				}
 
-				buf := make([][]track, len(result))
+				items = make([]item, len(result))
 				var wg sync.WaitGroup
 				for i, path := range result {
 					url.Path = path
 					wg.Add(1)
 					go func(n int, u string) {
 						defer wg.Done()
-						// FIXME: do in subroutines?
-						buf[n], err = processmediapage(ctx, u, dbg, func(string) {})
-						if err == nil {
-							dbg("done with " + u)
-						} else {
+						// FIXME: messy
+						res, err := processmediapage(ctx, u, dbg, func(string) {})
+						if err != nil {
 							dbg(err.Error())
+						} else if len(res) > 1 {
+							dbg("unexpected results: more than 1 album")
+						} else if len(res) > 0 {
+							items[n] = res[0]
+							dbg("done with " + u)
 						}
 					}(i, url.String())
 				}
 				wg.Wait()
 
-				for i := 0; i < len(buf); i++ {
-					if len(buf[i]) <= 0 {
-						return unexpectedError
-					}
-					tracks = append(tracks, buf[i]...)
+				if len(items) > 0 {
+					return nil
 				}
-				return nil
 			}
 			return unexpectedError
 
@@ -193,15 +192,17 @@ func processmediapage(ctx context.Context, link string, dbg, msg func(string)) (
 			return unexpectedError
 		}
 
-		tracks, err = parseTrAlbumJSON(metadata, mediadata)
+		buf, err := parseTrAlbumJSON(metadata, mediadata)
 		if err != nil {
 			return err
 		}
+		items = make([]item, 1)
+		items[0] = *buf
 
 		return nil
 	})
 
-	return tracks, err
+	return items, err
 }
 
 // FIXME: might be not very effective

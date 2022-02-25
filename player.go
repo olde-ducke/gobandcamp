@@ -182,33 +182,6 @@ func (player *beepPlayer) play(data []byte) error {
 	return nil
 }
 
-func (player *beepPlayer) restart() {
-	player.dbg("restart playback")
-	speaker.Clear()
-	//speaker.Play(beep.Seq(player.stream.volume, beep.Callback(
-	//	func() {
-	//	})))
-	speaker.Play(player.stream.volume)
-	player.status = playing
-}
-
-// stop is actually pause with position reset
-func (player *beepPlayer) stop() {
-	player.dbg("playback stopped")
-	player.status = stopped
-	if player.isReady() {
-		player.seekAbsolute(0)
-		speaker.Lock()
-		player.stream.ctrl.Paused = true
-		speaker.Unlock()
-	}
-}
-
-func (player *beepPlayer) clearStream() {
-	player.dbg("clearing buffer")
-	speaker.Clear()
-}
-
 func (player *beepPlayer) pause() {
 	if !player.isReady() {
 		return
@@ -239,6 +212,33 @@ func (player *beepPlayer) playPause() {
 	speaker.Unlock()
 }
 
+// stop is actually pause with position reset
+func (player *beepPlayer) stop() {
+	player.dbg("playback stopped")
+	player.status = stopped
+	if player.isReady() {
+		player.seekAbsolute(0)
+		speaker.Lock()
+		player.stream.ctrl.Paused = true
+		speaker.Unlock()
+	}
+}
+
+func (player *beepPlayer) restart() {
+	player.dbg("restart playback")
+	speaker.Clear()
+	//speaker.Play(beep.Seq(player.stream.volume, beep.Callback(
+	//	func() {
+	//	})))
+	speaker.Play(player.stream.volume)
+	player.status = playing
+}
+
+func (player *beepPlayer) clearStream() {
+	player.dbg("clearing buffer")
+	speaker.Clear()
+}
+
 func (player *beepPlayer) getVolume() string {
 	if player.muted {
 		return "mute"
@@ -246,6 +246,7 @@ func (player *beepPlayer) getVolume() string {
 		return fmt.Sprintf("%4.0f", (100 + player.volume*10))
 	}
 }
+
 func (player *beepPlayer) getStatus() playbackStatus {
 	if player.bufferedStatus < 0 {
 		return player.status

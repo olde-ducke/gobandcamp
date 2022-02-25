@@ -28,9 +28,9 @@ func (h *headless) update() {
 	pos := int(player.getTime().Seconds())
 	if total > 0 {
 		// t = player.getCurrentTrack()
-		title = playlist[t].title
-		artist = playlist[t].item.artist
-		t++
+		// title = playlist[t].title
+		// artist = playlist[t].item.artist
+		// t++
 	}
 	fmt.Printf("\x1b[s\x1b[F\x1b[0K%10s %02d:%02d:%02d \x1b[35m[plr]:\x1b[0m %2s \x1b[35m%s\x1b[0m by \x1b[35m%s\x1b[0m\x1b[u",
 		fmt.Sprintf("%d/%d", t, len(playlist)), pos/3600%99, pos/60%60, pos%60,
@@ -60,6 +60,7 @@ func (h *headless) displayMessage(msg *message) {
 
 func (h *headless) start() {
 	fmt.Println()
+	h.update()
 	var input string
 	scanner := bufio.NewScanner(os.Stdin)
 loop:

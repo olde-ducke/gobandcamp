@@ -106,7 +106,7 @@ func handleInput(input string) {
 	}
 
 	userInterface.displayMessage(
-		newMessage(errorMessage, "unrecognised command: \""+input+"\""))
+		newMessage(errorMessage, "unrecognized command: \""+input+"\""))
 }
 
 type parseWorker struct {
@@ -133,7 +133,7 @@ func (w *parseWorker) run(link string) {
 	w.wg.Add(1)
 	go func() {
 		defer w.wg.Done()
-		result, err := processmediapage(ctx, link, dbg,
+		_, err := processmediapage(ctx, link, dbg,
 			func(str string) {
 				msg := newMessage(textMessage, str)
 				// msg.Prefix = prefix
@@ -147,8 +147,9 @@ func (w *parseWorker) run(link string) {
 		if err != nil {
 			text <- newMessage(errorMessage, err.Error())
 		} else {
-			playlist = result
-			downloader.run(playlist[0].mp3128, 0)
+			// TODO: implement playlist
+			// playlist = result
+			// downloader.run(playlist[0].mp3128, 0)
 			// player.totalTracks = len(playlist)
 		}
 	}()
