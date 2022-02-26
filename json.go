@@ -29,6 +29,14 @@ type item struct {
 	url                  string
 	freeDownloadPage     string
 	releaseType          string
+	artURL               string
+	description          string
+	credits              string
+	publisherName        string
+	publisherGenre       string
+	publisherImageURL    string
+	publisherLocation    string
+	publisherSocials     []Social
 	albumReleaseDate     time.Time
 	dateErr              error
 	bandId               int
@@ -60,14 +68,17 @@ type track struct {
 }
 
 type trAlbum struct {
-	ByArtist      Artist `json:"byArtist"`      // field "name" contains artist/band name
-	Name          string `json:"name"`          // album/track name
-	DatePublished string `json:"datePublished"` // release date
-	// Image         string   `json:"image"`         // link to album art
-	Tags        []string `json:"keywords"`    // tags/keywords
-	Tracks      Track    `json:"track"`       // container for track data
-	InAlbum     Album    `json:"inAlbum"`     // album name for tracks
-	RecordingOf Lyrics   `json:"recordingOf"` // container for lyrics
+	ByArtist      Artist    `json:"byArtist"`      // field "name" contains artist/band name
+	Name          string    `json:"name"`          // album/track name
+	DatePublished string    `json:"datePublished"` // release date
+	Image         string    `json:"image"`         // direct link to album art
+	Tags          []string  `json:"keywords"`      // tags/keywords
+	Tracks        Track     `json:"track"`         // container for track data
+	InAlbum       Album     `json:"inAlbum"`       // album name for tracks
+	RecordingOf   Lyrics    `json:"recordingOf"`   // container for lyrics
+	Description   string    `json:"description"`   // item description displayed after track list
+	CreditText    string    `json:"creditText"`    // credits displayed after release date
+	Publisher     Publisher `json:"publisher"`     // publishers metadata
 }
 
 type Artist struct {
@@ -102,6 +113,23 @@ type Album struct {
 	AlbumReleaseType string `json:"albumReleaseType"` // not sure anymore
 	NumTracks        int    `json:"numTracks"`        // same
 	ByArtist         Artist `json:"byArtist"`         // field "name" contains artist/band name
+}
+
+type Publisher struct {
+	Name             string   `json:"name"`             // publishers name
+	Genre            string   `json:"genre"`            // url to genre page
+	Image            string   `json:"image"`            // direct link to publishers picture
+	FoundingLocation Location `json:"foundingLocation"` // field name is publishers country
+	MainEntityOfPage []Social `json:"mainEntityOfPage"` // publishers socials
+}
+
+type Location struct {
+	Name string `json:"name"`
+}
+
+type Social struct {
+	Name string `json:"name"` // website/social network name
+	URL  string `json:"url"`  // url
 }
 
 // data-tralbum
@@ -199,7 +227,15 @@ func extractAlbum(metadata *trAlbum, mediadata *dataTrAlbum) (*item, error) {
 		artist:               metadata.ByArtist.Name,
 		url:                  mediadata.URL,
 		freeDownloadPage:     mediadata.FreeDownloadPage,
-		releaseType:          "",
+		releaseType:          "", // FIXME is it always empty for albums?
+		artURL:               metadata.Image,
+		description:          metadata.Description,
+		credits:              metadata.CreditText,
+		publisherName:        metadata.Publisher.Name,
+		publisherGenre:       metadata.Publisher.Genre,
+		publisherImageURL:    metadata.Publisher.Image,
+		publisherLocation:    metadata.Publisher.FoundingLocation.Name,
+		publisherSocials:     metadata.Publisher.MainEntityOfPage,
 		albumReleaseDate:     releaseDate,
 		dateErr:              err,
 		bandId:               mediadata.Current.BandId,
@@ -286,6 +322,14 @@ func extractTrack(metadata *trAlbum, mediadata *dataTrAlbum) (*item, error) {
 		url:                  albumURL,
 		freeDownloadPage:     mediadata.FreeDownloadPage,
 		releaseType:          metadata.InAlbum.AlbumReleaseType,
+		artURL:               metadata.Image,
+		description:          metadata.Description,
+		credits:              metadata.CreditText,
+		publisherName:        metadata.Publisher.Name,
+		publisherGenre:       metadata.Publisher.Genre,
+		publisherImageURL:    metadata.Publisher.Image,
+		publisherLocation:    metadata.Publisher.FoundingLocation.Name,
+		publisherSocials:     metadata.Publisher.MainEntityOfPage,
 		albumReleaseDate:     releaseDate,
 		dateErr:              err,
 		bandId:               mediadata.Current.BandId,
