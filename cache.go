@@ -7,23 +7,22 @@ import (
 
 type FIFO struct {
 	sync.RWMutex
-	cache map[interface{}][]byte
+	cache map[string][]byte
 	queue *list.List
 	size  int
 }
 
-func newCache(size int) *FIFO {
+func NewCache(size int) *FIFO {
 	return &FIFO{
-		cache: make(map[interface{}][]byte, size),
+		cache: make(map[string][]byte, size),
 		queue: list.New(),
 		size:  size,
 	}
 }
 
-func (fifo *FIFO) set(key interface{}, value []byte) {
+func (fifo *FIFO) Set(key string, value []byte) {
 	fifo.Lock()
 	defer fifo.Unlock()
-	defer fifo.dump()
 	if _, ok := fifo.cache[key]; ok {
 		return
 	}
@@ -35,21 +34,21 @@ func (fifo *FIFO) set(key interface{}, value []byte) {
 	}
 
 	enqueue := fifo.queue.Front()
-	delete(fifo.cache, enqueue.Value)
+	delete(fifo.cache, enqueue.Value.(string))
 	fifo.queue.Remove(enqueue)
 	fifo.cache[key] = value
 	fifo.queue.PushBack(key)
 }
 
-func (fifo *FIFO) get(key string) ([]byte, bool) {
+func (fifo *FIFO) Get(key string) ([]byte, bool) {
 	fifo.Lock()
-	fifo.dump()
 	value, ok := fifo.cache[key]
 	fifo.Unlock()
 	return value, ok
 }
 
-func (fifo *FIFO) dump() {
+func (fifo *FIFO) Dump() []string {
+	var d []string
 	enqueue := fifo.queue.Front()
 	for i := 0; i < fifo.size; i++ {
 		var value interface{}
@@ -58,6 +57,7 @@ func (fifo *FIFO) dump() {
 			value = enqueue.Value
 			enqueue = enqueue.Next()
 		}
-		dbg("cache: " + value.(string))
+		d = append(d, value.(string))
 	}
+	return d
 }

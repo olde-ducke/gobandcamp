@@ -1,53 +1,55 @@
 package main
 
-/*import (
+import (
+	"fmt"
 	"time"
-
-	"github.com/gdamore/tcell/v2"
-	"github.com/gdamore/tcell/v2/views"
 )
 
-type messageBox struct {
-	*views.Text
+const formatString = "%s [%s]: %s%s\n"
+
+type messageType int
+
+const (
+	debugMessage messageType = iota
+	errorMessage
+	textMessage
+	infoMessage
+)
+
+var types = [4]string{"dbg", "err", "msg", "inf"}
+
+func (t messageType) String() string {
+	return types[t]
 }
 
-func (message *messageBox) HandleEvent(event tcell.Event) bool {
+type message struct {
+	msgType   messageType
+	timestamp time.Time
+	prefix    string
+	text      string
+}
 
-	if *debug {
-		switch event := event.(type) {
+func (msg *message) When() time.Time {
+	return msg.timestamp
+}
 
-		case *eventMessage:
-			logFile.WriteString(event.When().Format(time.ANSIC) + "[msg]:" + event.String() + "\n")
-			message.SetText(event.String())
-			return true
+func (msg *message) Type() messageType {
+	return msg.msgType
+}
 
-		case *eventErrorMessage:
+func (msg *message) String() string {
+	return fmt.Sprintf(formatString, msg.timestamp.Format(time.ANSIC),
+		msg.msgType, msg.prefix, msg.text)
+}
 
-			logFile.WriteString(event.When().Format(time.ANSIC) + "[err]:" + event.String() + "\n")
-			message.SetText(event.String())
-			return true
-		}
+func (msg *message) Text() string {
+	return msg.prefix + msg.text
+}
 
-	} else if event, ok := event.(textEvents); ok {
-		message.SetText(event.String())
-		return true
+func newMessage(t messageType, str string) *message {
+	return &message{
+		msgType:   t,
+		text:      str,
+		timestamp: time.Now(),
 	}
-
-	return false //message.Text.HandleEvent(event)
 }
-
-func (message *messageBox) Size() (int, int) {
-	width, _ := window.getBounds()
-	return width, 1
-}
-
-// TODO: remove if message ever becomes some other widget?
-func (message *messageBox) SetStyle(style tcell.Style) {
-	message.Text.SetStyle(style.Foreground(window.accentColor))
-}
-
-func init() {
-	messageBox := &messageBox{views.NewText()}
-	messageBox.SetText("messages will show up here, press [Esc] to quit")
-	window.widgets[message] = messageBox
-}*/

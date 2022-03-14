@@ -1,132 +1,47 @@
 package main
 
 import (
+	"errors"
+	"fmt"
 	"net/url"
 	"strings"
 )
 
-/*import (
-	"fmt"
-	"strings"
+type action int
 
-	"github.com/gdamore/tcell/v2"
-	"github.com/gdamore/tcell/v2/views"
-	"github.com/pkg/errors"
+const (
+	actionSearch action = iota
+	actionTagSearch
+	actionOpen
+	actionOpenURL
+	actionAdd
+	actionQuit
 )
 
-type textField struct {
-	views.TextArea
-	symbols  []rune
-	sbuilder strings.Builder
-	previous []rune
-}
-
-func (field *textField) HandleEvent(event tcell.Event) bool {
-	switch event := event.(type) {
-
-	case *tcell.EventKey:
-		if event.Key() == tcell.KeyTab {
-			window.hideInput = !window.hideInput
-			field.HideCursor(window.hideInput)
-			field.EnableCursor(!window.hideInput)
-			if !window.hideInput {
-				window.sendEvent(newMessage("enter url/command"))
-			} else {
-				window.sendEvent(&eventDisplayMessage{})
-			}
-			return true
-		}
-
-		if window.hideInput {
-			return false
-		}
-
-		posX, _, _, _ := field.GetModel().GetCursor()
-
-		switch event.Key() {
-		case tcell.KeyEnter:
-			parseInput(field.getText())
-			field.Clear()
-			window.hideInput = !window.hideInput
-			field.HideCursor(window.hideInput)
-			field.EnableCursor(!window.hideInput)
-			return true
-
-		case tcell.KeyUp:
-			field.symbols = make([]rune, len(field.previous))
-			copy(field.symbols, field.previous)
-			field.SetContent(string(field.symbols))
-			field.SetCursorX(len(field.symbols))
-			return true
-
-		case tcell.KeyDown:
-			field.Clear()
-			return true
-
-			// NOTE: only backspace2 works on linux(? not sure)
-			// only regular one works on windows
-		case tcell.KeyBackspace2, tcell.KeyBackspace:
-			if posX > 0 {
-				posX--
-				field.symbols[posX] = 0
-				field.symbols = append(field.symbols[:posX],
-					field.symbols[posX+1:]...)
-			}
-			field.SetContent(string(field.symbols))
-			field.SetCursorX(posX)
-			return true
-
-		case tcell.KeyDelete:
-			if posX < len(field.symbols)-1 {
-				field.symbols[posX] = 0
-				field.symbols = append(field.symbols[:posX],
-					field.symbols[posX+1:]...)
-				posX++
-			}
-			field.SetContent(string(field.symbols))
-			return true
-
-		case tcell.KeyRune:
-			field.symbols = append(field.symbols, 0)
-			copy(field.symbols[posX+1:], field.symbols[posX:])
-			field.symbols[posX] = event.Rune()
-			field.SetContent(string(field.symbols))
-			field.SetCursorX(posX + 1)
-			return true
-		}
-	}
-	return field.TextArea.HandleEvent(event)
-}
-
-func (field *textField) getText() string {
-	for i, r := range field.symbols {
-		// trailing space doesn't need to be in actual input
-		if i == len(field.symbols)-1 {
-			break
-		}
-		fmt.Fprint(&field.sbuilder, string(r))
-	}
-	field.previous = make([]rune, len(field.symbols))
-	copy(field.previous, field.symbols)
-	defer field.sbuilder.Reset()
-	return field.sbuilder.String()
-}
-
-func (field *textField) Clear() {
-	field.SetContent(" ")
-	field.symbols = make([]rune, 1)
-	field.symbols[0] = ' '
-	field.SetCursorX(0)
-}
-
-*/
-
 type arguments struct {
-	tags     []string
-	location []string
-	sort     string
-	format   string
-	flag     int
+	action action
+	path   string
+	query  []string
+	args   map[string]string
+}
+
+func (args *arguments) String() string {
+	actions := [6]string{"search", "tagSearch", "open", "openURL", "add", "quit"}
+
+	out := "action: " + actions[args.action]
+	if args.path != "" {
+		out += "; path: \"" + args.path + "\""
+	}
+
+	if args.query != nil {
+		out += "; query: \"" + strings.Join(args.query, "+") + "\""
+	}
+
+	if args.args != nil {
+		out += "; args: " + fmt.Sprint(args.args)
+	}
+
+	return out
 }
 
 func isValidURL(input string) (string, bool) {
@@ -136,10 +51,13 @@ func isValidURL(input string) (string, bool) {
 	}
 
 	// set scheme to https if input ends with ".com"
-	if u.Scheme == "" && u.Host == "" && len(u.Path) > 4 && strings.HasSuffix(u.Path, ".com") {
-		u.Scheme = "https"
-		u.Host = u.Path
-		u.Path = ""
+	if u.Scheme == "" && u.Host == "" && len(u.Path) > 4 {
+		split := strings.Split(u.Path, "/")
+		if strings.HasSuffix(split[0], ".com") {
+			u.Scheme = "https"
+			u.Host = split[0]
+			u.Path = strings.Join(split[1:], "/")
+		}
 	}
 
 	if u.Host == "" || u.Scheme != "http" && u.Scheme != "https" {
@@ -149,85 +67,171 @@ func isValidURL(input string) (string, bool) {
 	return u.String(), true
 }
 
-func filterSort(sort string) string {
-	if sort != "random" && sort != "date" && sort != "highlights" {
-		sort = ""
-	}
-	return sort
+func filterSort(sort string) bool {
+	return sort == "random" || sort == "date" || sort == "pop"
 }
 
-func filterFormat(format string) string {
-	if format != "cd" && format != "cassette" && format != "vinyl" {
-		format = ""
-	}
-	return format
+func filterFormat(format string) bool {
+	return format == "cd" || format == "cassette" || format == "vinyl" || format == "all"
 }
 
-/*
-func parseInput(input string) {
-	commands := strings.Split(input, " ")
-	if strings.Contains(commands[0], "http://") || strings.Contains(commands[0], "https://") {
-		wg.Add(1)
-		go processMediaPage(commands[0])
-		return
-	} else if commands[0] == "exit" || commands[0] == "q" || commands[0] == "quit" {
-		app.Quit()
-		return
-	} else if commands[0] != "-t" && commands[0] != "--tag" {
-		window.sendEvent(newErrorMessage(errors.New("unrecognised command")))
-		return
+// command|query|url [optional args]
+// commands:
+// --quit, --exit,	-q	- quit
+// --add,			-a	- add path/url to playlist
+// --open,			-o	- create playlist from url/path
+// <url>				- create playlist from url
+// <string>				- search everywhere
+// --album,			-A	- search in albums
+// --track,			-T	- search in tracks
+// --band,			-b	- search in artists/labels
+// --user,			-u	- search in users
+// --tag,			-t  - tag search
+//		--sort,		-s	- sorting method
+//		--format,	-f	- filter by formtat
+//		--location,	-l	- location
+//		--highlights	- get highlights of genre
+func parseInput(input string) (*arguments, []string, error) {
+	args := strings.Fields(input)
+	if len(args) == 0 {
+		return nil, nil, errors.New("empty input")
 	}
 
-	var args arguments
+	parsed := &arguments{}
+	needValue := true
+	if path, ok := isValidURL(args[0]); ok {
+		parsed.action = actionOpenURL
+		parsed.path = path
+		return parsed, args[1:], nil
+	}
 
-	for i := 0; i < len(commands); i++ {
-		if i <= len(commands)-2 && strings.HasPrefix(commands[i], "-") {
-			switch commands[i] {
-			case "-t", "--tag":
-				args.flag = 1
-			case "-l", "--location":
-				args.flag = 2
-			case "-s", "--sort":
-				args.flag = 3
-			case "-f", "--format":
-				args.flag = 4
-			default:
-				args.flag = 0
-			}
-			i++
+	if strings.HasPrefix(args[0], "-") {
+		switch args[0] {
+		case "--quit", "--exit", "-q":
+			parsed.action = actionQuit
+			needValue = false
+
+		case "--add", "-a":
+			parsed.action = actionAdd
+
+		case "--open", "-o":
+			parsed.action = actionOpen
+
+		case "--album", "-A":
+			parsed.args = make(map[string]string, 1)
+			parsed.args["item_type"] = "a"
+
+		case "--track", "-T":
+			parsed.args = make(map[string]string, 1)
+			parsed.args["item_type"] = "t"
+
+		case "--band", "-b":
+			parsed.args = make(map[string]string, 1)
+			parsed.args["item_type"] = "b"
+
+		case "--user", "-u":
+			parsed.args = make(map[string]string, 1)
+			parsed.args["item_type"] = "f"
+
+		case "--tag", "-t":
+			parsed.action = actionTagSearch
+
+		default:
+			return nil, args, errors.New("unknown command: " + args[0])
 		}
-
-		if commands[i] != "" {
-			switch args.flag {
-			case 1:
-				args.tags = append(args.tags, commands[i])
-			case 2:
-				args.location = append(args.location, commands[i])
-			case 3:
-				if commands[i] == "random" || commands[i] == "date" || commands[i] == "highlights" {
-					args.sort = commands[i]
-				}
-			case 4:
-				if commands[i] == "cd" || commands[i] == "cassette" || commands[i] == "vinyl" {
-					args.format = commands[i]
-				}
-			}
+		str := args[0]
+		args = args[1:]
+		if len(args) == 0 && needValue {
+			return nil, args, errors.New("query not specified for flag: " + str)
 		}
 	}
 
-	if len(args.tags) > 0 {
-		wg.Add(1)
-		go processTagPage(args)
-	} else {
-		window.sendEvent(newMessage("no tags to search"))
+	if parsed.action == actionSearch {
+		if parsed.args == nil {
+			parsed.args = make(map[string]string, 1)
+			parsed.args["item_type"] = ""
+		}
+		parsed.query = args
+		args = args[len(args):]
+		needValue = false
 	}
-}
 
-// initialize widget
-func init() {
-	textField := &textField{}
-	textField.Clear()
-	textField.previous = make([]rune, 1)
-	textField.previous[0] = ' '
-	window.widgets[field] = textField
-}*/
+	if parsed.action == actionTagSearch {
+		var key string
+		for len(args) > 0 {
+			if strings.HasPrefix(args[0], "-") {
+				if needValue {
+					return nil, args, errors.New("expected value, got flag: " + args[0])
+				}
+				needValue = true
+				switch args[0] {
+				case "--tag", "-t":
+					key = ""
+
+				case "--format", "-f":
+					key = "f"
+
+				case "--location", "-l":
+					key = "l"
+
+				case "--sort", "-s":
+					key = "s"
+
+				case "--highlights":
+					key = "tab"
+					needValue = false
+
+				default:
+					return nil, args, errors.New("unknown flag: " + args[0])
+				}
+
+				str := args[0]
+				args = args[1:]
+				if len(args) == 0 && needValue {
+					return nil, args, errors.New("query not specified for flag: " + str)
+				}
+			}
+
+			if key == "" {
+				parsed.query = append(parsed.query, args[0])
+			} else {
+				if parsed.args == nil {
+					parsed.args = make(map[string]string, 4)
+					parsed.args["tab"] = "all_releases"
+				}
+
+				if key == "l" {
+					parsed.args[key] += " " + args[0]
+				}
+
+				if key == "tab" {
+					parsed.args[key] = "highlights"
+					return parsed, args, nil
+				}
+
+				if key == "f" {
+					if ok := filterFormat(args[0]); !ok {
+						return nil, args, errors.New("incorrect value for format: " + args[0])
+					}
+					parsed.args[key] = args[0]
+				}
+
+				if key == "s" {
+					if ok := filterSort(args[0]); !ok {
+						return nil, args, errors.New("incorrect value for sort: " + args[0])
+					}
+					parsed.args[key] = args[0]
+				}
+			}
+			needValue = false
+			args = args[1:]
+		}
+	}
+
+	if needValue {
+		parsed.path = strings.Join(args, " ")
+		args = args[len(args):]
+	}
+
+	return parsed, args, nil
+}
