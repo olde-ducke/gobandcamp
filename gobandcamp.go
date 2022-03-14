@@ -42,9 +42,9 @@ func run(debug bool) {
 	}
 
 	var quitting bool
-	ui := newHeadless(player, p)
 	player := NewBeepPlayer(dbg)
 	p := NewPlaylist(player, dbg)
+	ui := newHeadless(player, p)
 	extractor := newExtractor(&wg, p, dbg)
 	musicCache := NewCache(4)
 	musicDownloader := newDownloader(&wg, musicCache, dbg)
