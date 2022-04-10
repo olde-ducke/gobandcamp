@@ -75,9 +75,6 @@ loop:
 			break loop
 
 		case <-update:
-			// TODO: replace with app.Update ???
-			// TODO: consider switching event sending
-			// to app and defining app as interface
 			ui.Update()
 
 		case msg := <-text:
@@ -124,8 +121,9 @@ loop:
 				ui.Quit()
 			}
 
-		default:
-			time.Sleep(50 * time.Millisecond)
+			// FIXME: don't remember why this was added
+			// default:
+			//	time.Sleep(50 * time.Millisecond)
 		}
 	}
 }

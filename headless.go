@@ -7,24 +7,23 @@ import (
 	"sync"
 )
 
-var dummyData = []item{
-	{
-		artist:   "test artist",
-		url:      "https://albumurl",
-		tags:     []string{"test", "another tag", "test"},
-		title:    "album title test",
-		artURL:   "art url",
-		hasAudio: true,
-		tracks: []track{{
-			streaming:       1,
-			unreleasedTrack: false,
-			mp3128:          "https://testpath",
-			title:           "track title",
-			artist:          "track artist",
-			trackNumber:     26,
-			url:             "https://trackurl",
-			duration:        666.66,
-		}}}}
+var dummyData = item{
+	artist:   "test artist",
+	url:      "https://albumurl",
+	tags:     []string{"test", "another tag", "test"},
+	title:    "album title test",
+	artURL:   "art url",
+	hasAudio: true,
+	tracks: []track{{
+		streaming:       1,
+		unreleasedTrack: false,
+		mp3128:          "https://testpath",
+		title:           "track title",
+		artist:          "track artist",
+		trackNumber:     26,
+		url:             "https://trackurl",
+		duration:        666.66,
+	}}}
 
 type headless struct {
 	wg           sync.WaitGroup
@@ -156,7 +155,7 @@ func (h *headless) start() {
 			h.displayInternal("mode: " + h.playlist.GetMode().String())
 
 		case " ":
-			h.player.PlayPause()
+			h.player.Play()
 
 		case "f":
 			h.playlist.Next()
@@ -171,7 +170,7 @@ func (h *headless) start() {
 			h.displayInternal(fmt.Sprint())
 
 		case ":enqueue data":
-			if err := h.playlist.Enqueue(dummyData); err != nil {
+			if err := h.playlist.Enqueue([]item{dummyData}); err != nil {
 				h.displayInternal(err.Error())
 			}
 
@@ -181,7 +180,13 @@ func (h *headless) start() {
 			}
 
 		case ":add data":
-			err := h.playlist.Add(dummyData)
+			err := h.playlist.Add([]item{dummyData})
+			if err != nil {
+				h.displayInternal(err.Error())
+			}
+
+		case ":add playlist":
+			err := h.playlist.Add([]item{dummyData, dummyData, dummyData, dummyData})
 			if err != nil {
 				h.displayInternal(err.Error())
 			}
