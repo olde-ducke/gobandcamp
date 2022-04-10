@@ -50,8 +50,8 @@ func (w *extractorWorker) run(link string) {
 				msg := newMessage(textMessage, str)
 				w.wg.Add(1)
 				go func() {
-					text <- msg
 					defer w.wg.Done()
+					text <- msg
 				}()
 			})
 		if err != nil {
@@ -67,10 +67,10 @@ func (w *extractorWorker) run(link string) {
 }
 
 func newExtractor(wg *sync.WaitGroup, p *playlist, dbg func(string)) *extractorWorker {
-	var extractor = &extractorWorker{}
-	extractor.worker = *newWorker(wg, dbg)
-	extractor.p = p
-	return extractor
+	return &extractorWorker{
+		worker: *newWorker(wg, dbg),
+		p:      p,
+	}
 }
 
 type downloadWorker struct {
@@ -94,8 +94,8 @@ func (w *downloadWorker) run(link string, n int) {
 				// do not wait for other end, send and forget
 				w.wg.Add(1)
 				go func() {
-					text <- msg
 					defer w.wg.Done()
+					text <- msg
 				}()
 			})
 		if err != nil {
@@ -112,8 +112,8 @@ func (w *downloadWorker) run(link string, n int) {
 }
 
 func newDownloader(wg *sync.WaitGroup, cache *FIFO, dbg func(string)) *downloadWorker {
-	var downloader = &downloadWorker{}
-	downloader.worker = *newWorker(wg, dbg)
-	downloader.cache = cache
-	return downloader
+	return &downloadWorker{
+		worker: *newWorker(wg, dbg),
+		cache:  cache,
+	}
 }

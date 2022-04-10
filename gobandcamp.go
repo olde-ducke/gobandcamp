@@ -67,8 +67,8 @@ loop:
 
 			// wait for other goroutines and send final signal
 			go func() {
-				wg.Wait()
 				defer close(finish)
+				wg.Wait()
 			}()
 
 		case <-finish:
