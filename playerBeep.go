@@ -144,8 +144,8 @@ func (player *beepPlayer) Load(data []byte) error {
 	speaker.Lock()
 	player.format = format
 	player.stream = newStream(format.SampleRate, streamer, player.volume, player.muted)
-	player.status = stopped
 	speaker.Unlock()
+	player.status = stopped
 	player.dbg("stream loaded")
 	// deadlocks if anything speaker related is done inside callback
 	// since it's locking device itself
@@ -154,6 +154,20 @@ func (player *beepPlayer) Load(data []byte) error {
 	//	})))
 	speaker.Play(player.stream.volume)
 	return nil
+}
+
+func (player *beepPlayer) Reload() {
+	if !player.isReady() {
+		return
+	}
+	player.dbg("reload same stream")
+	player.Stop()
+	speaker.Clear()
+	//speaker.Play(beep.Seq(player.stream.volume, beep.Callback(
+	//	func() {
+	//	})))
+	speaker.Play(player.stream.volume)
+	player.status = stopped
 }
 
 func (player *beepPlayer) Pause() {
@@ -167,7 +181,7 @@ func (player *beepPlayer) Pause() {
 	speaker.Unlock()
 }
 
-func (player *beepPlayer) PlayPause() {
+func (player *beepPlayer) Play() {
 	if !player.isReady() {
 		return
 	}
@@ -198,22 +212,12 @@ func (player *beepPlayer) Stop() {
 	}
 }
 
-func (player *beepPlayer) reload() {
-	player.dbg("reload same stream")
-	speaker.Clear()
-	//speaker.Play(beep.Seq(player.stream.volume, beep.Callback(
-	//	func() {
-	//	})))
-	speaker.Play(player.stream.volume)
-	player.status = stopped
-}
-
 func (player *beepPlayer) GetVolume() string {
 	if player.muted {
 		return "mute"
-	} else {
-		return fmt.Sprintf("%4.0f", (100 + player.volume*10))
 	}
+
+	return fmt.Sprintf("%4.0f", (100 + player.volume*10))
 }
 
 func (player *beepPlayer) GetStatus() playbackStatus {

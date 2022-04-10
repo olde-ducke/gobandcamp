@@ -31,8 +31,9 @@ type Player interface {
 	SeekRelative(int) error
 	SeekAbsolute(float64) error
 	Load([]byte) error
+	Reload()
 	Pause()
-	PlayPause()
+	Play()
 	Stop()
 	GetVolume() string
 	GetStatus() playbackStatus
