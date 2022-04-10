@@ -16,7 +16,7 @@ var timeZone = time.FixedZone("UTC", 0)
 // output types
 type item struct {
 	id                   int
-	artId                int
+	artID                int
 	hasAudio             bool
 	isBonus              bool
 	isPreorder           bool
@@ -39,7 +39,7 @@ type item struct {
 	publisherSocials     []Social
 	albumReleaseDate     time.Time
 	dateErr              error
-	bandId               int
+	bandID               int
 	title                string
 	modDate              time.Time
 	tags                 []string
@@ -48,7 +48,7 @@ type item struct {
 }
 
 type track struct {
-	trackId         int
+	trackID         int
 	streaming       int
 	playCount       int
 	isCapped        bool
@@ -134,8 +134,8 @@ type Social struct {
 
 // data-tralbum
 type dataTrAlbum struct {
-	Id                   int    `json:"id"`                      // item id
-	ArtId                int    `json:"art_id"`                  // album cover ID
+	ID                   int    `json:"id"`                      // item id
+	ArtID                int    `json:"art_id"`                  // album cover ID
 	HasAudio             bool   `json:"hasAudio"`                //
 	IsBonus              bool   `json:"is_bonus"`                //
 	IsPreorder           bool   `json:"is_preorder"`             //
@@ -148,12 +148,12 @@ type dataTrAlbum struct {
 	URL                  string `json:"url"`                     // either album or track URL
 	FreeDownloadPage     string `json:"freeDownloadPage"`        //
 	Current              struct {
-		AlbumId int    `json:"album_id"` // doesn't exist on albums
-		BandId  int    `json:"band_id"`  //
+		AlbumID int    `json:"album_id"` // doesn't exist on albums
+		BandID  int    `json:"band_id"`  //
 		ModDate string `json:"mod_date"` //
 	} `json:"current"`
 	Trackinfo []struct {
-		TrackId         int     `json:"track_id"`          //
+		TrackID         int     `json:"track_id"`          //
 		Streaming       int     `json:"streaming"`         //
 		PlayCount       int     `json:"play_count"`        //
 		TrackNum        int     `json:"track_num"`         //
@@ -214,8 +214,8 @@ func extractAlbum(metadata *trAlbum, mediadata *dataTrAlbum) (*item, error) {
 	// FIXME: if one wrong, second would also be wrong
 	modDate, _ := parseDate(mediadata.Current.ModDate)
 	itemMetadata := &item{
-		id:                   mediadata.Id,
-		artId:                mediadata.ArtId,
+		id:                   mediadata.ID,
+		artID:                mediadata.ArtID,
 		hasAudio:             mediadata.HasAudio,
 		isBonus:              mediadata.IsBonus,
 		isPreorder:           mediadata.IsPreorder,
@@ -238,7 +238,7 @@ func extractAlbum(metadata *trAlbum, mediadata *dataTrAlbum) (*item, error) {
 		publisherSocials:     metadata.Publisher.MainEntityOfPage,
 		albumReleaseDate:     releaseDate,
 		dateErr:              err,
-		bandId:               mediadata.Current.BandId,
+		bandID:               mediadata.Current.BandID,
 		title:                metadata.Name,
 		modDate:              modDate,
 		tags:                 metadata.Tags,
@@ -255,7 +255,7 @@ func extractAlbum(metadata *trAlbum, mediadata *dataTrAlbum) (*item, error) {
 	for i, item := range metadata.Tracks.ItemListElement {
 		u.Path = mediadata.Trackinfo[i].TitleLink
 		itemMetadata.tracks[i] = track{
-			trackId:         mediadata.Trackinfo[i].TrackId,
+			trackID:         mediadata.Trackinfo[i].TrackID,
 			streaming:       mediadata.Trackinfo[i].Streaming,
 			playCount:       mediadata.Trackinfo[i].PlayCount,
 			isCapped:        mediadata.Trackinfo[i].IsCapped,
@@ -308,8 +308,8 @@ func extractTrack(metadata *trAlbum, mediadata *dataTrAlbum) (*item, error) {
 	}
 
 	itemMetadata := &item{
-		id:                   mediadata.Current.AlbumId,
-		artId:                mediadata.ArtId,
+		id:                   mediadata.Current.AlbumID,
+		artID:                mediadata.ArtID,
 		hasAudio:             mediadata.HasAudio,
 		isBonus:              mediadata.IsBonus,
 		isPreorder:           mediadata.IsPreorder,
@@ -332,7 +332,7 @@ func extractTrack(metadata *trAlbum, mediadata *dataTrAlbum) (*item, error) {
 		publisherSocials:     metadata.Publisher.MainEntityOfPage,
 		albumReleaseDate:     releaseDate,
 		dateErr:              err,
-		bandId:               mediadata.Current.BandId,
+		bandID:               mediadata.Current.BandID,
 		title:                metadata.InAlbum.Name,
 		modDate:              modDate,
 		tags:                 metadata.Tags,
@@ -343,7 +343,7 @@ func extractTrack(metadata *trAlbum, mediadata *dataTrAlbum) (*item, error) {
 
 	for i := range mediadata.Trackinfo {
 		itemMetadata.tracks[i] = track{
-			trackId:         mediadata.Trackinfo[i].TrackId,
+			trackID:         mediadata.Trackinfo[i].TrackID,
 			streaming:       mediadata.Trackinfo[i].Streaming,
 			playCount:       mediadata.Trackinfo[i].PlayCount,
 			isCapped:        mediadata.Trackinfo[i].IsCapped,
@@ -416,7 +416,7 @@ type SearchItem struct {
 	Artist string `json:"artist"`      // artist
 	Genre  string `json:"genre"`       // genre
 	URL    string `json:"tralbum_url"` // tralbum_url
-	ArtId  int    `json:"art_id"`      // art_id
+	ArtID  int    `json:"art_id"`      // art_id
 }
 
 func parseTagSearchJSON(dataBlobJSON string, highlights bool) (*Result, error) {

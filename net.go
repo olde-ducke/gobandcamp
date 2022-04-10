@@ -27,9 +27,9 @@ func getTruncatedURL(link string) string {
 	if strings.Contains(link, "?") {
 		index := strings.Index(link, "?")
 		return link[:index]
-	} else {
-		return ""
 	}
+
+	return ""
 }
 
 type options struct {
