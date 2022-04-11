@@ -35,7 +35,7 @@ func newWorker(wg *sync.WaitGroup, dbg func(string)) *worker {
 
 type extractorWorker struct {
 	worker
-	p *playlist
+	cache *simpleCache
 }
 
 func (w *extractorWorker) run(link string) {
@@ -59,17 +59,14 @@ func (w *extractorWorker) run(link string) {
 			return
 		}
 
-		err = w.p.Add(items)
-		if err != nil {
-			text <- newMessage(errorMessage, err.Error())
-		}
+		w.cache.Set(link, items)
 	}()
 }
 
-func newExtractor(wg *sync.WaitGroup, p *playlist, dbg func(string)) *extractorWorker {
+func newExtractor(wg *sync.WaitGroup, cache *simpleCache, dbg func(string)) *extractorWorker {
 	return &extractorWorker{
 		worker: *newWorker(wg, dbg),
-		p:      p,
+		cache:  cache,
 	}
 }
 

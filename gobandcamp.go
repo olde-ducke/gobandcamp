@@ -35,8 +35,8 @@ func run(debug bool) {
 			// might break something
 			wg.Add(1)
 			go func() {
-				text <- msg
 				defer wg.Done()
+				text <- msg
 			}()
 		}
 	}
@@ -45,7 +45,8 @@ func run(debug bool) {
 	player := NewBeepPlayer(dbg)
 	p := NewPlaylist(player, dbg)
 	ui := newHeadless(player, p)
-	extractor := newExtractor(&wg, p, dbg)
+	tempCache := newSimpleCache(3)
+	extractor := newExtractor(&wg, tempCache, dbg)
 	musicCache := NewCache(4)
 	musicDownloader := newDownloader(&wg, musicCache, dbg)
 	go ui.Run(quit, input)
