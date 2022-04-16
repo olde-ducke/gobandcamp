@@ -83,7 +83,7 @@ func (h *headless) Update() {
 }
 
 func (h *headless) displayInternal(text string) {
-	h.DisplayMessage(newMessage(infoMessage, "ui: "+text))
+	h.DisplayMessage(newMessage(infoMessage, "", "ui: "+text))
 }
 
 func (h *headless) DisplayMessage(msg *message) {

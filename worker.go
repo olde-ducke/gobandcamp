@@ -10,7 +10,9 @@ type worker struct {
 	cancelPrev func()
 	cancelCurr func()
 	dbg        func(string)
+	errr       func(string)
 	wg         *sync.WaitGroup
+	out        chan<- *message
 }
 
 func (w *worker) stop() {
@@ -24,17 +26,19 @@ func (w *worker) cancelPrevJob(cancel func()) {
 	w.cancelCurr = cancel
 }
 
-func newWorker(wg *sync.WaitGroup, dbg func(string)) *worker {
+func newWorker(wg *sync.WaitGroup, dbg, errr func(string), out chan<- *message) *worker {
 	return &worker{
 		cancelPrev: func() {},
 		cancelCurr: func() {},
 		dbg:        dbg,
+		errr:       errr,
 		wg:         wg,
+		out:        out,
 	}
 }
 
 type extractorWorker struct {
-	worker
+	*worker
 	cache *simpleCache
 }
 
@@ -46,16 +50,9 @@ func (w *extractorWorker) run(link string) {
 	go func() {
 		defer w.wg.Done()
 		items, err := processmediapage(ctx, link, w.dbg,
-			func(str string) {
-				msg := newMessage(textMessage, str)
-				w.wg.Add(1)
-				go func() {
-					defer w.wg.Done()
-					text <- msg
-				}()
-			})
+			newReporter(textMessage, link+" ", w.wg, w.out))
 		if err != nil {
-			text <- newMessage(errorMessage, err.Error())
+			w.errr(err.Error())
 			return
 		}
 
@@ -63,15 +60,15 @@ func (w *extractorWorker) run(link string) {
 	}()
 }
 
-func newExtractor(wg *sync.WaitGroup, cache *simpleCache, dbg func(string)) *extractorWorker {
+func newExtractor(wg *sync.WaitGroup, cache *simpleCache, dbg, errr func(string), out chan<- *message) *extractorWorker {
 	return &extractorWorker{
-		worker: *newWorker(wg, dbg),
+		worker: newWorker(wg, dbg, errr, out),
 		cache:  cache,
 	}
 }
 
 type downloadWorker struct {
-	worker
+	*worker
 	cache *FIFO
 }
 
@@ -85,22 +82,13 @@ func (w *downloadWorker) run(link string, n int) {
 	go func() {
 		defer w.wg.Done()
 		result, err := downloadmedia(ctx, link, w.dbg,
-			func(str string) {
-				msg := newMessage(textMessage, str)
-				msg.prefix = prefix
-				// do not wait for other end, send and forget
-				w.wg.Add(1)
-				go func() {
-					defer w.wg.Done()
-					text <- msg
-				}()
-			})
+			newReporter(textMessage, prefix, w.wg, w.out))
 		if err != nil {
-			text <- newMessage(errorMessage, prefix+err.Error())
+			w.errr(err.Error())
 		} else {
 			key := getTruncatedURL(link)
 			if key == "" {
-				text <- newMessage(errorMessage, "incorrect cache key")
+				w.errr("incorrect cache key")
 				return
 			}
 			w.cache.Set(key, result)
@@ -108,9 +96,9 @@ func (w *downloadWorker) run(link string, n int) {
 	}()
 }
 
-func newDownloader(wg *sync.WaitGroup, cache *FIFO, dbg func(string)) *downloadWorker {
+func newDownloader(wg *sync.WaitGroup, cache *FIFO, dbg, errr func(string), out chan<- *message) *downloadWorker {
 	return &downloadWorker{
-		worker: *newWorker(wg, dbg),
+		worker: newWorker(wg, dbg, errr, out),
 		cache:  cache,
 	}
 }

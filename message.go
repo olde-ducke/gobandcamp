@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"sync"
 	"time"
 )
 
@@ -46,10 +47,22 @@ func (msg *message) Text() string {
 	return msg.prefix + msg.text
 }
 
-func newMessage(t messageType, str string) *message {
+func newMessage(t messageType, prefix, str string) *message {
 	return &message{
 		msgType:   t,
+		prefix:    prefix,
 		text:      str,
 		timestamp: time.Now(),
+	}
+}
+
+func newReporter(t messageType, prefix string, wg *sync.WaitGroup, out chan<- *message) func(string) {
+	return func(str string) {
+		msg := newMessage(t, prefix, str)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			out <- msg
+		}()
 	}
 }
