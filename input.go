@@ -2,7 +2,6 @@ package main
 
 import (
 	"errors"
-	"fmt"
 	"net/url"
 	"strings"
 )
@@ -23,25 +22,6 @@ type arguments struct {
 	path   string
 	query  []string
 	args   map[string]string
-}
-
-func (args *arguments) String() string {
-	actions := [6]string{"search", "tagSearch", "open", "openURL", "add", "quit"}
-
-	out := "action: " + actions[args.action]
-	if args.path != "" {
-		out += "; path: \"" + args.path + "\""
-	}
-
-	if args.query != nil {
-		out += "; query: \"" + strings.Join(args.query, "+") + "\""
-	}
-
-	if args.args != nil {
-		out += "; args: " + fmt.Sprint(args.args)
-	}
-
-	return out
 }
 
 func isValidURL(input string) (string, bool) {
@@ -75,7 +55,7 @@ func filterFormat(format string) bool {
 	return format == "cd" || format == "cassette" || format == "vinyl" || format == "all"
 }
 
-// command|query|url [optional args]
+// [command] query|path [args]
 // commands:
 // --quit, --exit,	-q	- quit
 // --add,			-a	- add path/url to playlist
@@ -188,7 +168,7 @@ func parseInput(input string) (*arguments, []string, error) {
 				str := args[0]
 				args = args[1:]
 				if len(args) == 0 && needValue {
-					return nil, args, errors.New("query not specified for flag: " + str)
+					return nil, args, errors.New("value not specified for flag: " + str)
 				}
 			}
 
