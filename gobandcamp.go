@@ -11,7 +11,7 @@ func run(debug bool) {
 	ticker := time.NewTicker(time.Second)
 	update := ticker.C
 	quit := make(chan struct{})
-	input := make(chan string)
+	do := make(chan *action)
 	finish := make(chan struct{})
 	text := make(chan *message)
 
@@ -44,7 +44,7 @@ func run(debug bool) {
 	musicDownloader := newDownloader(&wg, musicCache, dbg, errr, text)
 	// FIXME: no wg on run, ui should dictate when to finish
 	// so it's probably fine?
-	go ui.Run(quit, input)
+	go ui.Run(quit, do)
 
 loop:
 	for {
@@ -79,22 +79,9 @@ loop:
 				logFile.WriteString(msg.String())
 			}
 
-		case input := <-input:
-			parsed, dropped, err := parseInput(input)
-			if err != nil {
-				errr(err.Error())
-				// TODO: delete later
-				if len(dropped) > 0 {
-					dbg(fmt.Sprint("dropped arguments: ", dropped))
-				}
-				continue
-			}
-
-			if len(dropped) > 0 {
-				dbg(fmt.Sprint("dropped arguments: ", dropped))
-			}
-			dbg(fmt.Sprintf("%+v", parsed))
-			switch parsed.action {
+		case a := <-do:
+			dbg(fmt.Sprintf("%+v", a))
+			switch a.actionType {
 
 			case actionSearch:
 				dbg("NOT IMPLEMENTED: actionSearch")
@@ -106,7 +93,7 @@ loop:
 				dbg("NOT IMPLEMENTED: actionOpen")
 
 			case actionOpenURL:
-				extractor.run(parsed.path)
+				extractor.run(a.path)
 
 			case actionAdd:
 				dbg("NOT IMPLEMENTED: actionAdd")

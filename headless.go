@@ -32,11 +32,11 @@ type headless struct {
 	prevMessage  *message
 	player       Player
 	playlist     *playlist
-	input        chan<- string
+	do           chan<- *action
 }
 
-func (h *headless) Run(quit chan<- struct{}, input chan<- string) {
-	h.input = input
+func (h *headless) Run(quit chan<- struct{}, do chan<- *action) {
+	h.do = do
 	h.active = true
 	h.wg.Add(1)
 	go h.start()
@@ -112,11 +112,10 @@ func (h *headless) start() {
 	fmt.Println()
 	h.Update()
 
-	var input string
 	scanner := bufio.NewScanner(os.Stdin)
 	for h.active {
 		scanner.Scan()
-		input = scanner.Text()
+		input := scanner.Text()
 		fmt.Print("\x1b[F\x1b[0K")
 		switch input {
 		case "q":
@@ -198,7 +197,16 @@ func (h *headless) start() {
 			h.displayInternal(fmt.Sprint(h.playlist.GetCurrentItem()))
 
 		default:
-			h.input <- input
+			a, dropped, err := parseInput(input)
+			if err != nil {
+				h.displayInternal(err.Error())
+				continue
+			}
+
+			if len(dropped) > 0 {
+				h.displayInternal(fmt.Sprint(dropped))
+			}
+			h.do <- a
 		}
 		h.Update()
 	}

@@ -6,22 +6,21 @@ import (
 	"strings"
 )
 
-type action int
+type actionType int
 
 const (
-	actionSearch action = iota
+	actionSearch actionType = iota
 	actionTagSearch
 	actionOpen
 	actionOpenURL
 	actionAdd
+	actionStart
 	actionQuit
 )
 
-type arguments struct {
-	action action
-	path   string
-	query  []string
-	args   map[string]string
+type action struct {
+	actionType actionType
+	path       string
 }
 
 func isValidURL(input string) (string, bool) {
@@ -71,78 +70,80 @@ func filterFormat(format string) bool {
 //		--format,	-f	- filter by formtat
 //		--location,	-l	- location
 //		--highlights	- get highlights of genre
-func parseInput(input string) (*arguments, []string, error) {
-	args := strings.Fields(input)
-	if len(args) == 0 {
+func parseInput(input string) (*action, []string, error) {
+	if len(input) == 0 {
 		return nil, nil, errors.New("empty input")
 	}
 
-	parsed := &arguments{}
+	args := strings.Fields(input)
+
+	parsed := &action{}
 	needValue := true
 	if path, ok := isValidURL(args[0]); ok {
-		parsed.action = actionOpenURL
+		parsed.actionType = actionOpenURL
 		parsed.path = path
 		return parsed, args[1:], nil
 	}
 
+	var query = make([]string, 0)
+	var params = make(map[string]string, 0)
+
 	if strings.HasPrefix(args[0], "-") {
 		switch args[0] {
 		case "--quit", "--exit", "-q":
-			parsed.action = actionQuit
+			parsed.actionType = actionQuit
 			needValue = false
 
 		case "--add", "-a":
-			parsed.action = actionAdd
+			parsed.actionType = actionAdd
 
 		case "--open", "-o":
-			parsed.action = actionOpen
+			parsed.actionType = actionOpen
 
 		case "--album", "-A":
-			parsed.args = make(map[string]string, 1)
-			parsed.args["item_type"] = "a"
+			params["item_type"] = "a"
 
 		case "--track", "-T":
-			parsed.args = make(map[string]string, 1)
-			parsed.args["item_type"] = "t"
+			params["item_type"] = "t"
 
 		case "--band", "-b":
-			parsed.args = make(map[string]string, 1)
-			parsed.args["item_type"] = "b"
+			params["item_type"] = "b"
 
 		case "--user", "-u":
-			parsed.args = make(map[string]string, 1)
-			parsed.args["item_type"] = "f"
+			params["item_type"] = "f"
 
 		case "--tag", "-t":
-			parsed.action = actionTagSearch
+			parsed.actionType = actionTagSearch
 
 		default:
 			return nil, args, errors.New("unknown command: " + args[0])
 		}
-		str := args[0]
+
+		flag := args[0]
 		args = args[1:]
 		if len(args) == 0 && needValue {
-			return nil, args, errors.New("query not specified for flag: " + str)
+			return nil, args, errors.New("query not specified for flag: " + flag)
 		}
 	}
 
-	if parsed.action == actionSearch {
-		if parsed.args == nil {
-			parsed.args = make(map[string]string, 1)
-			parsed.args["item_type"] = ""
+	if parsed.actionType == actionSearch {
+		if params == nil {
+			params = make(map[string]string, 1)
+			params["item_type"] = ""
 		}
-		parsed.query = args
+		query = args
 		args = args[len(args):]
 		needValue = false
 	}
 
-	if parsed.action == actionTagSearch {
+	if parsed.actionType == actionTagSearch {
 		var key string
 		for len(args) > 0 {
 			if strings.HasPrefix(args[0], "-") {
 				if needValue {
 					return nil, args, errors.New("expected value, got flag: " + args[0])
 				}
+
 				needValue = true
 				switch args[0] {
 				case "--tag", "-t":
@@ -165,27 +166,27 @@ func parseInput(input string) (*arguments, []string, error) {
 					return nil, args, errors.New("unknown flag: " + args[0])
 				}
 
-				str := args[0]
+				flag := args[0]
 				args = args[1:]
 				if len(args) == 0 && needValue {
-					return nil, args, errors.New("value not specified for flag: " + str)
+					return nil, args, errors.New("value not specified for flag: " + flag)
 				}
 			}
 
 			if key == "" {
-				parsed.query = append(parsed.query, args[0])
+				query = append(query, args[0])
 			} else {
-				if parsed.args == nil {
-					parsed.args = make(map[string]string, 4)
-					parsed.args["tab"] = "all_releases"
+				if params == nil {
+					params = make(map[string]string, 4)
+					params["tab"] = "all_releases"
 				}
 
 				if key == "l" {
-					parsed.args[key] += " " + args[0]
+					params[key] += " " + args[0]
 				}
 
 				if key == "tab" {
-					parsed.args[key] = "highlights"
+					params[key] = "highlights"
 					return parsed, args, nil
 				}
 
@@ -193,14 +194,14 @@ func parseInput(input string) (*arguments, []string, error) {
 					if ok := filterFormat(args[0]); !ok {
 						return nil, args, errors.New("incorrect value for format: " + args[0])
 					}
-					parsed.args[key] = args[0]
+					params[key] = args[0]
 				}
 
 				if key == "s" {
 					if ok := filterSort(args[0]); !ok {
 						return nil, args, errors.New("incorrect value for sort: " + args[0])
 					}
-					parsed.args[key] = args[0]
+					params[key] = args[0]
 				}
 			}
 			needValue = false
@@ -214,4 +215,12 @@ func parseInput(input string) (*arguments, []string, error) {
 	}
 
 	return parsed, args, nil
+}
+
+func createTagSearchURL(query []string, params map[string]string) (string, error) {
+	return "", nil
+}
+
+func createSearchURL(query []string, params map[string]string) (string, error) {
+	return "", nil
 }
