@@ -6,22 +6,10 @@ import (
 	"strings"
 )
 
-type actionType int
-
-const (
-	actionSearch actionType = iota
-	actionTagSearch
-	actionOpen
-	actionOpenURL
-	actionAdd
-	actionStart
-	actionQuit
+var (
+	tagLink    = url.URL{Scheme: "https", Host: "bandcamp.com", Path: "/tag/"}
+	searchLink = url.URL{Scheme: "https", Host: "bandcamp.com", Path: "/search"}
 )
-
-type action struct {
-	actionType actionType
-	path       string
-}
 
 func isValidURL(input string) (string, bool) {
 	u, err := url.Parse(input)
@@ -46,53 +34,94 @@ func isValidURL(input string) (string, bool) {
 	return u.String(), true
 }
 
-func filterSort(sort string) bool {
+func checkSort(sort string) bool {
 	return sort == "random" || sort == "date" || sort == "pop"
 }
 
-func filterFormat(format string) bool {
+func checkFormat(format string) bool {
 	return format == "cd" || format == "cassette" || format == "vinyl" || format == "all"
+}
+
+func createTagSearchURL(query []string, params map[string]string) (string, error) {
+	if len(query) == 0 {
+		return "", errors.New("empty query")
+	}
+
+	// scheme://host/tag/<tag-name>?tab=<tab_name>&t=<other-tag>&s=sort&f=<format>&l=<int>
+
+	u := tagLink
+	u.Path += strings.ToLower(query[0])
+	v := url.Values{}
+
+	for key, val := range params {
+		v.Set(key, val)
+	}
+
+	if len(query) > 1 {
+		v.Set("t", strings.Join(query[1:], ","))
+	}
+
+	u.RawQuery = v.Encode()
+
+	return u.String(), nil
+}
+
+func createSearchURL(query []string, params map[string]string) (string, error) {
+	if len(query) == 0 {
+		return "", errors.New("empty query")
+	}
+
+	u := searchLink
+	v := url.Values{}
+
+	v.Set("q", strings.Join(query, " "))
+	for key, val := range params {
+		v.Set(key, val)
+	}
+
+	u.RawQuery = v.Encode()
+
+	return u.String(), nil
 }
 
 // [command] query|path [args]
 // commands:
-// --quit, --exit,	-q	- quit
-// --add,			-a	- add path/url to playlist
-// --open,			-o	- create playlist from url/path
+// --quit, --exit   -q  - quit
+// --add			-a  - add path/url to playlist
+// --open           -o  - create playlist from url/path
 // <url>				- create playlist from url
 // <string>				- search everywhere
-// --album,			-A	- search in albums
-// --track,			-T	- search in tracks
-// --band,			-b	- search in artists/labels
-// --user,			-u	- search in users
-// --tag,			-t  - tag search
-//		--sort,		-s	- sorting method
-//		--format,	-f	- filter by formtat
-//		--location,	-l	- location
-//		--highlights	- get highlights of genre
+// --album          -A  - search in albums
+// --track          -T  - search in tracks
+// --band           -b  - search in artists/labels
+// --user           -u  - search in users
+// --tag            -t  - tag search
+// tag arguments:
+// --sort           -s  - sorting method
+// --format	        -f  - filter by formtat
+// --location	    -l  - location
+// --highlights        	- get highlights of genre
 func parseInput(input string) (*action, []string, error) {
 	if len(input) == 0 {
 		return nil, nil, errors.New("empty input")
 	}
 
 	args := strings.Fields(input)
-
 	parsed := &action{}
-	needValue := true
 	if path, ok := isValidURL(args[0]); ok {
 		parsed.actionType = actionOpenURL
 		parsed.path = path
 		return parsed, args[1:], nil
 	}
 
-	var query = make([]string, 0)
-	var params = make(map[string]string, 0)
+	query := make([]string, 0)
+	params := make(map[string]string, 0)
 
 	if strings.HasPrefix(args[0], "-") {
 		switch args[0] {
 		case "--quit", "--exit", "-q":
 			parsed.actionType = actionQuit
-			needValue = false
+			return parsed, args[1:], nil
 
 		case "--add", "-a":
 			parsed.actionType = actionAdd
@@ -119,108 +148,99 @@ func parseInput(input string) (*action, []string, error) {
 			return nil, args, errors.New("unknown command: " + args[0])
 		}
 
-		flag := args[0]
 		args = args[1:]
-		if len(args) == 0 && needValue {
-			return nil, args, errors.New("query not specified for flag: " + flag)
+		if len(args) == 0 {
+			return nil, args, errors.New("query not specified for flag: " + args[0])
 		}
 	}
 
 	if parsed.actionType == actionSearch {
-		if params == nil {
-			params = make(map[string]string, 1)
-			params["item_type"] = ""
+		url, err := createSearchURL(args, params)
+		if err != nil {
+			return nil, nil, err
 		}
-		query = args
-		args = args[len(args):]
-		needValue = false
+		parsed.path = url
+		return parsed, nil, nil
 	}
 
-	if parsed.actionType == actionTagSearch {
-		var key string
-		for len(args) > 0 {
-			if strings.HasPrefix(args[0], "-") {
-				if needValue {
-					return nil, args, errors.New("expected value, got flag: " + args[0])
-				}
-
-				needValue = true
-				switch args[0] {
-				case "--tag", "-t":
-					key = ""
-
-				case "--format", "-f":
-					key = "f"
-
-				case "--location", "-l":
-					key = "l"
-
-				case "--sort", "-s":
-					key = "s"
-
-				case "--highlights":
-					key = "tab"
-					needValue = false
-
-				default:
-					return nil, args, errors.New("unknown flag: " + args[0])
-				}
-
-				flag := args[0]
-				args = args[1:]
-				if len(args) == 0 && needValue {
-					return nil, args, errors.New("value not specified for flag: " + flag)
-				}
-			}
-
-			if key == "" {
-				query = append(query, args[0])
-			} else {
-				if params == nil {
-					params = make(map[string]string, 4)
-					params["tab"] = "all_releases"
-				}
-
-				if key == "l" {
-					params[key] += " " + args[0]
-				}
-
-				if key == "tab" {
-					params[key] = "highlights"
-					return parsed, args, nil
-				}
-
-				if key == "f" {
-					if ok := filterFormat(args[0]); !ok {
-						return nil, args, errors.New("incorrect value for format: " + args[0])
-					}
-					params[key] = args[0]
-				}
-
-				if key == "s" {
-					if ok := filterSort(args[0]); !ok {
-						return nil, args, errors.New("incorrect value for sort: " + args[0])
-					}
-					params[key] = args[0]
-				}
-			}
-			needValue = false
-			args = args[1:]
-		}
-	}
-
-	if needValue {
+	if parsed.actionType != actionTagSearch {
 		parsed.path = strings.Join(args, " ")
-		args = args[len(args):]
+		return parsed, nil, nil
 	}
 
+	needValue := true
+	var key string
+	for len(args) > 0 {
+		if strings.HasPrefix(args[0], "-") {
+			if needValue {
+				return nil, args, errors.New("expected value, got flag: " + args[0])
+			}
+			needValue = true
+
+			switch args[0] {
+			case "--tag", "-t":
+				key = ""
+
+			case "--format", "-f":
+				key = "f"
+
+			case "--location", "-l":
+				key = "l"
+
+			case "--sort", "-s":
+				key = "s"
+
+			case "--highlights":
+				key = "tab"
+				needValue = false
+
+			default:
+				return nil, args, errors.New("unknown flag: " + args[0])
+			}
+
+			flag := args[0]
+			args = args[1:]
+			if len(args) == 0 && needValue {
+				return nil, args, errors.New("value not specified for flag: " + flag)
+			}
+		}
+
+		if key == "" {
+			query = append(query, args[0])
+		} else {
+			if key == "l" {
+				params[key] += " " + args[0]
+			}
+
+			if key == "tab" {
+				params[key] = "highlights"
+				return parsed, args, nil
+			}
+
+			if key == "f" {
+				if ok := checkFormat(args[0]); !ok {
+					return nil, args, errors.New("incorrect value for format: " + args[0])
+				}
+				params[key] = args[0]
+			}
+
+			if key == "s" {
+				if ok := checkSort(args[0]); !ok {
+					return nil, args, errors.New("incorrect value for sort: " + args[0])
+				}
+				params[key] = args[0]
+			}
+		}
+
+		needValue = false
+		args = args[1:]
+	}
+
+	params["tab"] = "all_releases"
+	url, err := createTagSearchURL(query, params)
+	if err != nil {
+		return nil, nil, err
+	}
+	parsed.path = url
 	return parsed, args, nil
-}
-
-func createTagSearchURL(query []string, params map[string]string) (string, error) {
-	return "", nil
-}
-
-func createSearchURL(query []string, params map[string]string) (string, error) {
-	return "", nil
 }
