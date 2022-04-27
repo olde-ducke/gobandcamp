@@ -11,7 +11,6 @@ import (
 func checkFatalError(err error) {
 	if err != nil {
 		log.Fatal(err)
-		os.Exit(1)
 	}
 }
 
@@ -30,7 +29,7 @@ func main() {
 	if cpuprofile != "" {
 		file, err := os.Create(cpuprofile)
 		checkFatalError(err)
-		defer file.Close()
+		defer checkFatalError(file.Close())
 		err = pprof.StartCPUProfile(file)
 		checkFatalError(err)
 	}
@@ -45,10 +44,10 @@ func main() {
 	if memprofile != "" {
 		file, err := os.Create(memprofile)
 		checkFatalError(err)
+		defer checkFatalError(file.Close())
 		runtime.GC()
 		err = pprof.WriteHeapProfile(file)
 		checkFatalError(err)
-		file.Close()
 	}
 
 	os.Exit(0)

@@ -19,29 +19,31 @@ func run(debug bool) {
 	var wg sync.WaitGroup
 	var err error
 
+	debugln := func(string) {}
+	errorln := newReporter(errorMessage, "", &wg, text)
 	// open file to write logs if needed and create
 	// debug logging function, if debug is set to false
 	// dbg function is empty and won't fill queue with
 	// messages
-	var dbg func(string)
 	if debug {
+		debugln = newReporter(debugMessage, "", &wg, text)
 		logFile, err = os.Create("dump.log")
 		checkFatalError(err)
-		dbg = newReporter(debugMessage, "", &wg, text)
-	} else {
-		dbg = func(msg string) {}
+		defer func() {
+			msg := newMessage(debugMessage, "gobandcamp: ", "closing log file")
+			logFile.WriteString(msg.String())
+			checkFatalError(logFile.Close())
+		}()
 	}
 
-	errr := newReporter(errorMessage, "", &wg, text)
-
 	var quitting bool
-	player := NewBeepPlayer(dbg)
-	p := NewPlaylist(player, dbg)
+	player := NewBeepPlayer(debugln)
+	p := NewPlaylist(player, debugln)
 	ui := newHeadless(player, p)
 	tempCache := newSimpleCache(3)
-	extractor := newExtractor(&wg, tempCache, dbg, errr, text)
+	extractor := newExtractor(&wg, tempCache, debugln, errorln, text)
 	musicCache := NewCache(4)
-	musicDownloader := newDownloader(&wg, musicCache, dbg, errr, text)
+	musicDownloader := newDownloader(&wg, musicCache, debugln, errorln, text)
 	// FIXME: no wg on run, ui should dictate when to finish
 	// so it's probably fine?
 	go ui.Run(quit, do)
@@ -54,7 +56,7 @@ loop:
 			if quitting {
 				continue
 			}
-			dbg("got signal to finish")
+			debugln("got signal to finish")
 			quitting = true
 			ticker.Stop()
 			extractor.stop()
@@ -80,23 +82,23 @@ loop:
 			}
 
 		case a := <-do:
-			dbg(fmt.Sprintf("%+v", a))
+			debugln(fmt.Sprintf("%+v", a))
 			switch a.actionType {
 
 			case actionSearch:
-				dbg("NOT IMPLEMENTED: actionSearch")
+				debugln("NOT IMPLEMENTED: actionSearch")
 
 			case actionTagSearch:
-				dbg("NOT IMPLEMENTED: actionTagSearch")
+				debugln("NOT IMPLEMENTED: actionTagSearch")
 
 			case actionOpen:
-				dbg("NOT IMPLEMENTED: actionOpen")
+				debugln("NOT IMPLEMENTED: actionOpen")
 
 			case actionOpenURL:
 				extractor.run(a.path)
 
 			case actionAdd:
-				dbg("NOT IMPLEMENTED: actionAdd")
+				debugln("NOT IMPLEMENTED: actionAdd")
 
 			case actionQuit:
 				ui.Quit()
