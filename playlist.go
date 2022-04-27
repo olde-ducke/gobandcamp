@@ -2,15 +2,17 @@ package main
 
 import (
 	"errors"
+	"math/rand"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
-type playbackMode int
+type Mode int
 
 const (
-	normal playbackMode = iota
+	normal Mode = iota
 	repeat
 	repeatOne
 	random
@@ -18,8 +20,53 @@ const (
 
 var modes = [4]string{"normal", "repeat", "repeat one", "random"}
 
-func (mode playbackMode) String() string {
+func (mode Mode) String() string {
 	return modes[mode]
+}
+
+type playbackMode interface {
+	next(int, int) int
+	prev(int, int) int
+	get() Mode
+}
+
+type defaultMode struct {
+	mode Mode
+}
+
+func (m *defaultMode) next(current, total int) int {
+	return (current + 1) % total
+}
+
+func (m *defaultMode) prev(current, total int) int {
+	return (total + current - 1) % total
+}
+
+func (m *defaultMode) get() Mode {
+	return m.mode
+}
+
+type randomMode struct {
+	defaultMode
+}
+
+// FIXME: bad way of doing random track
+func (rm *randomMode) next(current, total int) int {
+	if total < 2 {
+		return current
+	}
+
+	rand.Seed(time.Now().UnixNano())
+	// never play same track again if in random mode
+	previous := current
+	for current == previous {
+		current = rand.Intn(total)
+	}
+	return current
+}
+
+func (rm *randomMode) prev(current, total int) int {
+	return rm.next(current, total)
 }
 
 type playlistItem struct {
@@ -41,6 +88,7 @@ type playlistItem struct {
 }
 
 type playlist struct {
+	sync.RWMutex
 	dbg     func(string)
 	player  Player
 	current int
@@ -53,16 +101,27 @@ func (p *playlist) Prev() {
 	if p.IsEmpty() {
 		return
 	}
-	total := p.GetTotalTracks()
-	p.current = (total + p.current - 1) % total
+
+	// reset position rather than switching back
+	// if position is less than 5 seconds
+	if p.player.GetTime().Seconds() > 5 {
+		err := p.player.SeekAbsolute(0)
+		if err != nil {
+			p.dbg(err.Error())
+		}
+		return
+	}
+
+	nextTrack := p.mode.prev(p.current, p.GetTotalTracks())
+	p.SetTrack(nextTrack)
 }
 
 func (p *playlist) Next() {
 	if p.IsEmpty() {
 		return
 	}
-	total := p.GetTotalTracks()
-	p.current = (p.current + 1) % total
+	nextTrack := p.mode.next(p.current, p.GetTotalTracks())
+	p.SetTrack(nextTrack)
 }
 
 func (p *playlist) Start() {
@@ -70,32 +129,31 @@ func (p *playlist) Start() {
 }
 
 func (p *playlist) Clear() {
-	p.current = 0
 	p.data = make([]playlistItem, 0, p.size)
 }
 
-func (p *playlist) GetMode() playbackMode {
-	return p.mode
+func (p *playlist) GetMode() Mode {
+	return p.mode.get()
 }
 
-func (p *playlist) SetMode(mode playbackMode) {
-	if mode < normal {
-		mode = normal
+func (p *playlist) SetMode(mode Mode) {
+	switch mode {
+	case repeat, repeatOne, normal:
+		p.mode = &defaultMode{mode: mode}
+	case random:
+		p.mode = &randomMode{defaultMode{mode: mode}}
+	default:
+		p.mode = &defaultMode{mode: normal}
 	}
-
-	if mode > random {
-		mode = random
-	}
-	p.mode = mode
 }
 
 func (p *playlist) NextMode() {
-	p.mode = (p.mode + 1) % 4
+	p.SetMode((p.mode.get() + 1) % 4)
 }
 
 func (p *playlist) GetCurrentTrack() int {
 	if p.IsEmpty() {
-		return p.current
+		return 0
 	}
 	return p.current + 1
 }
@@ -105,14 +163,22 @@ func (p *playlist) GetTotalTracks() int {
 }
 
 func (p *playlist) SetTrack(track int) {
-	p.dbg("playlist: NOT IMPLEMENTED set track")
+	p.dbg(strconv.Itoa(track))
+	if track == p.current {
+		p.player.Reload()
+		return
+	}
+
+	p.current = track
 }
 
 func (p *playlist) Enqueue(items []item) error {
 	var err error
+	p.Lock()
+	defer p.Unlock()
 	for _, i := range items {
 		if !i.hasAudio {
-			p.dbg(i.title + " " + "has no audio available")
+			p.dbg(i.title + " has no available audio")
 			if err == nil {
 				err = errors.New("some items skipped, because they have no available audio ")
 			}
@@ -154,6 +220,7 @@ func (p *playlist) Add(items []item) error {
 		return errors.New("no streamable media was found")
 	}
 
+	p.SetTrack(0)
 	return nil
 }
 
@@ -173,6 +240,7 @@ func NewPlaylist(player Player, dbg func(string)) *playlist {
 		dbg:    dbg,
 		player: player,
 		size:   5,
+		mode:   &defaultMode{mode: normal},
 	}
 	p.data = make([]playlistItem, 0, p.size)
 	return p
