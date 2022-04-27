@@ -25,6 +25,21 @@ var dummyData = item{
 		duration:        666.66,
 	}}}
 
+func getDecoration(t messageType) string {
+	switch t {
+	case debugMessage:
+		return "\x1b[33m"
+	case errorMessage:
+		return "\x1b[31m"
+	case textMessage:
+		return "\x1b[36m"
+	case infoMessage:
+		return "\x1b[32m"
+	default:
+		return "\x1b[34m"
+	}
+}
+
 type headless struct {
 	wg           sync.WaitGroup
 	active       bool
@@ -87,21 +102,13 @@ func (h *headless) displayInternal(text string) {
 }
 
 func (h *headless) DisplayMessage(msg *message) {
+	decoration := getDecoration(msg.msgType)
 	if msg.When().Before(h.prevMessage.When()) {
-		h.displayInternal("dropped message: " + msg.Text())
+		h.displayInternal(fmt.Sprintf("dropped %s%s\x1b[0m message: %s",
+			decoration, msg.msgType, msg.Text()))
 		return
 	}
-	var decoration string
-	switch msg.msgType {
-	case debugMessage:
-		decoration = "\x1b[33m"
-	case errorMessage:
-		decoration = "\x1b[31m"
-	case textMessage:
-		decoration = "\x1b[36m"
-	default:
-		decoration = "\x1b[32m"
-	}
+
 	h.prevMessage = msg
 	fmt.Printf(h.formatString, msg.When().Format("2006/01/02 15:04:05"),
 		decoration, msg.msgType, msg.prefix, msg.text)
