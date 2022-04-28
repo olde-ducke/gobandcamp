@@ -13,6 +13,7 @@ type worker struct {
 	errr       func(string)
 	wg         *sync.WaitGroup
 	out        chan<- *message
+	do         chan<- *action
 }
 
 func (w *worker) stop() {
@@ -26,7 +27,7 @@ func (w *worker) cancelPrevJob(cancel func()) {
 	w.cancelCurr = cancel
 }
 
-func newWorker(wg *sync.WaitGroup, dbg, errr func(string), out chan<- *message) *worker {
+func newWorker(wg *sync.WaitGroup, dbg, errr func(string), out chan<- *message, do chan<- *action) *worker {
 	return &worker{
 		cancelPrev: func() {},
 		cancelCurr: func() {},
@@ -34,6 +35,7 @@ func newWorker(wg *sync.WaitGroup, dbg, errr func(string), out chan<- *message) 
 		errr:       errr,
 		wg:         wg,
 		out:        out,
+		do:         do,
 	}
 }
 
@@ -57,12 +59,13 @@ func (w *extractorWorker) run(link string) {
 		}
 
 		w.cache.Set(link, items)
+		w.do <- &action{actionStart, link}
 	}()
 }
 
-func newExtractor(wg *sync.WaitGroup, cache *simpleCache, dbg, errr func(string), out chan<- *message) *extractorWorker {
+func newExtractor(wg *sync.WaitGroup, cache *simpleCache, dbg, errr func(string), out chan<- *message, do chan<- *action) *extractorWorker {
 	return &extractorWorker{
-		worker: newWorker(wg, dbg, errr, out),
+		worker: newWorker(wg, dbg, errr, out, do),
 		cache:  cache,
 	}
 }
@@ -85,20 +88,23 @@ func (w *downloadWorker) run(link string, n int) {
 			newReporter(textMessage, prefix, w.wg, w.out))
 		if err != nil {
 			w.errr(err.Error())
-		} else {
-			key := getTruncatedURL(link)
-			if key == "" {
-				w.errr("incorrect cache key")
-				return
-			}
-			w.cache.Set(key, result)
+			return
 		}
+
+		key := getTruncatedURL(link)
+		if key == "" {
+			w.errr("incorrect cache key")
+			return
+		}
+
+		w.cache.Set(key, result)
+		w.do <- &action{actionPlay, key}
 	}()
 }
 
-func newDownloader(wg *sync.WaitGroup, cache *FIFO, dbg, errr func(string), out chan<- *message) *downloadWorker {
+func newDownloader(wg *sync.WaitGroup, cache *FIFO, dbg, errr func(string), out chan<- *message, do chan<- *action) *downloadWorker {
 	return &downloadWorker{
-		worker: newWorker(wg, dbg, errr, out),
+		worker: newWorker(wg, dbg, errr, out, do),
 		cache:  cache,
 	}
 }

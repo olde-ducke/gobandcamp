@@ -9,6 +9,7 @@ const (
 	actionOpenURL
 	actionAdd
 	actionStart
+	actionPlay
 	actionQuit
 )
 

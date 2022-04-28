@@ -37,13 +37,13 @@ func run(debug bool) {
 	}
 
 	var quitting bool
+	tempCache := newSimpleCache(3)
+	extractor := newExtractor(&wg, tempCache, debugln, errorln, text, do)
+	musicCache := NewCache(4)
+	musicDownloader := newDownloader(&wg, musicCache, debugln, errorln, text, do)
 	player := NewBeepPlayer(debugln)
 	p := NewPlaylist(player, debugln)
 	ui := newHeadless(player, p)
-	tempCache := newSimpleCache(3)
-	extractor := newExtractor(&wg, tempCache, debugln, errorln, text)
-	musicCache := NewCache(4)
-	musicDownloader := newDownloader(&wg, musicCache, debugln, errorln, text)
 	// FIXME: no wg on run, ui should dictate when to finish
 	// so it's probably fine?
 	go ui.Run(quit, do)
@@ -100,8 +100,37 @@ loop:
 			case actionAdd:
 				debugln("NOT IMPLEMENTED: actionAdd")
 
+			case actionStart:
+				data, ok := tempCache.Get(a.path)
+				if !ok {
+					errorln("incorrect key")
+					continue loop
+				}
+				err := p.Add(data)
+
+				if err != nil {
+					errorln(err.Error())
+				}
+
+				musicDownloader.run(data[0].tracks[0].mp3128, 0)
+
+			case actionPlay:
+				data, ok := musicCache.Get(a.path)
+				if !ok {
+					errorln("failed to load data")
+					continue
+				}
+				err := player.Load(data)
+
+				if err != nil {
+					errorln(err.Error())
+				}
+
 			case actionQuit:
 				ui.Quit()
+
+			default:
+				debugln("NOT ALLOWED: unknown action")
 			}
 
 			// FIXME: don't remember why this was added
