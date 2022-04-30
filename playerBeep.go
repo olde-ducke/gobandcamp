@@ -221,11 +221,11 @@ func (player *beepPlayer) GetVolume() string {
 }
 
 func (player *beepPlayer) GetStatus() playbackStatus {
-	if player.bufferedStatus < 0 {
+	if player.bufferedStatus != seekFWD && player.bufferedStatus != seekBWD {
 		return player.status
 	}
 	status := player.bufferedStatus
-	player.bufferedStatus = -1
+	player.bufferedStatus = player.status
 	return status
 }
 
