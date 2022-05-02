@@ -26,6 +26,8 @@ type beepPlayer struct {
 // NewBeepPlayer TBD
 func NewBeepPlayer(dbg func(string)) Player {
 	initialize()
+	dbg(fmt.Sprintf("starting beep player with sample rate: %d and resampling quality: %d",
+		DefaultSampleRate, Quality))
 	return &beepPlayer{dbg: dbg}
 }
 
