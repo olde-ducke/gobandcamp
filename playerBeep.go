@@ -10,14 +10,12 @@ import (
 	"github.com/faiface/beep/speaker"
 )
 
-var defaultSampleRate beep.SampleRate = 48000
-
 type beepPlayer struct {
 	stream *mediaStream
 	format beep.Format
 
-	status         playbackStatus
-	bufferedStatus playbackStatus
+	status         PlaybackStatus
+	bufferedStatus PlaybackStatus
 	volume         float64
 	muted          bool
 
@@ -25,6 +23,7 @@ type beepPlayer struct {
 	dbg func(string)
 }
 
+// NewBeepPlayer TBD
 func NewBeepPlayer(dbg func(string)) Player {
 	initialize()
 	return &beepPlayer{dbg: dbg}
@@ -33,7 +32,7 @@ func NewBeepPlayer(dbg func(string)) Player {
 // device initialization
 func initialize() {
 	// TODO: add sample rate setting
-	sr := beep.SampleRate(defaultSampleRate)
+	sr := beep.SampleRate(DefaultSampleRate)
 	speaker.Init(sr, sr.N(time.Second/10))
 }
 
@@ -220,7 +219,7 @@ func (player *beepPlayer) GetVolume() string {
 	return fmt.Sprintf("%4.0f", (100 + player.volume*10))
 }
 
-func (player *beepPlayer) GetStatus() playbackStatus {
+func (player *beepPlayer) GetStatus() PlaybackStatus {
 	if player.bufferedStatus != seekFWD && player.bufferedStatus != seekBWD {
 		return player.status
 	}
@@ -230,24 +229,24 @@ func (player *beepPlayer) GetStatus() playbackStatus {
 }
 
 func (player *beepPlayer) GetTime() time.Duration {
-	if player.isReady() {
-		speaker.Lock()
-		position := player.format.SampleRate.D(player.stream.streamer.Position())
-		speaker.Unlock()
-		return position
+	if !player.isReady() {
+		return 0
 	}
-	return 0
+	speaker.Lock()
+	position := player.format.SampleRate.D(player.stream.streamer.Position())
+	speaker.Unlock()
+	return position
 }
 
 func (player *beepPlayer) GetPosition() float64 {
-	if player.isReady() {
-		speaker.Lock()
-		position := player.stream.streamer.Position()
-		length := player.stream.streamer.Len()
-		speaker.Unlock()
-		return float64(position) / float64(length)
+	if !player.isReady() {
+		return 0
 	}
-	return 0
+	speaker.Lock()
+	position := player.stream.streamer.Position()
+	length := player.stream.streamer.Len()
+	speaker.Unlock()
+	return float64(position) / float64(length)
 }
 
 func (player *beepPlayer) ClearStream() {

@@ -5,6 +5,7 @@ import (
 	"sync"
 )
 
+// FIFO simple first in first out cache
 type FIFO struct {
 	sync.RWMutex
 	cache map[string][]byte
@@ -12,6 +13,7 @@ type FIFO struct {
 	size  int
 }
 
+// NewCache returns simple FIFO cache with given size
 func NewCache(size int) *FIFO {
 	return &FIFO{
 		cache: make(map[string][]byte, size),
@@ -20,6 +22,7 @@ func NewCache(size int) *FIFO {
 	}
 }
 
+// Set stores data to cache.
 func (fifo *FIFO) Set(key string, value []byte) {
 	fifo.Lock()
 	defer fifo.Unlock()
@@ -40,6 +43,7 @@ func (fifo *FIFO) Set(key string, value []byte) {
 	fifo.queue.PushBack(key)
 }
 
+// Get returns data from cache.
 func (fifo *FIFO) Get(key string) ([]byte, bool) {
 	fifo.Lock()
 	value, ok := fifo.cache[key]
@@ -47,6 +51,7 @@ func (fifo *FIFO) Get(key string) ([]byte, bool) {
 	return value, ok
 }
 
+// Dump returns all keys as slice.
 func (fifo *FIFO) Dump() []string {
 	dump := make([]string, fifo.size)
 	enqueue := fifo.queue.Front()

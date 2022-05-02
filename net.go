@@ -17,8 +17,8 @@ import (
 const userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/97.0.4692.71 Safari/537.36"
 const chunkSize = 2048
 
-var originError = errors.New("response came not from bandcamp.com")
-var unexpectedError = errors.New("unexpected page format")
+var errOrigin = errors.New("response came not from bandcamp.com")
+var errUnexpected = errors.New("unexpected page format")
 
 var client = http.Client{Timeout: 120 * time.Second}
 
@@ -102,7 +102,7 @@ func processmediapage(ctx context.Context, link string, dbg, msg func(string)) (
 		// check canonical name in response header
 		// must be artist.bandcamp.com
 		if !strings.Contains(response.Header.Get("link"), "bandcamp.com") {
-			return originError
+			return errOrigin
 		}
 
 		doc, err := html.Parse(response.Body)
@@ -116,7 +116,7 @@ func processmediapage(ctx context.Context, link string, dbg, msg func(string)) (
 		}, "meta", "content")
 		if !ok {
 			dbg("failed to parse page type")
-			return unexpectedError
+			return errUnexpected
 		}
 
 		switch itemType {
@@ -134,7 +134,7 @@ func processmediapage(ctx context.Context, link string, dbg, msg func(string)) (
 				Val: "music-grid",
 			}, "ol")
 			if !ok {
-				return unexpectedError
+				return errUnexpected
 			}
 			result := getValues(node, "a", "href")
 			if result != nil {
@@ -169,10 +169,10 @@ func processmediapage(ctx context.Context, link string, dbg, msg func(string)) (
 					return nil
 				}
 			}
-			return unexpectedError
+			return errUnexpected
 
 		default:
-			return unexpectedError
+			return errUnexpected
 		}
 
 		mediadata, ok := getValWithAttr(doc, &html.Attribute{
@@ -181,7 +181,7 @@ func processmediapage(ctx context.Context, link string, dbg, msg func(string)) (
 		}, "script", "data-tralbum")
 		if !ok {
 			dbg("failed to parse mediadata")
-			return unexpectedError
+			return errUnexpected
 		}
 
 		metadata, ok := getTextWithAttr(doc, &html.Attribute{
@@ -189,7 +189,7 @@ func processmediapage(ctx context.Context, link string, dbg, msg func(string)) (
 			Val: "application/ld+json",
 		}, "script")
 		if !ok {
-			return unexpectedError
+			return errUnexpected
 		}
 
 		buf, err := parseTrAlbumJSON(metadata, mediadata)

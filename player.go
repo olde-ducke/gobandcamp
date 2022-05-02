@@ -1,11 +1,30 @@
 package main
 
-import "time"
+import (
+	"time"
 
-type playbackStatus int
+	"github.com/faiface/beep"
+)
+
+// DefaultSampleRate sample rate that will be used.
+var DefaultSampleRate beep.SampleRate = 48000
+
+// Quality resampling quality, for beep: 1-2 low, 3-4 medium,
+// 5-6 high, higher values are not recommended.
+var Quality = 1
+
+// Statuses list of text representation of player current
+// status: stopped, playing, paused, seeking backward/forward,
+// skipping backward/forward (□ ▹ ▯▯ ◃◃ ▹▹ ▯◃ ▹▯).
+var Statuses = [7]string{" \u25a1", " \u25b9", "\u25af\u25af",
+	"\u25c3\u25c3", "\u25b9\u25b9", "\u25af\u25c3",
+	"\u25b9\u25af"}
+
+// PlaybackStatus player current state
+type PlaybackStatus int
 
 const (
-	stopped playbackStatus = iota
+	stopped PlaybackStatus = iota
 	playing
 	paused
 	seekBWD
@@ -14,16 +33,11 @@ const (
 	skipFWD
 )
 
-var statuses = [7]string{" \u25a1", " \u25b9", "\u25af\u25af",
-	"\u25c3\u25c3", "\u25b9\u25b9", "\u25af\u25c3",
-	"\u25b9\u25af"}
-
-// □ ▹ ▯▯ ◃◃ ▹▹ ▯◃ ▹▯
-// fancy stuff, but doesn't work everywhere
-func (status playbackStatus) String() string {
-	return statuses[status]
+func (status PlaybackStatus) String() string {
+	return Statuses[status]
 }
 
+// Player is simple music player.
 type Player interface {
 	RaiseVolume()
 	LowerVolume()
@@ -36,7 +50,7 @@ type Player interface {
 	Play()
 	Stop()
 	GetVolume() string
-	GetStatus() playbackStatus
+	GetStatus() PlaybackStatus
 	GetTime() time.Duration
 	GetPosition() float64
 	ClearStream()

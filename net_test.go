@@ -126,7 +126,7 @@ func TestReadAllAgainstReal(t *testing.T) {
 	}
 }
 
-var testHTML string = `
+var testHTML = `
 <!DOCTYPE html>
 <html>
 <head>

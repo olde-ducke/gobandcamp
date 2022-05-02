@@ -46,7 +46,7 @@ type headless struct {
 	formatString string
 	prevMessage  *message
 	player       Player
-	playlist     *playlist
+	playlist     *Playlist
 	do           chan<- *action
 }
 
@@ -224,7 +224,7 @@ func (h *headless) start() {
 	h.wg.Done()
 }
 
-func newHeadless(player Player, playlist *playlist) userInterface {
+func newHeadless(player Player, playlist *Playlist) userInterface {
 	return &headless{
 		formatString: "\x1b[F\x1b[0K%s %s[%s]:\x1b[0m %s%s\n\n",
 		prevMessage:  &message{},

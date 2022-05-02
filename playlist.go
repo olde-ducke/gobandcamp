@@ -9,6 +9,7 @@ import (
 	"time"
 )
 
+// Mode playback mode: normal, repeat, repeat one or random.
 type Mode int
 
 const (
@@ -69,7 +70,8 @@ func (rm *randomMode) prev(current, total int) int {
 	return rm.next(current, total)
 }
 
-type playlistItem struct {
+// PlaylistItem is a metadata of a media item.
+type PlaylistItem struct {
 	Unreleased  bool
 	Streaming   int
 	Path        string
@@ -87,17 +89,20 @@ type playlistItem struct {
 	Duration    float64
 }
 
-type playlist struct {
+// Playlist simple playlist manager.
+type Playlist struct {
 	sync.RWMutex
 	dbg     func(string)
 	player  Player
 	current int
-	data    []playlistItem
+	data    []PlaylistItem
 	size    int
 	mode    playbackMode
 }
 
-func (p *playlist) Prev() {
+// Prev switches to previous track.
+// Resets current track to beginning if position is over 5s.
+func (p *Playlist) Prev() {
 	if p.IsEmpty() {
 		return
 	}
@@ -116,7 +121,8 @@ func (p *playlist) Prev() {
 	p.SetTrack(nextTrack)
 }
 
-func (p *playlist) Next() {
+// Next switches to next track.
+func (p *Playlist) Next() {
 	if p.IsEmpty() {
 		return
 	}
@@ -124,19 +130,25 @@ func (p *playlist) Next() {
 	p.SetTrack(nextTrack)
 }
 
-func (p *playlist) Start() {
+// Start TBD.
+func (p *Playlist) Start() {
 	p.dbg("playlist: NOT IMPLEMENTED next")
 }
 
-func (p *playlist) Clear() {
-	p.data = make([]playlistItem, 0, p.size)
+// Clear deletes all playlist data.
+func (p *Playlist) Clear() {
+	p.data = make([]PlaylistItem, 0, p.size)
 }
 
-func (p *playlist) GetMode() Mode {
+// GetMode returns current playback mode.
+func (p *Playlist) GetMode() Mode {
 	return p.mode.get()
 }
 
-func (p *playlist) SetMode(mode Mode) {
+// SetMode sets playback mode to given mode.
+// Invalid values will be ignored, and mode
+// will be set to 'normal'.
+func (p *Playlist) SetMode(mode Mode) {
 	switch mode {
 	case repeat, repeatOne, normal:
 		p.mode = &defaultMode{mode: mode}
@@ -147,22 +159,27 @@ func (p *playlist) SetMode(mode Mode) {
 	}
 }
 
-func (p *playlist) NextMode() {
+// NextMode switches to next playback mode.
+func (p *Playlist) NextMode() {
 	p.SetMode((p.mode.get() + 1) % 4)
 }
 
-func (p *playlist) GetCurrentTrack() int {
+// GetCurrentTrack returns current playing tracks
+// number in playlist.
+func (p *Playlist) GetCurrentTrack() int {
 	if p.IsEmpty() {
 		return 0
 	}
 	return p.current + 1
 }
 
-func (p *playlist) GetTotalTracks() int {
+// GetTotalTracks returns total number of tracks in playlist.
+func (p *Playlist) GetTotalTracks() int {
 	return len(p.data)
 }
 
-func (p *playlist) SetTrack(track int) {
+// SetTrack sets playlist to play given track number.
+func (p *Playlist) SetTrack(track int) {
 	p.dbg(strconv.Itoa(track))
 	if track == p.current {
 		p.player.Reload()
@@ -172,7 +189,8 @@ func (p *playlist) SetTrack(track int) {
 	p.current = track
 }
 
-func (p *playlist) Enqueue(items []item) error {
+// Enqueue appends items to the end of playlist.
+func (p *Playlist) Enqueue(items []item) error {
 	var err error
 	p.Lock()
 	defer p.Unlock()
@@ -189,7 +207,7 @@ func (p *playlist) Enqueue(items []item) error {
 				return errors.New("can't have more than " +
 					strconv.Itoa(p.size) + " tracks")
 			}
-			p.data = append(p.data, playlistItem{
+			p.data = append(p.data, PlaylistItem{
 				Unreleased:  t.unreleasedTrack,
 				Streaming:   t.streaming,
 				Path:        t.mp3128,
@@ -210,7 +228,8 @@ func (p *playlist) Enqueue(items []item) error {
 	return err
 }
 
-func (p *playlist) Add(items []item) error {
+// Add first clears playlist then adds new items.
+func (p *Playlist) Add(items []item) error {
 	p.Clear()
 	if err := p.Enqueue(items); err != nil {
 		return err
@@ -224,25 +243,28 @@ func (p *playlist) Add(items []item) error {
 	return nil
 }
 
-func (p *playlist) GetCurrentItem() *playlistItem {
+// GetCurrentItem returns current item metadata
+func (p *Playlist) GetCurrentItem() *PlaylistItem {
 	if p.IsEmpty() {
 		return nil
 	}
 	return &p.data[p.current]
 }
 
-func (p *playlist) IsEmpty() bool {
+// IsEmpty reports if playlist is empty or not.
+func (p *Playlist) IsEmpty() bool {
 	return len(p.data) == 0
 }
 
-func NewPlaylist(player Player, dbg func(string)) *playlist {
-	p := &playlist{
+// NewPlaylist TBD
+func NewPlaylist(player Player, dbg func(string)) *Playlist {
+	p := &Playlist{
 		dbg:    dbg,
 		player: player,
 		size:   5,
 		mode:   &defaultMode{mode: normal},
 	}
-	p.data = make([]playlistItem, 0, p.size)
+	p.data = make([]PlaylistItem, 0, p.size)
 	return p
 }
 

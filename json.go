@@ -81,33 +81,40 @@ type trAlbum struct {
 	Publisher     Publisher `json:"publisher"`     // publishers metadata
 }
 
+// Artist TBD
 type Artist struct {
 	Name string `json:"name"`
 }
 
+// Track TBD
 type Track struct {
 	NumberOfItems   int           `json:"numberOfItems"`   // total number of tracks
 	ItemListElement []ListElement `json:"itemListElement"` // further container for track data
 }
 
+// ListElement TBD
 type ListElement struct {
 	// Position  int  `json:"position"` // track number
 	TrackInfo Item `json:"item"` // further container for track data
 }
 
+// Item TBD
 type Item struct {
 	Name        string `json:"name"`        // track name
 	RecordingOf Lyrics `json:"recordingOf"` // container for lyrics
 }
 
+// Lyrics TBD
 type Lyrics struct {
 	Lyrics Text `json:"lyrics"` // field "text" contains actual lyrics
 }
 
+// Text TBD
 type Text struct {
 	Text string `json:"text"`
 }
 
+// Album TBD
 type Album struct {
 	Name             string `json:"name"`             // album name for track
 	AlbumReleaseType string `json:"albumReleaseType"` // not sure anymore
@@ -115,6 +122,7 @@ type Album struct {
 	ByArtist         Artist `json:"byArtist"`         // field "name" contains artist/band name
 }
 
+// Publisher TBD
 type Publisher struct {
 	Name             string   `json:"name"`             // publishers name
 	Genre            string   `json:"genre"`            // url to genre page
@@ -123,10 +131,12 @@ type Publisher struct {
 	MainEntityOfPage []Social `json:"mainEntityOfPage"` // publishers socials
 }
 
+// Location TBD
 type Location struct {
 	Name string `json:"name"`
 }
 
+// Social TBD
 type Social struct {
 	Name string `json:"name"` // website/social network name
 	URL  string `json:"url"`  // url
@@ -378,6 +388,7 @@ type tagSearchJSON struct {
 	Hubs Hub `json:"hub"`
 }
 
+// Hub TBD
 type Hub struct {
 	//RelatedTags []map[string]interface{} `json:"related_tags"`
 	//Subgenres   []map[string]interface{} `json:"subgenres"`
@@ -385,22 +396,19 @@ type Hub struct {
 	Tabs     []Tab `json:"tabs"`
 }
 
-// TODO: collections have types, some contain fan reviews for albums
-// at least 1 collection doesn't have media items
-// filter them by type
+// Tab TBD
 type Tab struct {
 	Collections []Result `json:"collections"`
 	DigDeeper   Results  `json:"dig_deeper"`
 }
 
-// NOTE: key for accessing underlying data is dynamic
-// ({\"tags\":[\"tag\"],\"format\":\"all\",\"location\":0,\"sort\":\"pop\"})
-// key itself is stored in dig_deeper.initial_settings
+// Results TBD
 type Results struct {
 	InitialSettings string            `json:"initial_settings"`
 	Result          map[string]Result `json:"results"`
 }
 
+// Result TBD
 type Result struct {
 	// TODO: remove first three
 	page          int          `json:"-"`
@@ -410,6 +418,7 @@ type Result struct {
 	Items         []SearchItem `json:"items"`
 }
 
+// SearchItem TBD
 type SearchItem struct {
 	Type   string `json:"tralbum_type"`
 	Title  string `json:"title"`       // title
