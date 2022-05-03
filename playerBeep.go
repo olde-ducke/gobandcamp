@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"time"
 
@@ -20,7 +21,8 @@ type beepPlayer struct {
 	muted          bool
 
 	// for debug reporting
-	dbg func(string)
+	dbg      func(string)
+	callback func()
 }
 
 // NewBeepPlayer TBD
@@ -142,40 +144,39 @@ func (player *beepPlayer) Load(data []byte) error {
 	if err != nil {
 		return err
 	}
+	player.ClearStream()
 	speaker.Lock()
 	player.format = format
 	player.stream = newStream(format.SampleRate, streamer, player.volume, player.muted)
 	speaker.Unlock()
 	player.status = stopped
-	player.dbg("stream loaded")
+	player.dbg(fmt.Sprintf("stream loaded: %+v", player.format))
 	// deadlocks if anything speaker related is done inside callback
 	// since it's locking device itself
-	// speaker.Play(beep.Seq(player.stream.volume, beep.Callback(
-	//	func() {
-	//	})))
-	speaker.Play(player.stream.volume)
-	return nil
+	speaker.Play(beep.Seq(player.stream.volume, beep.Callback(
+		func() {
+			defer player.callback()
+		})))
+	return player.stream.volume.Err()
 }
 
-func (player *beepPlayer) Reload() {
+func (player *beepPlayer) Reload() error {
 	if !player.isReady() {
-		return
+		return errors.New("nothing to reload")
 	}
 	player.dbg("reload same stream")
-	player.Stop()
 	speaker.Clear()
-	//speaker.Play(beep.Seq(player.stream.volume, beep.Callback(
-	//	func() {
-	//	})))
-	speaker.Play(player.stream.volume)
+	speaker.Play(beep.Seq(player.stream.volume, beep.Callback(player.callback)))
 	player.status = stopped
+	return player.stream.volume.Err()
 }
 
 func (player *beepPlayer) Pause() {
-	if !player.isReady() {
+	if !player.isReady() || player.status != playing {
 		return
 	}
 
+	player.dbg("playback paused")
 	player.status = paused
 	speaker.Lock()
 	player.stream.ctrl.Paused = true
@@ -184,6 +185,7 @@ func (player *beepPlayer) Pause() {
 
 func (player *beepPlayer) Play() {
 	if !player.isReady() {
+		player.dbg("can't play player isn't ready")
 		return
 	}
 
@@ -194,6 +196,10 @@ func (player *beepPlayer) Play() {
 
 	case playing:
 		player.status = paused
+
+	default:
+		player.dbg("can't play while switching tracks")
+		return
 	}
 
 	speaker.Lock()
@@ -201,16 +207,35 @@ func (player *beepPlayer) Play() {
 	speaker.Unlock()
 }
 
-// stop is actually pause with position reset
+// Stop is actually pause with position reset
 func (player *beepPlayer) Stop() {
+	if !player.isReady() || !player.isPlaying() {
+		return
+	}
+
+	err := player.SeekAbsolute(0)
+	if err != nil {
+		player.dbg(err.Error())
+		return
+	}
 	player.dbg("playback stopped")
 	player.status = stopped
-	if player.isReady() {
-		player.SeekAbsolute(0)
-		speaker.Lock()
-		player.stream.ctrl.Paused = true
-		speaker.Unlock()
+	speaker.Lock()
+	player.stream.ctrl.Paused = true
+	speaker.Unlock()
+}
+
+// SetCallback sets function that will be called at the end of stream.
+func (player *beepPlayer) SetCallback(f func()) {
+	player.callback = f
+}
+
+// SetStatus accepts only skipFWD and skipBWD, other values discarded
+func (player *beepPlayer) SetStatus(status PlaybackStatus) {
+	if status != skipFWD && status != skipBWD {
+		return
 	}
+	player.status = status
 }
 
 func (player *beepPlayer) GetVolume() string {
@@ -254,4 +279,13 @@ func (player *beepPlayer) GetPosition() float64 {
 func (player *beepPlayer) ClearStream() {
 	player.dbg("clearing buffer")
 	speaker.Clear()
+	if player.isReady() {
+		// speaker.Lock()
+		err := player.stream.streamer.Close()
+		if err != nil {
+			player.dbg(err.Error())
+		}
+		player.stream = nil
+		// speaker.Unlock()
+	}
 }

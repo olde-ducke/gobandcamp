@@ -45,10 +45,12 @@ type Player interface {
 	SeekRelative(int) error
 	SeekAbsolute(float64) error
 	Load([]byte) error
-	Reload()
+	Reload() error
 	Pause()
 	Play()
 	Stop()
+	SetCallback(func())
+	SetStatus(PlaybackStatus)
 	GetVolume() string
 	GetStatus() PlaybackStatus
 	GetTime() time.Duration
