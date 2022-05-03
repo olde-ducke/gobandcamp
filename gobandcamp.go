@@ -43,6 +43,8 @@ func run(debug bool) {
 	musicDownloader := newDownloader(&wg, musicCache, debugln, errorln, text, do)
 	player := NewBeepPlayer(debugln)
 	p := NewPlaylist(player, debugln)
+	fileManager := newFileManager(musicCache, do)
+	Open = fileManager.open
 	ui := newHeadless(player, p)
 	// FIXME: no wg on run, ui should dictate when to finish
 	// so it's probably fine?
@@ -121,10 +123,12 @@ loop:
 					continue
 				}
 				err := player.Load(data)
-
 				if err != nil {
 					errorln(err.Error())
 				}
+
+			case actionDownload:
+				musicDownloader.run(a.path, p.GetCurrentTrack())
 
 			case actionQuit:
 				ui.Quit()

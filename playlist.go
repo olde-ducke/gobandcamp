@@ -20,6 +20,7 @@ const (
 )
 
 var modes = [4]string{"normal", "repeat", "repeat one", "random"}
+var Open = func(string) error { return nil }
 
 func (mode Mode) String() string {
 	return modes[mode]
@@ -28,31 +29,48 @@ func (mode Mode) String() string {
 type playbackMode interface {
 	next(int, int) int
 	prev(int, int) int
+	switchTrack(int, int, Player) int
 	get() Mode
 }
 
-type defaultMode struct {
+type repeatMode struct {
 	mode Mode
 }
 
-func (m *defaultMode) next(current, total int) int {
+func (m *repeatMode) next(current, total int) int {
 	return (current + 1) % total
 }
 
-func (m *defaultMode) prev(current, total int) int {
+func (m *repeatMode) prev(current, total int) int {
 	return (total + current - 1) % total
 }
 
-func (m *defaultMode) get() Mode {
+func (m *repeatMode) switchTrack(current, total int, p Player) int {
+	return m.next(current, total)
+}
+
+func (m *repeatMode) get() Mode {
 	return m.mode
 }
 
+type defaultMode struct {
+	repeatMode
+}
+
+func (m *defaultMode) switchTrack(current, total int, p Player) int {
+	if current == total-1 {
+		p.Reload()
+		return current
+	}
+	return m.next(current, total)
+}
+
 type randomMode struct {
-	defaultMode
+	repeatMode
 }
 
 // FIXME: bad way of doing random track
-func (rm *randomMode) next(current, total int) int {
+func (m *randomMode) next(current, total int) int {
 	if total < 2 {
 		return current
 	}
@@ -66,8 +84,8 @@ func (rm *randomMode) next(current, total int) int {
 	return current
 }
 
-func (rm *randomMode) prev(current, total int) int {
-	return rm.next(current, total)
+func (m *randomMode) prev(current, total int) int {
+	return m.next(current, total)
 }
 
 // PlaylistItem is a metadata of a media item.
@@ -107,10 +125,14 @@ func (p *Playlist) Prev() {
 		return
 	}
 
+	pos := p.player.GetTime().Seconds()
+	p.player.Stop()
+	p.player.SetStatus(skipBWD)
+
 	// reset position rather than switching back
 	// if position is less than 5 seconds
-	if p.player.GetTime().Seconds() > 5 {
-		err := p.player.SeekAbsolute(0)
+	if pos > 5 {
+		err := p.player.Reload()
 		if err != nil {
 			p.dbg(err.Error())
 		}
@@ -119,6 +141,10 @@ func (p *Playlist) Prev() {
 
 	nextTrack := p.mode.prev(p.current, p.GetTotalTracks())
 	p.SetTrack(nextTrack)
+	err := Open(p.GetCurrentItem().Path)
+	if err != nil {
+		p.dbg(err.Error())
+	}
 }
 
 // Next switches to next track.
@@ -126,13 +152,27 @@ func (p *Playlist) Next() {
 	if p.IsEmpty() {
 		return
 	}
+	p.player.Stop()
+	p.player.SetStatus(skipFWD)
 	nextTrack := p.mode.next(p.current, p.GetTotalTracks())
 	p.SetTrack(nextTrack)
+	err := Open(p.GetCurrentItem().Path)
+	if err != nil {
+		p.dbg(err.Error())
+	}
 }
 
-// Start TBD.
-func (p *Playlist) Start() {
-	p.dbg("playlist: NOT IMPLEMENTED next")
+// Switch is called by player at the end of playback.
+func (p *Playlist) Switch() {
+	p.player.Stop()
+	p.player.SetStatus(skipFWD)
+	nextTrack := p.mode.switchTrack(p.current, p.GetTotalTracks(), p.player)
+	p.SetTrack(nextTrack)
+	err := Open(p.GetCurrentItem().Path)
+	if err != nil {
+		p.dbg(err.Error())
+	}
+	p.dbg("NOT IMPLEMENTED: track switching")
 }
 
 // Clear deletes all playlist data.
@@ -150,12 +190,15 @@ func (p *Playlist) GetMode() Mode {
 // will be set to 'normal'.
 func (p *Playlist) SetMode(mode Mode) {
 	switch mode {
-	case repeat, repeatOne, normal:
-		p.mode = &defaultMode{mode: mode}
+	case normal:
+		p.mode = &defaultMode{repeatMode{mode: mode}}
+	case repeat, repeatOne:
+		p.mode = &repeatMode{mode: mode}
 	case random:
-		p.mode = &randomMode{defaultMode{mode: mode}}
+		p.mode = &randomMode{repeatMode{mode: mode}}
 	default:
-		p.mode = &defaultMode{mode: normal}
+		p.dbg("invalid playback mode, setting to normal")
+		p.mode = &defaultMode{repeatMode{mode: normal}}
 	}
 }
 
@@ -181,15 +224,11 @@ func (p *Playlist) GetTotalTracks() int {
 // SetTrack sets playlist to play given track number.
 func (p *Playlist) SetTrack(track int) {
 	p.dbg(strconv.Itoa(track))
-	if track == p.current {
-		p.player.Reload()
-		return
-	}
-
 	p.current = track
 }
 
 // Enqueue appends items to the end of playlist.
+// TODO: remove any mentions of outside objects
 func (p *Playlist) Enqueue(items []item) error {
 	var err error
 	p.Lock()
@@ -221,6 +260,7 @@ func (p *Playlist) Enqueue(items []item) error {
 				TrackArtist: t.artist,
 				TrackURL:    t.url,
 				ArtPath:     i.artURL,
+				TotalTracks: i.totalTracks,
 				Duration:    t.duration,
 			})
 		}
@@ -262,125 +302,9 @@ func NewPlaylist(player Player, dbg func(string)) *Playlist {
 		dbg:    dbg,
 		player: player,
 		size:   5,
-		mode:   &defaultMode{mode: normal},
+		mode:   &defaultMode{repeatMode{mode: normal}},
 	}
+	player.SetCallback(p.Switch)
 	p.data = make([]PlaylistItem, 0, p.size)
 	return p
 }
-
-/*
-func (player *beepPlayer) getPlaybackMode() string {
-	return player.playbackMode.String()
-}
-
-func (player *beepPlayer) skip(forward bool) bool {
-	if player.totalTracks == 0 {
-		return false
-	}
-
-	if player.playbackMode == random {
-		player.nextTrack()
-		return true
-	}
-
-	player.dbg("skip track")
-	player.stop()
-	player.clearStream()
-
-	if forward {
-		player.currentTrack = (player.currentTrack + 1) %
-			player.totalTracks
-		player.status = skipFWD
-	} else {
-		player.currentTrack = (player.totalTracks +
-			player.currentTrack - 1) %
-			player.totalTracks
-		player.status = skipBWD
-	}
-
-	return true
-}
-
-func (player *beepPlayer) nextMode() {
-	player.playbackMode = (player.playbackMode + 1) % 4
-}
-
-func (player *beepPlayer) nextTrack() {
-	player.dbg("next track")
-	switch player.playbackMode {
-
-	case random:
-		var previousTrack int
-
-		if player.totalTracks > 1 {
-			rand.Seed(time.Now().UnixNano())
-			previousTrack = player.currentTrack
-			// never play same track again if random
-			for player.currentTrack == previousTrack {
-				player.currentTrack = rand.Intn(player.totalTracks)
-			}
-		}
-		player.stop()
-
-		if player.currentTrack >= previousTrack {
-			player.status = skipFWD
-		} else {
-			player.status = skipBWD
-		}
-
-		player.clearStream()
-
-	// beep does have loop one, but stream should be set
-	// up to loop from the very start to play indefinetly,
-	// which is not ideal
-	case repeatOne:
-		// doesn't work without position reset?
-		player.resetPosition()
-		player.restart()
-
-	case repeat:
-		player.skip(true)
-
-	case normal:
-		if player.currentTrack == player.totalTracks-1 {
-			// prepare new stream for playback again
-			// and immediately stop it
-			player.restart()
-			player.stop()
-			return
-		}
-		player.skip(true)
-	}
-}
-
-func (player *beepPlayer) setTrack(track int) bool {
-	if track >= player.totalTracks || track < 0 || track == player.currentTrack {
-		return false
-	}
-
-	player.stop()
-	player.clearStream()
-	if track >= player.currentTrack {
-		player.status = skipFWD
-	} else {
-		player.status = skipBWD
-	}
-	player.currentTrack = track
-	return true
-}
-
-// TODO: move to playlist
-type playbackMode int
-
- const (
-	normal playbackMode = iota
-	repeat
-	repeatOne
-	random
-)
-
-var modes = [4]string{"normal", "repeat", "repeat one", "random"}
-
-func (mode playbackMode) String() string {
-	return modes[mode]
-}*/

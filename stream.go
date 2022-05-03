@@ -17,7 +17,7 @@ type mediaStream struct {
 
 func newStream(sampleRate beep.SampleRate, streamer beep.StreamSeekCloser,
 	playerVolume float64, muted bool) *mediaStream {
-	ctrl := &beep.Ctrl{Streamer: streamer, Paused: true}
+	ctrl := &beep.Ctrl{Streamer: streamer, Paused: false}
 	resampler := beep.Resample(Quality, sampleRate, DefaultSampleRate, ctrl)
 	volume := &effects.Volume{Streamer: resampler, Base: 2, Volume: playerVolume, Silent: muted}
 	return &mediaStream{sampleRate, streamer, ctrl, resampler, volume}

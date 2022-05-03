@@ -149,14 +149,16 @@ func (player *beepPlayer) Load(data []byte) error {
 	player.format = format
 	player.stream = newStream(format.SampleRate, streamer, player.volume, player.muted)
 	speaker.Unlock()
-	player.status = stopped
 	player.dbg(fmt.Sprintf("stream loaded: %+v", player.format))
 	// deadlocks if anything speaker related is done inside callback
 	// since it's locking device itself
 	speaker.Play(beep.Seq(player.stream.volume, beep.Callback(
 		func() {
-			defer player.callback()
+			player.dbg("callback")
+			go player.callback()
+			player.dbg("callback exit")
 		})))
+	player.status = playing
 	return player.stream.volume.Err()
 }
 
@@ -166,11 +168,16 @@ func (player *beepPlayer) Reload() error {
 	}
 	player.dbg("reload same stream")
 	speaker.Clear()
+	speaker.Lock()
+	player.stream.ctrl.Paused = false
+	speaker.Unlock()
 	speaker.Play(beep.Seq(player.stream.volume, beep.Callback(
 		func() {
-			defer player.callback()
+			player.dbg("callback")
+			go player.callback()
+			player.dbg("callback exit")
 		})))
-	player.status = stopped
+	player.status = playing
 	return player.stream.volume.Err()
 }
 

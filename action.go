@@ -10,6 +10,7 @@ const (
 	actionAdd
 	actionStart
 	actionPlay
+	actionDownload
 	actionQuit
 )
 
