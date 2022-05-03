@@ -166,7 +166,10 @@ func (player *beepPlayer) Reload() error {
 	}
 	player.dbg("reload same stream")
 	speaker.Clear()
-	speaker.Play(beep.Seq(player.stream.volume, beep.Callback(player.callback)))
+	speaker.Play(beep.Seq(player.stream.volume, beep.Callback(
+		func() {
+			defer player.callback()
+		})))
 	player.status = stopped
 	return player.stream.volume.Err()
 }
