@@ -126,6 +126,7 @@ func (h *headless) start() {
 		fmt.Print("\x1b[F\x1b[0K")
 		switch input {
 		case "q":
+			h.displayInternal(input)
 			h.Quit()
 
 		case "s":
@@ -141,6 +142,7 @@ func (h *headless) start() {
 			h.displayInternal("volume: " + h.player.GetVolume())
 
 		case "a", "d":
+			h.displayInternal(input)
 			offset := 3
 			if input == "a" {
 				offset *= -1
@@ -151,9 +153,11 @@ func (h *headless) start() {
 			}
 
 		case "o":
+			h.displayInternal(input)
 			h.player.Stop()
 
 		case "p":
+			h.displayInternal(input)
 			h.player.Pause()
 
 		case "r":
@@ -161,49 +165,55 @@ func (h *headless) start() {
 			h.displayInternal("mode: " + h.playlist.GetMode().String())
 
 		case " ":
+			h.displayInternal(input)
 			h.player.Play()
 
 		case "f":
+			h.displayInternal(input)
 			h.playlist.Next()
 
 		case "b":
+			h.displayInternal(input)
 			h.playlist.Prev()
 
 		case ":print progress":
 			h.displayInternal(fmt.Sprint(h.player.GetPosition()))
 
-		case ":print playlist":
-			h.displayInternal(fmt.Sprint())
-
 		case ":enqueue data":
+			h.displayInternal(fmt.Sprint())
 			if err := h.playlist.Enqueue([]item{dummyData}); err != nil {
 				h.displayInternal(err.Error())
 			}
 
 		case ":add empty":
+			h.displayInternal(input)
 			if err := h.playlist.Add([]item{}); err != nil {
 				h.displayInternal(err.Error())
 			}
 
 		case ":add data":
+			h.displayInternal(input)
 			err := h.playlist.Add([]item{dummyData})
 			if err != nil {
 				h.displayInternal(err.Error())
 			}
 
 		case ":add playlist":
+			h.displayInternal(input)
 			err := h.playlist.Add([]item{dummyData, dummyData, dummyData, dummyData})
 			if err != nil {
 				h.displayInternal(err.Error())
 			}
 
 		case ":clear data":
+			h.displayInternal(input)
 			h.playlist.Clear()
 
 		case ":current":
-			h.displayInternal(fmt.Sprint(h.playlist.GetCurrentItem()))
+			h.displayInternal(fmt.Sprintf("%+v", h.playlist.GetCurrentItem()))
 
 		default:
+			h.displayInternal(input)
 			a, dropped, err := parseInput(input)
 			if err != nil {
 				h.displayInternal(err.Error())
