@@ -80,14 +80,18 @@ func (w *downloadWorker) run(link string, n int) {
 	w.cancelPrevJob(cancel)
 
 	prefix := "track " + strconv.Itoa(n) + " "
+	infoln := newReporter(textMessage, prefix, w.wg, w.out)
 
 	w.wg.Add(1)
 	go func() {
 		defer w.wg.Done()
-		result, err := downloadmedia(ctx, link, w.dbg,
-			newReporter(textMessage, prefix, w.wg, w.out))
+		result, err := downloadmedia(ctx, link, w.dbg, infoln)
 		if err != nil {
-			w.errr(err.Error())
+			if err == context.Canceled {
+				infoln(err.Error())
+				return
+			}
+			w.errr(prefix + err.Error())
 			return
 		}
 
@@ -98,6 +102,7 @@ func (w *downloadWorker) run(link string, n int) {
 		}
 
 		w.cache.Set(key, result)
+		infoln("downloaded")
 		w.do <- &action{actionPlay, key}
 	}()
 }
