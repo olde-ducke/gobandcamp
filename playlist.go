@@ -11,6 +11,7 @@ import (
 // Mode playback mode: normal, repeat, repeat one or random.
 type Mode int
 
+// TODO: random repeat is missing
 const (
 	normal Mode = iota
 	repeat
@@ -30,8 +31,8 @@ func (mode Mode) String() string {
 }
 
 type playbackMode interface {
-	next(int, int) int
-	prev(int, int) int
+	nextTrack(int, int) int
+	prevTrack(int, int) int
 	switchTrack(int, int, Player) int
 	get() Mode
 }
@@ -40,16 +41,16 @@ type repeatMode struct {
 	mode Mode
 }
 
-func (m *repeatMode) next(current, total int) int {
+func (m *repeatMode) nextTrack(current, total int) int {
 	return (current + 1) % total
 }
 
-func (m *repeatMode) prev(current, total int) int {
+func (m *repeatMode) prevTrack(current, total int) int {
 	return (total + current - 1) % total
 }
 
 func (m *repeatMode) switchTrack(current, total int, p Player) int {
-	return m.next(current, total)
+	return m.nextTrack(current, total)
 }
 
 func (m *repeatMode) get() Mode {
@@ -66,7 +67,7 @@ func (m *defaultMode) switchTrack(current, total int, p Player) int {
 		p.Stop()
 		return current
 	}
-	return m.next(current, total)
+	return m.nextTrack(current, total)
 }
 
 type repeatOneMode struct {
@@ -83,7 +84,7 @@ type randomMode struct {
 }
 
 // FIXME: bad way of doing random track
-func (m *randomMode) next(current, total int) int {
+func (m *randomMode) nextTrack(current, total int) int {
 	if total < 2 {
 		return current
 	}
@@ -97,12 +98,12 @@ func (m *randomMode) next(current, total int) int {
 	return current
 }
 
-func (m *randomMode) prev(current, total int) int {
-	return m.next(current, total)
+func (m *randomMode) prevTrack(current, total int) int {
+	return m.nextTrack(current, total)
 }
 
 func (m *randomMode) switchTrack(current, total int, p Player) int {
-	return m.next(current, total)
+	return m.nextTrack(current, total)
 }
 
 // PlaylistItem is a metadata of a media item.
@@ -156,7 +157,7 @@ func (p *Playlist) Prev() {
 		return
 	}
 
-	nextTrack := p.mode.prev(p.current, p.GetTotalTracks())
+	nextTrack := p.mode.prevTrack(p.current, p.GetTotalTracks())
 	p.SetTrack(nextTrack)
 	err := Open(p.GetCurrentItem().Path)
 	if err != nil {
@@ -171,7 +172,7 @@ func (p *Playlist) Next() {
 	}
 	p.player.Stop()
 	p.player.SetStatus(skipFWD)
-	nextTrack := p.mode.next(p.current, p.GetTotalTracks())
+	nextTrack := p.mode.nextTrack(p.current, p.GetTotalTracks())
 	p.SetTrack(nextTrack)
 	err := Open(p.GetCurrentItem().Path)
 	if err != nil {
@@ -208,23 +209,17 @@ func (p *Playlist) GetMode() Mode {
 // will be set to 'normal'.
 func (p *Playlist) SetMode(mode Mode) {
 	switch mode {
-	case normal:
-		p.mode = &defaultMode{repeatMode{mode: mode}}
-	case repeat:
-		p.mode = &repeatMode{mode: mode}
-	case repeatOne:
-		p.mode = &repeatOneMode{repeatMode{mode: mode}}
-	case random:
-		p.mode = &randomMode{repeatMode{mode: mode}}
+	case normal, repeat, repeatOne, random:
+		p.mode = modes[mode]
 	default:
 		p.dbg("invalid playback mode, setting to normal")
-		p.mode = &defaultMode{repeatMode{mode: normal}}
+		p.mode = modes[normal]
 	}
 }
 
 // NextMode switches to next playback mode.
 func (p *Playlist) NextMode() {
-	p.SetMode((p.mode.get() + 1) % 4)
+	p.SetMode(Mode((p.mode.get() + 1) % 4))
 }
 
 // GetCurrentTrack returns current playing tracks
@@ -243,7 +238,6 @@ func (p *Playlist) GetTotalTracks() int {
 
 // SetTrack sets playlist to play given track number.
 func (p *Playlist) SetTrack(track int) {
-	p.dbg(strconv.Itoa(track))
 	p.current = track
 }
 
@@ -287,11 +281,16 @@ func (p *Playlist) IsEmpty() bool {
 
 // NewPlaylist TBD
 func NewPlaylist(player Player, size int, dbg func(string)) *Playlist {
+	modes[normal] = &defaultMode{repeatMode{mode: normal}}
+	modes[repeat] = &repeatMode{mode: repeat}
+	modes[repeatOne] = &repeatOneMode{repeatMode{mode: repeatOne}}
+	modes[random] = &randomMode{repeatMode{mode: random}}
+
 	p := &Playlist{
 		dbg:    dbg,
 		player: player,
 		size:   size,
-		mode:   &defaultMode{repeatMode{mode: normal}},
+		mode:   modes[normal],
 	}
 	player.SetCallback(p.Switch)
 	p.data = make([]PlaylistItem, 0, p.size)

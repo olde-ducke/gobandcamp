@@ -15,10 +15,8 @@ var Quality = 1
 
 // Statuses list of text representation of player current
 // status: stopped, playing, paused, seeking backward/forward,
-// skipping backward/forward (□ ▹ ▯▯ ◃◃ ▹▹ ▯◃ ▹▯).
-var Statuses = [7]string{" \u25a1", " \u25b9", "\u25af\u25af",
-	"\u25c3\u25c3", "\u25b9\u25b9", "\u25af\u25c3",
-	"\u25b9\u25af"}
+// skipping backward/forward ([] > || << >> |< >|).
+var Statuses = [7]string{"[]", " >", "||", "<<", ">>", "|<", ">|"}
 
 // PlaybackStatus player current state
 type PlaybackStatus int

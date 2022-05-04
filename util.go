@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 )
 
@@ -17,7 +18,9 @@ func convert(items []item) ([]PlaylistItem, error) {
 	var data []PlaylistItem
 	for _, i := range items {
 		if !i.hasAudio {
-			return nil, errors.New("item doesn't have mediai to play")
+			return nil, errors.New(
+				fmt.Sprintf("item %s doesn't have media to play",
+					i.url))
 		}
 
 		for _, t := range i.tracks {
