@@ -7,8 +7,9 @@ import (
 )
 
 var (
-	tagLink    = url.URL{Scheme: "https", Host: "bandcamp.com", Path: "/tag/"}
-	searchLink = url.URL{Scheme: "https", Host: "bandcamp.com", Path: "/search"}
+	tagLink       = url.URL{Scheme: "https", Host: "bandcamp.com", Path: "/tag/"}
+	searchLink    = url.URL{Scheme: "https", Host: "bandcamp.com", Path: "/search"}
+	errEmptyInput = errors.New("empty input")
 )
 
 func isValidURL(input string) (string, bool) {
@@ -103,10 +104,14 @@ func createSearchURL(query []string, params map[string]string) (string, error) {
 // --highlights        	- get highlights of genre
 func parseInput(input string) (*action, []string, error) {
 	if len(input) == 0 {
-		return nil, nil, errors.New("empty input")
+		return nil, nil, errEmptyInput
 	}
 
 	args := strings.Fields(input)
+	if len(args) == 0 {
+		return nil, nil, errEmptyInput
+	}
+
 	parsed := &action{}
 	if path, ok := isValidURL(args[0]); ok {
 		parsed.actionType = actionOpenURL
