@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"sync"
@@ -18,6 +20,8 @@ func run(debug bool) {
 	var logFile *os.File
 	var wg sync.WaitGroup
 	var err error
+
+	context.Canceled = errors.New("download cancelled")
 
 	debugln := func(string) {}
 	errorln := newReporter(errorMessage, "", &wg, text)
@@ -117,7 +121,15 @@ loop:
 				musicDownloader.run(data[0].tracks[0].mp3128, p.GetCurrentTrack())
 
 			case actionPlay:
-				data, ok := musicCache.Get(getTruncatedURL(a.path))
+				key := getTruncatedURL(a.path)
+				// FIXME: might crash
+				current := getTruncatedURL(p.GetCurrentItem().Path)
+
+				if key != current {
+					debugln("wrong track, discarding")
+				}
+
+				data, ok := musicCache.Get(key)
 				if !ok {
 					errorln("failed to load data")
 					continue
