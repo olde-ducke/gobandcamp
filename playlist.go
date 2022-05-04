@@ -60,9 +60,19 @@ type defaultMode struct {
 func (m *defaultMode) switchTrack(current, total int, p Player) int {
 	if current == total-1 {
 		p.Reload()
+		p.Stop()
 		return current
 	}
 	return m.next(current, total)
+}
+
+type repeatOneMode struct {
+	repeatMode
+}
+
+func (m *repeatOneMode) switchTrack(current, total int, p Player) int {
+	p.Reload()
+	return current
 }
 
 type randomMode struct {
@@ -192,8 +202,10 @@ func (p *Playlist) SetMode(mode Mode) {
 	switch mode {
 	case normal:
 		p.mode = &defaultMode{repeatMode{mode: mode}}
-	case repeat, repeatOne:
+	case repeat:
 		p.mode = &repeatMode{mode: mode}
+	case repeatOne:
+		p.mode = &repeatOneMode{repeatMode{mode: mode}}
 	case random:
 		p.mode = &randomMode{repeatMode{mode: mode}}
 	default:
