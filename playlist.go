@@ -4,7 +4,6 @@ import (
 	"errors"
 	"math/rand"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 )
@@ -187,7 +186,9 @@ func (p *Playlist) Switch() {
 
 // Clear deletes all playlist data.
 func (p *Playlist) Clear() {
+	p.Lock()
 	p.data = make([]PlaylistItem, 0, p.size)
+	p.Unlock()
 }
 
 // GetMode returns current playback mode.
@@ -241,56 +242,33 @@ func (p *Playlist) SetTrack(track int) {
 
 // Enqueue appends items to the end of playlist.
 // TODO: remove any mentions of outside objects
-func (p *Playlist) Enqueue(items []item) error {
+func (p *Playlist) Enqueue(items []PlaylistItem) error {
 	var err error
 	p.Lock()
 	defer p.Unlock()
 	for _, i := range items {
-		if !i.hasAudio {
-			p.dbg(i.title + " has no available audio")
-			if err == nil {
-				err = errors.New("some items skipped, because they have no available audio ")
-			}
-			continue
+		if len(p.data) == cap(p.data) {
+			return errors.New("can't have more than " +
+				strconv.Itoa(p.size) + " tracks")
 		}
-		for _, t := range i.tracks {
-			if len(p.data) == cap(p.data) {
-				return errors.New("can't have more than " +
-					strconv.Itoa(p.size) + " tracks")
-			}
-			p.data = append(p.data, PlaylistItem{
-				Unreleased:  t.unreleasedTrack,
-				Streaming:   t.streaming,
-				Path:        t.mp3128,
-				Title:       t.title,
-				Artist:      i.artist,
-				Date:        i.albumReleaseDate,
-				Tags:        strings.Join(i.tags, " "),
-				Album:       i.title,
-				AlbumURL:    i.url, // FIXME: build url from art id
-				TrackNum:    t.trackNumber,
-				TrackArtist: t.artist,
-				TrackURL:    t.url,
-				ArtPath:     i.artURL,
-				TotalTracks: i.totalTracks,
-				Duration:    t.duration,
-			})
-		}
+
+		p.data = append(p.data, i)
 	}
 	return err
 }
 
 // Add first clears playlist then adds new items.
-func (p *Playlist) Add(items []item) error {
+func (p *Playlist) Add(items []PlaylistItem) error {
 	p.Clear()
-	if err := p.Enqueue(items); err != nil {
-		return err
-	}
+	// if err := p.Enqueue(items); err != nil {
+	//	return err
+	// }
 
-	if p.IsEmpty() {
-		return errors.New("no streamable media was found")
-	}
+	// if p.IsEmpty() {
+	//	return errors.New("no streamable media was found")
+	// }
 
+	p.data = items
 	p.SetTrack(0)
 	return nil
 }
@@ -309,11 +287,11 @@ func (p *Playlist) IsEmpty() bool {
 }
 
 // NewPlaylist TBD
-func NewPlaylist(player Player, dbg func(string)) *Playlist {
+func NewPlaylist(player Player, size int, dbg func(string)) *Playlist {
 	p := &Playlist{
 		dbg:    dbg,
 		player: player,
-		size:   1024,
+		size:   size,
 		mode:   &defaultMode{repeatMode{mode: normal}},
 	}
 	player.SetCallback(p.Switch)

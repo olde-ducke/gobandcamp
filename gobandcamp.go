@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+const playListSize = 1024
+
 func run(debug bool) {
 	ticker := time.NewTicker(time.Second)
 	update := ticker.C
@@ -46,7 +48,7 @@ func run(debug bool) {
 	musicCache := NewCache(4)
 	musicDownloader := newDownloader(&wg, musicCache, debugln, errorln, text, do)
 	player := NewBeepPlayer(debugln)
-	p := NewPlaylist(player, debugln)
+	p := NewPlaylist(player, playListSize, debugln)
 	fileManager := newFileManager(musicCache, do)
 	Open = fileManager.open
 	ui := newHeadless(player, p)
@@ -57,7 +59,6 @@ func run(debug bool) {
 loop:
 	for {
 		select {
-
 		case <-quit:
 			if quitting {
 				continue
@@ -110,12 +111,19 @@ loop:
 				data, ok := tempCache.Get(a.path)
 				if !ok {
 					errorln("incorrect key")
-					continue loop
+					continue
 				}
-				err := p.Add(data)
 
+				items, err := convert(data)
 				if err != nil {
 					errorln(err.Error())
+					continue
+				}
+
+				err = p.Add(items)
+				if err != nil {
+					errorln(err.Error())
+					continue
 				}
 
 				musicDownloader.run(data[0].tracks[0].mp3128, p.GetCurrentTrack())
@@ -127,6 +135,7 @@ loop:
 
 				if key != current {
 					debugln("wrong track, discarding")
+					continue
 				}
 
 				data, ok := musicCache.Get(key)
@@ -137,6 +146,7 @@ loop:
 				err := player.Load(data)
 				if err != nil {
 					errorln(err.Error())
+					continue
 				}
 
 			case actionDownload:
