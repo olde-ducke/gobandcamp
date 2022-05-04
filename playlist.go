@@ -301,7 +301,7 @@ func NewPlaylist(player Player, dbg func(string)) *Playlist {
 	p := &Playlist{
 		dbg:    dbg,
 		player: player,
-		size:   5,
+		size:   1024,
 		mode:   &defaultMode{repeatMode{mode: normal}},
 	}
 	player.SetCallback(p.Switch)

@@ -240,14 +240,6 @@ func (player *beepPlayer) SetCallback(f func()) {
 	player.callback = f
 }
 
-// SetStatus accepts only skipFWD and skipBWD, other values discarded
-func (player *beepPlayer) SetStatus(status PlaybackStatus) {
-	if status != skipFWD && status != skipBWD {
-		return
-	}
-	player.status = status
-}
-
 func (player *beepPlayer) GetVolume() string {
 	if player.muted {
 		return "mute"
@@ -257,12 +249,21 @@ func (player *beepPlayer) GetVolume() string {
 }
 
 func (player *beepPlayer) GetStatus() PlaybackStatus {
-	if player.bufferedStatus != seekFWD && player.bufferedStatus != seekBWD {
+	if player.bufferedStatus >= stopped && player.bufferedStatus <= paused {
 		return player.status
 	}
 	status := player.bufferedStatus
 	player.bufferedStatus = player.status
 	return status
+}
+
+// SetStatus accepts only skipFWD and skipBWD, other values discarded
+func (player *beepPlayer) SetStatus(status PlaybackStatus) {
+	if status != skipFWD && status != skipBWD {
+		return
+	}
+	player.status = status
+	player.bufferedStatus = status
 }
 
 func (player *beepPlayer) GetTime() time.Duration {

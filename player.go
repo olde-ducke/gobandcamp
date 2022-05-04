@@ -50,9 +50,9 @@ type Player interface {
 	Play()
 	Stop()
 	SetCallback(func())
-	SetStatus(PlaybackStatus)
 	GetVolume() string
 	GetStatus() PlaybackStatus
+	SetStatus(PlaybackStatus)
 	GetTime() time.Duration
 	GetPosition() float64
 	ClearStream()
