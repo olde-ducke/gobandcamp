@@ -18,11 +18,15 @@ const (
 	random
 )
 
-var modes = [4]string{"normal", "repeat", "repeat one", "random"}
-var Open = func(string) error { return nil }
+var (
+	modeNames = [4]string{"normal", "repeat", "repeat one", "random"}
+	Open      = func(string) error { return nil }
+
+	modes [4]playbackMode
+)
 
 func (mode Mode) String() string {
-	return modes[mode]
+	return modeNames[mode]
 }
 
 type playbackMode interface {
@@ -94,6 +98,10 @@ func (m *randomMode) next(current, total int) int {
 }
 
 func (m *randomMode) prev(current, total int) int {
+	return m.next(current, total)
+}
+
+func (m *randomMode) switchTrack(current, total int, p Player) int {
 	return m.next(current, total)
 }
 
@@ -181,7 +189,6 @@ func (p *Playlist) Switch() {
 	if err != nil {
 		p.dbg(err.Error())
 	}
-	p.dbg("NOT IMPLEMENTED: track switching")
 }
 
 // Clear deletes all playlist data.
@@ -260,14 +267,6 @@ func (p *Playlist) Enqueue(items []PlaylistItem) error {
 // Add first clears playlist then adds new items.
 func (p *Playlist) Add(items []PlaylistItem) error {
 	p.Clear()
-	// if err := p.Enqueue(items); err != nil {
-	//	return err
-	// }
-
-	// if p.IsEmpty() {
-	//	return errors.New("no streamable media was found")
-	// }
-
 	p.data = items
 	p.SetTrack(0)
 	return nil
