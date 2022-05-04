@@ -79,7 +79,7 @@ func (w *downloadWorker) run(link string, n int) {
 	ctx, cancel := context.WithCancel(context.Background())
 	w.cancelPrevJob(cancel)
 
-	prefix := "track " + strconv.Itoa(n+1) + " "
+	prefix := "track " + strconv.Itoa(n) + " "
 
 	w.wg.Add(1)
 	go func() {

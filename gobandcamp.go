@@ -114,7 +114,7 @@ loop:
 					errorln(err.Error())
 				}
 
-				musicDownloader.run(data[0].tracks[0].mp3128, 0)
+				musicDownloader.run(data[0].tracks[0].mp3128, p.GetCurrentTrack())
 
 			case actionPlay:
 				data, ok := musicCache.Get(getTruncatedURL(a.path))
