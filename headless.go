@@ -104,8 +104,8 @@ func (h *headless) displayInternal(text string) {
 func (h *headless) DisplayMessage(msg *message) {
 	decoration := getDecoration(msg.msgType)
 	if msg.When().Before(h.prevMessage.When()) {
-		h.displayInternal(fmt.Sprintf("dropped %s%s\x1b[0m message: %s",
-			decoration, msg.msgType, msg.Text()))
+		fmt.Printf(h.formatString, msg.When().Format("2006/01/02 15:04:05"),
+			decoration, msg.msgType, "\x1b[31mMESSAGE IS LATE\x1b[0m "+msg.prefix, msg.text)
 		return
 	}
 
