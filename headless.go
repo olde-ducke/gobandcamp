@@ -102,6 +102,7 @@ func (h *headless) displayInternal(text string) {
 }
 
 func (h *headless) DisplayMessage(msg *message) {
+	defer h.Update()
 	decoration := getDecoration(msg.msgType)
 	if msg.When().Before(h.prevMessage.When()) {
 		fmt.Printf(h.formatString, msg.When().Format("2006/01/02 15:04:05"),
@@ -112,7 +113,6 @@ func (h *headless) DisplayMessage(msg *message) {
 	h.prevMessage = msg
 	fmt.Printf(h.formatString, msg.When().Format("2006/01/02 15:04:05"),
 		decoration, msg.msgType, msg.prefix, msg.text)
-	h.Update()
 }
 
 func (h *headless) start() {
