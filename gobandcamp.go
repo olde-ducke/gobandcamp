@@ -117,7 +117,7 @@ loop:
 				musicDownloader.run(data[0].tracks[0].mp3128, 0)
 
 			case actionPlay:
-				data, ok := musicCache.Get(a.path)
+				data, ok := musicCache.Get(getTruncatedURL(a.path))
 				if !ok {
 					errorln("failed to load data")
 					continue

@@ -22,16 +22,6 @@ var errUnexpected = errors.New("unexpected page format")
 
 var client = http.Client{Timeout: 120 * time.Second}
 
-// cache key = media url without any parameters
-func getTruncatedURL(link string) string {
-	if strings.Contains(link, "?") {
-		index := strings.Index(link, "?")
-		return link[:index]
-	}
-
-	return ""
-}
-
 type options struct {
 	ctx    context.Context
 	url    string

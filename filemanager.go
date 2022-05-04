@@ -15,7 +15,7 @@ func (fm *fileManager) open(path string) error {
 		return errors.New("NOT IMPLEMENTED: local file reading")
 	}
 
-	if _, ok := fm.music.Get(path); ok {
+	if _, ok := fm.music.Get(getTruncatedURL(path)); ok {
 		fm.do <- &action{actionPlay, path}
 		return nil
 	}
