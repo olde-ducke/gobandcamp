@@ -109,7 +109,7 @@ func (m *randomMode) switchTrack(current, total int, p Player) int {
 // PlaylistItem is a metadata of a media item.
 type PlaylistItem struct {
 	Unreleased  bool
-	Streaming   int
+	Streaming   bool
 	Path        string
 	Title       string
 	Artist      string
@@ -219,7 +219,7 @@ func (p *Playlist) SetMode(mode Mode) {
 
 // NextMode switches to next playback mode.
 func (p *Playlist) NextMode() {
-	p.SetMode(Mode((p.mode.get() + 1) % 4))
+	p.SetMode((p.mode.get() + 1) % 4)
 }
 
 // GetCurrentTrack returns current playing tracks

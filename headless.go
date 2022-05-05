@@ -9,7 +9,7 @@ import (
 
 var dummyData = PlaylistItem{
 	Unreleased: false,
-	Streaming:  1,
+	Streaming:  true,
 	Path:       "https://testpath",
 	Title:      "track title",
 	Artist:     "test artist",

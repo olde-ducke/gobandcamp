@@ -114,7 +114,7 @@ loop:
 					continue
 				}
 
-				items, err := convert(data)
+				items, err := convert(data...)
 				if err != nil {
 					errorln(err.Error())
 					continue

@@ -2,7 +2,6 @@ package main
 
 import (
 	"errors"
-	"fmt"
 	"strings"
 )
 
@@ -14,20 +13,30 @@ func getTruncatedURL(link string) string {
 	return link
 }
 
-func convert(items []item) ([]PlaylistItem, error) {
+func convert(items ...item) ([]PlaylistItem, error) {
+	if len(items) == 0 {
+		return nil, errors.New("nothing to add to playlist")
+	}
+
 	var data []PlaylistItem
 	for _, i := range items {
 		if !i.hasAudio {
-			return nil, errors.New(
-				fmt.Sprintf("item %s doesn't have media to play",
-					i.url))
+			continue
+			// TODO: report this
+			// return nil, fmt.Errorf(
+			//	"item %s doesn't have media to play", i.url)
 		}
 
 		for _, t := range i.tracks {
+			path := t.mp3128
+			if t.mp3v0 != "" {
+				path = t.mp3v0
+			}
+
 			data = append(data, PlaylistItem{
 				Unreleased:  t.unreleasedTrack,
-				Streaming:   t.streaming,
-				Path:        t.mp3128,
+				Streaming:   t.streaming == 1,
+				Path:        path,
 				Title:       t.title,
 				Artist:      i.artist,
 				Date:        i.albumReleaseDate,
@@ -42,6 +51,10 @@ func convert(items []item) ([]PlaylistItem, error) {
 				Duration:    t.duration,
 			})
 		}
+	}
+
+	if len(data) == 0 {
+		return nil, errors.New("nothing was added to playlist")
 	}
 
 	return data, nil
