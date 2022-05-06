@@ -1,9 +1,8 @@
 package main
 
 import (
-	"errors"
+	"fmt"
 	"math/rand"
-	"strconv"
 	"sync"
 	"time"
 )
@@ -244,24 +243,32 @@ func (p *Playlist) SetTrack(track int) {
 // Enqueue appends items to the end of playlist.
 // TODO: remove any mentions of outside objects
 func (p *Playlist) Enqueue(items []PlaylistItem) error {
-	var err error
 	p.Lock()
 	defer p.Unlock()
 	for _, i := range items {
 		if len(p.data) == cap(p.data) {
-			return errors.New("can't have more than " +
-				strconv.Itoa(p.size) + " tracks")
+			return fmt.Errorf("can't have more than %d tracks", p.size)
 		}
-
 		p.data = append(p.data, i)
 	}
-	return err
+
+	return nil
 }
 
 // Add first clears playlist then adds new items.
 func (p *Playlist) Add(items []PlaylistItem) error {
+	p.player.Stop()
+	p.player.SetStatus(skipFWD)
 	p.Clear()
+
+	if len(items) > p.size {
+		return p.Enqueue(items)
+	}
+
+	p.Lock()
 	p.data = items
+	p.Unlock()
+
 	p.SetTrack(0)
 	return nil
 }
