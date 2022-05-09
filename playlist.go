@@ -30,52 +30,65 @@ func (mode Mode) String() string {
 }
 
 type playbackMode interface {
-	nextTrack(int, int) int
-	prevTrack(int, int) int
-	switchTrack(int, int, Player) int
+	nextTrack()
+	prevTrack()
+	switchTrack()
 	get() Mode
+	set(int)
 }
 
 type repeatMode struct {
 	mode Mode
+	pl   *Playlist
+	p    Player
 }
 
-func (m *repeatMode) nextTrack(current, total int) int {
-	return (current + 1) % total
+func (m *repeatMode) nextTrack() {
+	next := (m.pl.current + 1) % m.pl.GetTotalTracks()
+	m.set(next)
 }
 
-func (m *repeatMode) prevTrack(current, total int) int {
-	return (total + current - 1) % total
+func (m *repeatMode) prevTrack() {
+	total := m.pl.GetTotalTracks()
+	next := (total + m.pl.current - 1) % total
+	m.set(next)
 }
 
-func (m *repeatMode) switchTrack(current, total int, p Player) int {
-	return m.nextTrack(current, total)
+func (m *repeatMode) switchTrack() {
+	m.nextTrack()
 }
 
 func (m *repeatMode) get() Mode {
 	return m.mode
 }
 
+func (m *repeatMode) set(track int) {
+	m.pl.SetTrack(track)
+	err := Open(m.pl.GetCurrentItem().Path)
+	if err != nil {
+		m.pl.dbg(err.Error())
+	}
+}
+
 type defaultMode struct {
 	repeatMode
 }
 
-func (m *defaultMode) switchTrack(current, total int, p Player) int {
-	if current == total-1 {
-		p.Reload()
-		p.Stop()
-		return current
+func (m *defaultMode) switchTrack() {
+	if m.pl.current == m.pl.GetTotalTracks()-1 {
+		m.p.Reload()
+		m.p.Stop()
+		return
 	}
-	return m.nextTrack(current, total)
+	m.nextTrack()
 }
 
 type repeatOneMode struct {
 	repeatMode
 }
 
-func (m *repeatOneMode) switchTrack(current, total int, p Player) int {
-	p.Reload()
-	return current
+func (m *repeatOneMode) switchTrack() {
+	m.p.Reload()
 }
 
 type randomMode struct {
@@ -83,26 +96,29 @@ type randomMode struct {
 }
 
 // FIXME: bad way of doing random track
-func (m *randomMode) nextTrack(current, total int) int {
+func (m *randomMode) nextTrack() {
+	total := m.pl.GetTotalTracks()
 	if total < 2 {
-		return current
+		m.p.Reload()
+		return
 	}
 
 	rand.Seed(time.Now().UnixNano())
 	// never play same track again if in random mode
-	previous := current
+	current := m.pl.current
+	previous := m.pl.current
 	for current == previous {
 		current = rand.Intn(total)
 	}
-	return current
+	m.set(current)
 }
 
-func (m *randomMode) prevTrack(current, total int) int {
-	return m.nextTrack(current, total)
+func (m *randomMode) prevTrack() {
+	m.nextTrack()
 }
 
-func (m *randomMode) switchTrack(current, total int, p Player) int {
-	return m.nextTrack(current, total)
+func (m *randomMode) switchTrack() {
+	m.nextTrack()
 }
 
 // PlaylistItem is a metadata of a media item.
@@ -149,6 +165,7 @@ func (p *Playlist) Prev() {
 	// reset position rather than switching back
 	// if position is less than 5 seconds
 	if pos > 5 {
+
 		err := p.player.Reload()
 		if err != nil {
 			p.dbg(err.Error())
@@ -156,12 +173,7 @@ func (p *Playlist) Prev() {
 		return
 	}
 
-	nextTrack := p.mode.prevTrack(p.current, p.GetTotalTracks())
-	p.SetTrack(nextTrack)
-	err := Open(p.GetCurrentItem().Path)
-	if err != nil {
-		p.dbg(err.Error())
-	}
+	p.mode.prevTrack()
 }
 
 // Next switches to next track.
@@ -171,24 +183,14 @@ func (p *Playlist) Next() {
 	}
 	p.player.Stop()
 	p.player.SetStatus(skipFWD)
-	nextTrack := p.mode.nextTrack(p.current, p.GetTotalTracks())
-	p.SetTrack(nextTrack)
-	err := Open(p.GetCurrentItem().Path)
-	if err != nil {
-		p.dbg(err.Error())
-	}
+	p.mode.nextTrack()
 }
 
 // Switch is called by player at the end of playback.
 func (p *Playlist) Switch() {
 	p.player.Stop()
 	p.player.SetStatus(skipFWD)
-	nextTrack := p.mode.switchTrack(p.current, p.GetTotalTracks(), p.player)
-	p.SetTrack(nextTrack)
-	err := Open(p.GetCurrentItem().Path)
-	if err != nil {
-		p.dbg(err.Error())
-	}
+	p.mode.switchTrack()
 }
 
 // Clear deletes all playlist data.
@@ -288,18 +290,20 @@ func (p *Playlist) IsEmpty() bool {
 
 // NewPlaylist TBD
 func NewPlaylist(player Player, size int, dbg func(string)) *Playlist {
-	modes[normal] = &defaultMode{repeatMode{mode: normal}}
-	modes[repeat] = &repeatMode{mode: repeat}
-	modes[repeatOne] = &repeatOneMode{repeatMode{mode: repeatOne}}
-	modes[random] = &randomMode{repeatMode{mode: random}}
-
-	p := &Playlist{
+	pl := &Playlist{
 		dbg:    dbg,
 		player: player,
 		size:   size,
-		mode:   modes[normal],
 	}
-	player.SetCallback(p.Switch)
-	p.data = make([]PlaylistItem, 0, p.size)
-	return p
+	player.SetCallback(pl.Switch)
+	pl.data = make([]PlaylistItem, 0, pl.size)
+
+	modes[normal] = &defaultMode{repeatMode{normal, pl, player}}
+	modes[repeat] = &repeatMode{repeat, pl, player}
+	modes[repeatOne] = &repeatOneMode{repeatMode{repeatOne, pl, player}}
+	modes[random] = &randomMode{repeatMode{random, pl, player}}
+
+	pl.mode = modes[normal]
+
+	return pl
 }

@@ -183,6 +183,7 @@ func (player *beepPlayer) Reload() error {
 
 func (player *beepPlayer) Pause() {
 	if !player.isReady() || player.status != playing {
+		player.dbg("can't pause")
 		return
 	}
 
@@ -220,6 +221,7 @@ func (player *beepPlayer) Play() {
 // Stop is actually pause with position reset
 func (player *beepPlayer) Stop() {
 	if !player.isReady() || !player.isPlaying() {
+		player.dbg("can't stop")
 		return
 	}
 
