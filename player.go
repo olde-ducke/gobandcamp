@@ -7,7 +7,7 @@ import (
 )
 
 // DefaultSampleRate sample rate that will be used.
-var DefaultSampleRate beep.SampleRate = 48000
+var DefaultSampleRate beep.SampleRate = 44100
 
 // Quality of resampling, for beep: 1-2 low, 3-4 medium,
 // 5-6 high, higher values are not recommended.
