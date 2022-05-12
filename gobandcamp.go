@@ -11,7 +11,7 @@ import (
 
 const playListSize = 1024
 
-func run(debug bool) {
+func run(cfg config) {
 	ticker := time.NewTicker(time.Second)
 	update := ticker.C
 	quit := make(chan struct{})
@@ -31,7 +31,7 @@ func run(debug bool) {
 	// debug logging function, if debug is set to false
 	// dbg function is empty and won't fill queue with
 	// messages
-	if debug {
+	if cfg.debug {
 		debugln = newReporter(debugMessage, "", &wg, text)
 		logFile, err = os.Create("dump.log")
 		checkFatalError(err)
@@ -40,6 +40,7 @@ func run(debug bool) {
 			logFile.WriteString(msg.String())
 			checkFatalError(logFile.Close())
 		}()
+		debugln(fmt.Sprintf("%+v", cfg))
 	}
 
 	var quitting bool

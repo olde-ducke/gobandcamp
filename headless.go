@@ -126,7 +126,6 @@ func (h *headless) DisplayMessage(msg *message) {
 }
 
 func (h *headless) start() {
-	fmt.Println()
 	h.Update()
 
 	scanner := bufio.NewScanner(os.Stdin)
@@ -245,6 +244,7 @@ func (h *headless) start() {
 }
 
 func newHeadless(player Player, playlist *Playlist) userInterface {
+	fmt.Println()
 	return &headless{
 		formatString: "\x1b[F\x1b[0K%s %s[%s]:\x1b[0m %s%s\n\n",
 		prevMessage:  &message{},
