@@ -40,6 +40,7 @@ func run(cfg config) {
 			logFile.WriteString(msg.String())
 			checkFatalError(logFile.Close())
 		}()
+		Debugf = debugln
 		debugln(fmt.Sprintf("%+v", cfg))
 	}
 
@@ -48,7 +49,9 @@ func run(cfg config) {
 	extractor := newExtractor(&wg, tempCache, debugln, errorln, text, do)
 	musicCache := NewCache(4)
 	musicDownloader := newDownloader(&wg, musicCache, debugln, errorln, text, do)
-	player := NewBeepPlayer(debugln)
+	player, err := NewPlayer(cfg.snd)
+	checkFatalError(err)
+
 	p := NewPlaylist(player, playListSize, debugln)
 	fileManager := newFileManager(musicCache, do)
 	Open = fileManager.open

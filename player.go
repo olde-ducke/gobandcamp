@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/faiface/beep"
@@ -17,6 +19,12 @@ var Quality = 1
 // status: stopped, playing, paused, seeking backward/forward,
 // skipping backward/forward ([] > || << >> |< >|).
 var Statuses = [7]string{"[]", " >", "||", "<<", ">>", "|<", ">|"}
+
+// Debugf package level function for debug printing
+// by default does nothing.
+var Debugf = func(string) {}
+
+var backends = make(map[string]Player, 3)
 
 // PlaybackStatus player current state
 type PlaybackStatus int
@@ -37,6 +45,7 @@ func (status PlaybackStatus) String() string {
 
 // Player is simple music player.
 type Player interface {
+	Init() error
 	RaiseVolume()
 	LowerVolume()
 	Mute()
@@ -54,4 +63,31 @@ type Player interface {
 	GetTime() time.Duration
 	GetPosition() float64
 	ClearStream()
+}
+
+func NewPlayer(snd string) (Player, error) {
+	player, ok := backends[snd]
+	if !ok {
+		return nil, fmt.Errorf("sound backend \"%s\" is not available", snd)
+	}
+
+	err := player.Init()
+	if err != nil {
+		return nil, err
+	}
+
+	return player, nil
+}
+
+func AvailableBackends() string {
+	if len(backends) == 0 {
+		return "none"
+	}
+
+	v := make([]string, 0, len(backends))
+	for k := range backends {
+		v = append(v, k)
+	}
+
+	return strings.Join(v, ", ")
 }

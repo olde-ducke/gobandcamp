@@ -9,7 +9,13 @@ import (
 	"runtime/pprof"
 )
 
-const version = "0.0.1"
+const (
+	version = "0.0.1"
+	verText = `
+gobandcamp version:       %s
+available sound backends: %s
+`
+)
 
 type config struct {
 	cpuprofile string
@@ -23,7 +29,7 @@ type config struct {
 
 func checkFatalError(err error) {
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("\x1b[31m[err]:\x1b[0m %v", err)
 	}
 }
 
@@ -42,7 +48,7 @@ func main() {
 	flag.Parse()
 
 	if cfg.v {
-		fmt.Println(version)
+		fmt.Printf(verText, version, AvailableBackends())
 		os.Exit(0)
 	}
 
