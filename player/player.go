@@ -40,6 +40,10 @@ const (
 )
 
 func (status PlaybackStatus) String() string {
+	if status < stopped || status > skipFWD {
+		return "na"
+	}
+
 	return Statuses[status]
 }
 

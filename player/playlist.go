@@ -20,7 +20,6 @@ const (
 
 var (
 	modeNames = [4]string{"normal", "repeat", "repeat one", "random"}
-	Open      = func(string) error { return nil }
 
 	modes [4]playbackMode
 )
@@ -64,7 +63,8 @@ func (m *repeatMode) get() Mode {
 
 func (m *repeatMode) set(track int) {
 	m.pl.SetTrack(track)
-	err := Open(m.pl.GetCurrentItem().Path)
+	// FIXME: remove error, define method for getting path safely
+	err := m.pl.feed(m.pl.GetCurrentItem().Path)
 	if err != nil {
 		Debugf(err.Error())
 	}
@@ -143,11 +143,12 @@ type PlaylistItem struct {
 // Playlist simple playlist manager.
 type Playlist struct {
 	sync.RWMutex
-	player  Player
-	current int
 	data    []PlaylistItem
-	size    int
 	mode    playbackMode
+	current int
+	size    int
+	player  Player
+	feed    func(string) error
 }
 
 // Prev switches to previous track.
@@ -242,7 +243,6 @@ func (p *Playlist) SetTrack(track int) {
 }
 
 // Enqueue appends items to the end of playlist.
-// TODO: remove any mentions of outside objects
 func (p *Playlist) Enqueue(items []PlaylistItem) error {
 	p.Lock()
 	defer p.Unlock()
@@ -256,8 +256,8 @@ func (p *Playlist) Enqueue(items []PlaylistItem) error {
 	return nil
 }
 
-// Add first clears playlist then adds new items.
-func (p *Playlist) Add(items []PlaylistItem) error {
+// New first clears playlist then adds new items.
+func (p *Playlist) New(items []PlaylistItem) error {
 	p.player.Stop()
 	p.player.SetStatus(skipFWD)
 	p.Clear()
@@ -287,11 +287,16 @@ func (p *Playlist) IsEmpty() bool {
 	return len(p.data) == 0
 }
 
-// NewPlaylist TBD
-func NewPlaylist(player Player, size int) *Playlist {
+// NewPlaylist returns new playlist which will take control
+// over player on track switching. Overrides players callback
+// with its own Switch method, path to next item is passed to
+// feed, after this will wait for next item to be loaded through
+// Player.Load(...)
+func NewPlaylist(player Player, size int, feed func(string) error) *Playlist {
 	pl := &Playlist{
-		player: player,
 		size:   size,
+		player: player,
+		feed:   feed,
 	}
 	player.SetCallback(pl.Switch)
 	pl.data = make([]PlaylistItem, 0, pl.size)

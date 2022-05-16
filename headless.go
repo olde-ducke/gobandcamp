@@ -198,20 +198,20 @@ func (h *headless) start() {
 
 		case ":add empty":
 			h.displayInternal(input)
-			if err := h.playlist.Add([]player.PlaylistItem{}); err != nil {
+			if err := h.playlist.New([]player.PlaylistItem{}); err != nil {
 				h.displayInternal(err.Error())
 			}
 
 		case ":add data":
 			h.displayInternal(input)
-			err := h.playlist.Add([]player.PlaylistItem{dummyData})
+			err := h.playlist.New([]player.PlaylistItem{dummyData})
 			if err != nil {
 				h.displayInternal(err.Error())
 			}
 
 		case ":add playlist":
 			h.displayInternal(input)
-			err := h.playlist.Add([]player.PlaylistItem{dummyData, dummyData, dummyData, dummyData})
+			err := h.playlist.New([]player.PlaylistItem{dummyData, dummyData, dummyData, dummyData})
 			if err != nil {
 				h.displayInternal(err.Error())
 			}

@@ -54,9 +54,8 @@ func run(cfg config) {
 	p, err := player.NewPlayer(cfg.snd)
 	checkFatalError(err)
 
-	pl := player.NewPlaylist(p, playListSize)
-	fileManager := newFileManager(musicCache, do)
-	player.Open = fileManager.open
+	fm := newFileManager(musicCache, do)
+	pl := player.NewPlaylist(p, playListSize, fm.open)
 	ui := newHeadless(p, pl)
 	// FIXME: no wg on run, ui should dictate when to finish
 	// so it's probably fine?
@@ -126,7 +125,7 @@ loop:
 					continue
 				}
 
-				err = pl.Add(items)
+				err = pl.New(items)
 				if err != nil {
 					errorln(err.Error())
 					continue
