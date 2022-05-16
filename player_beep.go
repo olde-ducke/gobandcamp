@@ -12,6 +12,8 @@ import (
 )
 
 type beepPlayer struct {
+	name string
+
 	stream *mediaStream
 	format beep.Format
 
@@ -27,8 +29,7 @@ type beepPlayer struct {
 // device initialization
 func (player *beepPlayer) Init() error {
 	// TODO: add sample rate setting
-	Debugf(fmt.Sprintf("starting beep player with sample rate: %d and resampling quality: %d",
-		DefaultSampleRate, Quality))
+
 	sr := beep.SampleRate(DefaultSampleRate)
 	return speaker.Init(sr, sr.N(time.Second/10))
 }
@@ -296,6 +297,11 @@ func (player *beepPlayer) ClearStream() {
 	}
 }
 
+func (player *beepPlayer) GetName() string {
+	return player.name
+}
+
 func init() {
-	backends["beep"] = &beepPlayer{}
+	p := &beepPlayer{name: "beep"}
+	backends[p.GetName()] = p
 }

@@ -63,6 +63,7 @@ type Player interface {
 	GetTime() time.Duration
 	GetPosition() float64
 	ClearStream()
+	GetName() string
 }
 
 func NewPlayer(snd string) (Player, error) {
@@ -76,6 +77,8 @@ func NewPlayer(snd string) (Player, error) {
 		return nil, err
 	}
 
+	Debugf(fmt.Sprintf("initializing %s player, sample rate: %d, resampling quality: %d",
+		player.GetName(), DefaultSampleRate, Quality))
 	return player, nil
 }
 
