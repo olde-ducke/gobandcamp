@@ -7,6 +7,8 @@ import (
 	"os"
 	"sync"
 	"time"
+
+	"github.com/olde-ducke/gobandcamp/player"
 )
 
 const playListSize = 1024
@@ -40,7 +42,7 @@ func run(cfg config) {
 			logFile.WriteString(msg.String())
 			checkFatalError(logFile.Close())
 		}()
-		Debugf = debugln
+		player.Debugf = debugln
 		debugln(fmt.Sprintf("%+v", cfg))
 	}
 
@@ -49,13 +51,13 @@ func run(cfg config) {
 	extractor := newExtractor(&wg, tempCache, debugln, errorln, text, do)
 	musicCache := NewCache(4)
 	musicDownloader := newDownloader(&wg, musicCache, debugln, errorln, text, do)
-	player, err := NewPlayer(cfg.snd)
+	p, err := player.NewPlayer(cfg.snd)
 	checkFatalError(err)
 
-	p := NewPlaylist(player, playListSize, debugln)
+	pl := player.NewPlaylist(p, playListSize, debugln)
 	fileManager := newFileManager(musicCache, do)
-	Open = fileManager.open
-	ui := newHeadless(player, p)
+	player.Open = fileManager.open
+	ui := newHeadless(p, pl)
 	// FIXME: no wg on run, ui should dictate when to finish
 	// so it's probably fine?
 	go ui.Run(quit, do)
@@ -72,7 +74,7 @@ loop:
 			ticker.Stop()
 			extractor.stop()
 			musicDownloader.stop()
-			player.ClearStream()
+			p.ClearStream()
 
 			// wait for other goroutines and send final signal
 			go func() {
@@ -124,18 +126,18 @@ loop:
 					continue
 				}
 
-				err = p.Add(items)
+				err = pl.Add(items)
 				if err != nil {
 					errorln(err.Error())
 					continue
 				}
 
-				musicDownloader.run(data[0].tracks[0].mp3128, p.GetCurrentTrack())
+				musicDownloader.run(data[0].tracks[0].mp3128, pl.GetCurrentTrack())
 
 			case actionPlay:
 				key := getTruncatedURL(a.path)
 				// FIXME: might crash
-				current := getTruncatedURL(p.GetCurrentItem().Path)
+				current := getTruncatedURL(pl.GetCurrentItem().Path)
 
 				if key != current {
 					debugln("wrong track, discarding")
@@ -147,14 +149,14 @@ loop:
 					errorln("failed to load data")
 					continue
 				}
-				err := player.Load(data)
+				err := p.Load(data)
 				if err != nil {
 					errorln(err.Error())
 					continue
 				}
 
 			case actionDownload:
-				musicDownloader.run(a.path, p.GetCurrentTrack())
+				musicDownloader.run(a.path, pl.GetCurrentTrack())
 
 			case actionQuit:
 				ui.Quit()

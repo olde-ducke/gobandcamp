@@ -3,6 +3,8 @@ package main
 import (
 	"errors"
 	"strings"
+
+	"github.com/olde-ducke/gobandcamp/player"
 )
 
 // cache key = media url without any parameters
@@ -13,12 +15,12 @@ func getTruncatedURL(link string) string {
 	return link
 }
 
-func convert(items ...item) ([]PlaylistItem, error) {
+func convert(items ...item) ([]player.PlaylistItem, error) {
 	if len(items) == 0 {
 		return nil, errors.New("nothing to add to playlist")
 	}
 
-	var data []PlaylistItem
+	var data []player.PlaylistItem
 	for _, i := range items {
 		if !i.hasAudio {
 			continue
@@ -33,7 +35,7 @@ func convert(items ...item) ([]PlaylistItem, error) {
 				path = t.mp3v0
 			}
 
-			data = append(data, PlaylistItem{
+			data = append(data, player.PlaylistItem{
 				Unreleased:  t.unreleasedTrack,
 				Streaming:   t.streaming == 1,
 				Path:        path,

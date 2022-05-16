@@ -7,6 +7,8 @@ import (
 	"os"
 	"runtime"
 	"runtime/pprof"
+
+	"github.com/olde-ducke/gobandcamp/player"
 )
 
 const (
@@ -48,7 +50,7 @@ func main() {
 	flag.Parse()
 
 	if cfg.v {
-		fmt.Printf(verText, version, AvailableBackends())
+		fmt.Printf(verText, version, player.AvailableBackends())
 		os.Exit(0)
 	}
 

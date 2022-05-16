@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"os"
 	"sync"
+
+	"github.com/olde-ducke/gobandcamp/player"
 )
 
-var dummyData = PlaylistItem{
+var dummyData = player.PlaylistItem{
 	Unreleased: false,
 	Streaming:  true,
 	Path:       "https://testpath",
@@ -55,8 +57,8 @@ type headless struct {
 	active       bool
 	formatString string
 	prevMessage  *message
-	player       Player
-	playlist     *Playlist
+	player       player.Player
+	playlist     *player.Playlist
 	do           chan<- *action
 }
 
@@ -190,26 +192,26 @@ func (h *headless) start() {
 
 		case ":enqueue data":
 			h.displayInternal(fmt.Sprint())
-			if err := h.playlist.Enqueue([]PlaylistItem{dummyData}); err != nil {
+			if err := h.playlist.Enqueue([]player.PlaylistItem{dummyData}); err != nil {
 				h.displayInternal(err.Error())
 			}
 
 		case ":add empty":
 			h.displayInternal(input)
-			if err := h.playlist.Add([]PlaylistItem{}); err != nil {
+			if err := h.playlist.Add([]player.PlaylistItem{}); err != nil {
 				h.displayInternal(err.Error())
 			}
 
 		case ":add data":
 			h.displayInternal(input)
-			err := h.playlist.Add([]PlaylistItem{dummyData})
+			err := h.playlist.Add([]player.PlaylistItem{dummyData})
 			if err != nil {
 				h.displayInternal(err.Error())
 			}
 
 		case ":add playlist":
 			h.displayInternal(input)
-			err := h.playlist.Add([]PlaylistItem{dummyData, dummyData, dummyData, dummyData})
+			err := h.playlist.Add([]player.PlaylistItem{dummyData, dummyData, dummyData, dummyData})
 			if err != nil {
 				h.displayInternal(err.Error())
 			}
@@ -243,12 +245,12 @@ func (h *headless) start() {
 	h.wg.Done()
 }
 
-func newHeadless(player Player, playlist *Playlist) userInterface {
+func newHeadless(p player.Player, pl *player.Playlist) userInterface {
 	fmt.Println()
 	return &headless{
 		formatString: "\x1b[F\x1b[0K%s %s[%s]:\x1b[0m %s%s\n\n",
 		prevMessage:  &message{},
-		player:       player,
-		playlist:     playlist,
+		player:       p,
+		playlist:     pl,
 	}
 }
