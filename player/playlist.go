@@ -66,7 +66,7 @@ func (m *repeatMode) set(track int) {
 	m.pl.SetTrack(track)
 	err := Open(m.pl.GetCurrentItem().Path)
 	if err != nil {
-		m.pl.dbg(err.Error())
+		Debugf(err.Error())
 	}
 }
 
@@ -143,7 +143,6 @@ type PlaylistItem struct {
 // Playlist simple playlist manager.
 type Playlist struct {
 	sync.RWMutex
-	dbg     func(string)
 	player  Player
 	current int
 	data    []PlaylistItem
@@ -168,7 +167,7 @@ func (p *Playlist) Prev() {
 
 		err := p.player.Reload()
 		if err != nil {
-			p.dbg(err.Error())
+			Debugf(err.Error())
 		}
 		return
 	}
@@ -213,7 +212,7 @@ func (p *Playlist) SetMode(mode Mode) {
 	case normal, repeat, repeatOne, random:
 		p.mode = modes[mode]
 	default:
-		p.dbg("invalid playback mode, setting to normal")
+		Debugf("invalid playback mode, setting to normal")
 		p.mode = modes[normal]
 	}
 }
@@ -289,9 +288,8 @@ func (p *Playlist) IsEmpty() bool {
 }
 
 // NewPlaylist TBD
-func NewPlaylist(player Player, size int, dbg func(string)) *Playlist {
+func NewPlaylist(player Player, size int) *Playlist {
 	pl := &Playlist{
-		dbg:    dbg,
 		player: player,
 		size:   size,
 	}

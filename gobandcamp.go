@@ -54,7 +54,7 @@ func run(cfg config) {
 	p, err := player.NewPlayer(cfg.snd)
 	checkFatalError(err)
 
-	pl := player.NewPlaylist(p, playListSize, debugln)
+	pl := player.NewPlaylist(p, playListSize)
 	fileManager := newFileManager(musicCache, do)
 	player.Open = fileManager.open
 	ui := newHeadless(p, pl)
