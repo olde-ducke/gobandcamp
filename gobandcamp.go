@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"sync"
 	"time"
@@ -27,14 +26,14 @@ func run(cfg config) {
 
 	context.Canceled = errors.New("download cancelled")
 
-	debugln := func(string, ...any) {}
-	errorln := newReporter(errorMessage, "", &wg, text)
+	debugf := func(string, ...any) {}
+	errorf := newReporter(errorMessage, "", &wg, text)
 	// open file to write logs if needed and create
 	// debug logging function, if debug is set to false
 	// dbg function is empty and won't fill queue with
 	// messages
 	if cfg.debug {
-		debugln = newReporter(debugMessage, "", &wg, text)
+		debugf = newReporter(debugMessage, "", &wg, text)
 		logFile, err = os.Create("dump.log")
 		checkFatalError(err)
 		defer func() {
@@ -43,15 +42,15 @@ func run(cfg config) {
 			checkFatalError(err)
 			checkFatalError(logFile.Close())
 		}()
-		player.Debugf = debugln
-		debugln(fmt.Sprintf("%+v", cfg))
+		player.Debugf = debugf
+		debugf("%+v", cfg)
 	}
 
 	var quitting bool
 	tempCache := newSimpleCache(3)
-	extractor := newExtractor(&wg, tempCache, debugln, errorln, text, do)
+	extractor := newExtractor(&wg, tempCache, debugf, errorf, text, do)
 	musicCache := NewCache(4)
-	musicDownloader := newDownloader(&wg, musicCache, debugln, errorln, text, do)
+	musicDownloader := newDownloader(&wg, musicCache, debugf, errorf, text, do)
 	p, err := player.NewPlayer(cfg.snd)
 	checkFatalError(err)
 
@@ -69,7 +68,7 @@ loop:
 			if quitting {
 				continue
 			}
-			debugln("got signal to finish")
+			debugf("got signal to finish")
 			quitting = true
 			ticker.Stop()
 			extractor.stop()
@@ -95,40 +94,40 @@ loop:
 			}
 
 		case a := <-do:
-			debugln(fmt.Sprintf("%+v", a))
+			debugf("%+v", a)
 			switch a.actionType {
 
 			case actionSearch:
-				debugln("NOT IMPLEMENTED: actionSearch")
+				debugf("NOT IMPLEMENTED: actionSearch")
 
 			case actionTagSearch:
-				debugln("NOT IMPLEMENTED: actionTagSearch")
+				debugf("NOT IMPLEMENTED: actionTagSearch")
 
 			case actionOpen:
-				debugln("NOT IMPLEMENTED: actionOpen")
+				debugf("NOT IMPLEMENTED: actionOpen")
 
 			case actionOpenURL:
 				extractor.run(a.path)
 
 			case actionAdd:
-				debugln("NOT IMPLEMENTED: actionAdd")
+				debugf("NOT IMPLEMENTED: actionAdd")
 
 			case actionStart:
 				data, ok := tempCache.Get(a.path)
 				if !ok {
-					errorln("incorrect key")
+					errorf("incorrect key")
 					continue
 				}
 
 				items, err := convert(data...)
 				if err != nil {
-					errorln(err.Error())
+					errorf(err.Error())
 					continue
 				}
 
 				err = pl.New(items)
 				if err != nil {
-					errorln(err.Error())
+					errorf(err.Error())
 					continue
 				}
 
@@ -140,18 +139,18 @@ loop:
 				current := getTruncatedURL(pl.GetCurrentItem().Path)
 
 				if key != current {
-					debugln("wrong track, discarding")
+					debugf("wrong track, discarding")
 					continue
 				}
 
 				data, ok := musicCache.Get(key)
 				if !ok {
-					errorln("failed to load data")
+					errorf("failed to load data")
 					continue
 				}
 				err := p.Load(data)
 				if err != nil {
-					errorln(err.Error())
+					errorf(err.Error())
 					continue
 				}
 
@@ -162,7 +161,7 @@ loop:
 				ui.Quit()
 
 			default:
-				debugln("NOT ALLOWED: unknown action")
+				debugf("NOT ALLOWED: unknown action")
 			}
 
 			// FIXME: don't remember why this was added
