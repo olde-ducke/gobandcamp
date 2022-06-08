@@ -22,7 +22,7 @@ var Statuses = [7]string{"[]", " >", "||", "<<", ">>", "|<", ">|"}
 
 // Debugf package level function for debug printing
 // by default does nothing.
-var Debugf = func(string) {}
+var Debugf = func(string, ...any) {}
 
 var backends = make(map[string]Player, 3)
 

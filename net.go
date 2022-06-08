@@ -68,7 +68,7 @@ func makeRequest(ops *options, f func(*http.Response, error) error) error {
 	}
 }
 
-func processmediapage(ctx context.Context, link string, dbg, msg func(string)) ([]item, error) {
+func processmediapage(ctx context.Context, link string, dbg, msg func(string, ...any)) ([]item, error) {
 	dbg(link)
 	msg("fetching")
 	ops := options{
@@ -142,7 +142,7 @@ func processmediapage(ctx context.Context, link string, dbg, msg func(string)) (
 					go func(n int, u string) {
 						defer wg.Done()
 						// FIXME: messy
-						res, err := processmediapage(ctx, u, dbg, func(string) {})
+						res, err := processmediapage(ctx, u, dbg, func(string, ...any) {})
 						if err != nil {
 							dbg(err.Error())
 						} else if len(res) > 1 {
@@ -307,7 +307,7 @@ func getTextWithAttr(node *html.Node, attr *html.Attribute, tag string) (string,
 }
 
 // TODO: return data format
-func downloadmedia(ctx context.Context, link string, dbg, msg func(string)) ([]byte, error) {
+func downloadmedia(ctx context.Context, link string, dbg, msg func(string, ...any)) ([]byte, error) {
 	dbg(link)
 	msg("fetching")
 	ops := options{

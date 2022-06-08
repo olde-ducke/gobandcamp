@@ -47,18 +47,18 @@ func (msg *message) Text() string {
 	return msg.prefix + msg.text
 }
 
-func newMessage(t messageType, prefix, str string) *message {
+func newMessage(t messageType, prefix, format string, args ...any) *message {
 	return &message{
 		msgType:   t,
 		prefix:    prefix,
-		text:      str,
+		text:      fmt.Sprintf(format, args...),
 		timestamp: time.Now(),
 	}
 }
 
-func newReporter(t messageType, prefix string, wg *sync.WaitGroup, out chan<- *message) func(string) {
-	return func(str string) {
-		msg := newMessage(t, prefix, str)
+func newReporter(t messageType, prefix string, wg *sync.WaitGroup, out chan<- *message) func(string, ...any) {
+	return func(format string, args ...any) {
+		msg := newMessage(t, prefix, format, args...)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

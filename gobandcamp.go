@@ -27,7 +27,7 @@ func run(cfg config) {
 
 	context.Canceled = errors.New("download cancelled")
 
-	debugln := func(string) {}
+	debugln := func(string, ...any) {}
 	errorln := newReporter(errorMessage, "", &wg, text)
 	// open file to write logs if needed and create
 	// debug logging function, if debug is set to false
