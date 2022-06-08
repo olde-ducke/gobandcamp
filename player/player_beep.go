@@ -143,7 +143,7 @@ func (player *beepPlayer) Load(data []byte) error {
 	player.format = format
 	player.stream = newStream(format.SampleRate, streamer, player.volume, player.muted)
 	speaker.Unlock()
-	Debugf(fmt.Sprintf("stream loaded: %+v", player.format))
+	Debugf("stream loaded: %+v", player.format)
 	// deadlocks if anything speaker related is done inside callback
 	// since it's locking device itself
 	speaker.Play(beep.Seq(player.stream.volume, beep.Callback(

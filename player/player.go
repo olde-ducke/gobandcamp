@@ -81,8 +81,8 @@ func NewPlayer(snd string) (Player, error) {
 		return nil, err
 	}
 
-	Debugf(fmt.Sprintf("initializing %s player, sample rate: %d, resampling quality: %d",
-		player.GetName(), DefaultSampleRate, Quality))
+	Debugf("initializing %s player, sample rate: %d, resampling quality: %d",
+		player.GetName(), DefaultSampleRate, Quality)
 	return player, nil
 }
 

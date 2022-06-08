@@ -60,7 +60,7 @@ func (player *dummyPlayer) SeekAbsolute(float64) error {
 }
 
 func (player *dummyPlayer) Load(data []byte) error {
-	Debugf(fmt.Sprintf("got data with length: %d", len(data)))
+	Debugf("got data with length: %d", len(data))
 	player.ClearStream()
 	return player.Reload()
 }
