@@ -39,7 +39,8 @@ func run(cfg config) {
 		checkFatalError(err)
 		defer func() {
 			msg := newMessage(debugMessage, "gobandcamp: ", "closing log file")
-			logFile.WriteString(msg.String())
+			_, err := logFile.WriteString(msg.String())
+			checkFatalError(err)
 			checkFatalError(logFile.Close())
 		}()
 		player.Debugf = debugln
