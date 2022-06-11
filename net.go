@@ -384,7 +384,7 @@ func readAll(src io.Reader, size int) ([]byte, error) {
 		buf = buf[:len(buf)+n]
 	}
 
-	if err == io.EOF {
+	if errors.Is(err, io.EOF) {
 		err = nil
 	}
 
