@@ -49,9 +49,9 @@ func run(cfg config) {
 
 	var quitting bool
 	tempCache := newSimpleCache(3)
-	extractor := newExtractor(&wg, tempCache, debugf, errorf, text, do)
+	extractor := newExtractor(&wg, tempCache, errorf, text, do)
 	musicCache := NewCache(4)
-	musicDownloader := newDownloader(&wg, musicCache, debugf, errorf, text, do)
+	musicDownloader := newDownloader(&wg, musicCache, errorf, text, do)
 	p, err := player.NewPlayer(cfg.snd)
 	checkFatalError(err)
 

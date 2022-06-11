@@ -9,7 +9,6 @@ import (
 type worker struct {
 	cancelPrev func()
 	cancelCurr func()
-	dbg        func(string, ...any)
 	errr       func(string, ...any)
 	wg         *sync.WaitGroup
 	out        chan<- *message
@@ -27,11 +26,10 @@ func (w *worker) cancelPrevJob(cancel func()) {
 	w.cancelCurr = cancel
 }
 
-func newWorker(wg *sync.WaitGroup, dbg, errr func(string, ...any), out chan<- *message, do chan<- *action) *worker {
+func newWorker(wg *sync.WaitGroup, errr func(string, ...any), out chan<- *message, do chan<- *action) *worker {
 	return &worker{
 		cancelPrev: func() {},
 		cancelCurr: func() {},
-		dbg:        dbg,
 		errr:       errr,
 		wg:         wg,
 		out:        out,
@@ -63,9 +61,9 @@ func (w *extractorWorker) run(link string) {
 	}()
 }
 
-func newExtractor(wg *sync.WaitGroup, cache *simpleCache, dbg, errr func(string, ...any), out chan<- *message, do chan<- *action) *extractorWorker {
+func newExtractor(wg *sync.WaitGroup, cache *simpleCache, errr func(string, ...any), out chan<- *message, do chan<- *action) *extractorWorker {
 	return &extractorWorker{
-		worker: newWorker(wg, dbg, errr, out, do),
+		worker: newWorker(wg, errr, out, do),
 		cache:  cache,
 	}
 }
@@ -107,9 +105,9 @@ func (w *downloadWorker) run(link string, n int) {
 	}()
 }
 
-func newDownloader(wg *sync.WaitGroup, cache *FIFO, dbg, errr func(string, ...any), out chan<- *message, do chan<- *action) *downloadWorker {
+func newDownloader(wg *sync.WaitGroup, cache *FIFO, errr func(string, ...any), out chan<- *message, do chan<- *action) *downloadWorker {
 	return &downloadWorker{
-		worker: newWorker(wg, dbg, errr, out, do),
+		worker: newWorker(wg, errr, out, do),
 		cache:  cache,
 	}
 }
