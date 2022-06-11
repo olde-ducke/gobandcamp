@@ -51,7 +51,7 @@ func (w *extractorWorker) run(link string) {
 	w.wg.Add(1)
 	go func() {
 		defer w.wg.Done()
-		items, err := processmediapage(ctx, link, w.dbg,
+		items, err := processmediapage(ctx, link,
 			newReporter(textMessage, link+" ", w.wg, w.out))
 		if err != nil {
 			w.errr(err.Error())
@@ -85,7 +85,7 @@ func (w *downloadWorker) run(link string, n int) {
 	w.wg.Add(1)
 	go func() {
 		defer w.wg.Done()
-		result, err := downloadmedia(ctx, link, w.dbg, infof)
+		result, err := downloadmedia(ctx, link, infof)
 		if err != nil {
 			if err == context.Canceled {
 				infof(err.Error())

@@ -43,6 +43,7 @@ func run(cfg config) {
 			checkFatalError(logFile.Close())
 		}()
 		player.Debugf = debugf
+		Debugf = debugf
 		debugf("%+v", cfg)
 	}
 

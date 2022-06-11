@@ -17,9 +17,10 @@ import (
 const userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/97.0.4692.71 Safari/537.36"
 const chunkSize = 2048
 
+var Debugf = func(string, ...any) {}
+
 var errOrigin = errors.New("response came not from bandcamp.com")
 var errUnexpected = errors.New("unexpected page format")
-
 var client = http.Client{Timeout: 120 * time.Second}
 
 type options struct {
@@ -68,9 +69,9 @@ func makeRequest(ops *options, f func(*http.Response, error) error) error {
 	}
 }
 
-func processmediapage(ctx context.Context, link string, dbg, msg func(string, ...any)) ([]item, error) {
-	dbg(link)
-	msg("fetching")
+func processmediapage(ctx context.Context, link string, infof func(string, ...any)) ([]item, error) {
+	Debugf(link)
+	infof("fetching")
 	ops := options{
 		ctx:    ctx,
 		url:    link,
@@ -87,7 +88,7 @@ func processmediapage(ctx context.Context, link string, dbg, msg func(string, ..
 		if response.StatusCode > 200 {
 			return errors.New(response.Status)
 		}
-		msg(response.Status)
+		infof(response.Status)
 
 		// check canonical name in response header
 		// must be artist.bandcamp.com
@@ -105,19 +106,19 @@ func processmediapage(ctx context.Context, link string, dbg, msg func(string, ..
 			Val: "og:type",
 		}, "meta", "content")
 		if !ok {
-			dbg("failed to parse page type")
+			Debugf("failed to parse page type")
 			return errUnexpected
 		}
 
 		switch itemType {
 		case "album":
-			msg("found album data")
+			infof("found album data")
 
 		case "song":
-			msg("found track data")
+			infof("found track data")
 
 		case "band":
-			msg("found discography")
+			infof("found discography")
 			// TODO: finish
 			node, ok := getNodeWithAttr(doc, &html.Attribute{
 				Key: "id",
@@ -142,14 +143,14 @@ func processmediapage(ctx context.Context, link string, dbg, msg func(string, ..
 					go func(n int, u string) {
 						defer wg.Done()
 						// FIXME: messy
-						res, err := processmediapage(ctx, u, dbg, func(string, ...any) {})
+						res, err := processmediapage(ctx, u, func(string, ...any) {})
 						if err != nil {
-							dbg(err.Error())
+							Debugf(err.Error())
 						} else if len(res) > 1 {
-							dbg("unexpected results: more than 1 album")
+							Debugf("unexpected results: more than 1 album")
 						} else if len(res) > 0 {
 							items[n] = res[0]
-							dbg("done with " + u)
+							Debugf("done with " + u)
 						}
 					}(i, url.String())
 				}
@@ -170,7 +171,7 @@ func processmediapage(ctx context.Context, link string, dbg, msg func(string, ..
 			Val: "text/javascript",
 		}, "script", "data-tralbum")
 		if !ok {
-			dbg("failed to parse mediadata")
+			Debugf("failed to parse mediadata")
 			return errUnexpected
 		}
 
@@ -307,9 +308,9 @@ func getTextWithAttr(node *html.Node, attr *html.Attribute, tag string) (string,
 }
 
 // TODO: return data format
-func downloadmedia(ctx context.Context, link string, dbg, msg func(string, ...any)) ([]byte, error) {
-	dbg(link)
-	msg("fetching")
+func downloadmedia(ctx context.Context, link string, infof func(string, ...any)) ([]byte, error) {
+	Debugf(link)
+	infof("fetching")
 	ops := options{
 		ctx:    ctx,
 		url:    link,
@@ -326,12 +327,12 @@ func downloadmedia(ctx context.Context, link string, dbg, msg func(string, ...an
 		if response.StatusCode > 200 {
 			return errors.New(response.Status)
 		}
-		msg(response.Status)
+		infof(response.Status)
 
 		lengthValue := response.Header.Get("Content-Length")
 		length, err := strconv.Atoi(lengthValue)
 		if err != nil {
-			dbg(err.Error())
+			Debugf(err.Error())
 		}
 
 		// dataType = response.Header.Get("content-type")
@@ -342,7 +343,7 @@ func downloadmedia(ctx context.Context, link string, dbg, msg func(string, ...an
 		}
 
 		if length > 0 && len(data) != cap(data) {
-			dbg("wrong Content-Length value")
+			Debugf("wrong Content-Length value")
 		}
 		return nil
 	})
