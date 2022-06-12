@@ -337,7 +337,24 @@ func downloadmedia(ctx context.Context, link string, infof func(string, ...any))
 
 		// dataType = response.Header.Get("content-type")
 
-		data, err = readAll(response.Body, length)
+		progress := 0
+		done := make(chan struct{})
+		go func() {
+		loop:
+			for {
+				select {
+				case <-done:
+					break loop
+				default:
+					infof("downloading... %d%%", 100*progress/length)
+					time.Sleep(300 * time.Millisecond)
+				}
+			}
+			Debugf("update routine ended")
+		}()
+		defer close(done)
+
+		data, err = readAll(response.Body, length, &progress)
 		if err != nil {
 			return err
 		}
@@ -358,7 +375,7 @@ func downloadmedia(ctx context.Context, link string, infof func(string, ...any))
 // Content-Size should not be wrong, but as google search
 // results say, there were instances of it being wrong,
 // won't work with files (since they aren't null-terminated?)
-func readAll(src io.Reader, size int) ([]byte, error) {
+func readAll(src io.Reader, size int, p *int) ([]byte, error) {
 	var (
 		newPos, n int
 		err       error
@@ -382,6 +399,7 @@ func readAll(src io.Reader, size int) ([]byte, error) {
 
 		n, err = src.Read(buf[len(buf):newPos])
 		buf = buf[:len(buf)+n]
+		*p += n
 	}
 
 	if errors.Is(err, io.EOF) {
