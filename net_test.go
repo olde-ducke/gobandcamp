@@ -21,7 +21,9 @@ func TestReadAllAlphabet(t *testing.T) {
 	size := len(abc)
 
 	for i := 0; i <= 2; i++ {
-		result, err := readAll(r, size)
+		progress := 0
+
+		result, err := readAll(r, size, &progress)
 		if err != nil {
 			t.Errorf("\nunexpected error: %v\n", err)
 		}
@@ -33,7 +35,6 @@ func TestReadAllAlphabet(t *testing.T) {
 		if len(result) != len(abc) {
 			t.Errorf("\nwrong length:\nwant: len(%d)\n got: len(%d)\n",
 				len(abc), len(result))
-
 		}
 
 		if i == 0 && cap(result) != len(abc) {
@@ -43,6 +44,12 @@ func TestReadAllAlphabet(t *testing.T) {
 			t.Errorf("\nwrong capacity:\nwant: cap(>%d)\n got: cap(%d)\n",
 				len(abc), cap(result))
 		}
+
+		if progress != len(abc) {
+			t.Errorf("\nwrong progress value:\nwant: %d\n got: %d\n",
+				len(abc), progress)
+		}
+
 		r.Seek(0, 0)
 		size = 1
 
@@ -95,7 +102,8 @@ func TestReadAllAgainstReal(t *testing.T) {
 	}
 
 	// start = time.Now()
-	result2, err := readAll(response2.Body, lengthValue)
+	progress := 0
+	result2, err := readAll(response2.Body, lengthValue, &progress)
 	// fmt.Println("   readAll:", time.Since(start), "size: ", len(result2), cap(result2))
 	if err != nil {
 		t.Errorf("\nunexpected error: %v\n", err)
@@ -117,6 +125,11 @@ func TestReadAllAgainstReal(t *testing.T) {
 	if len(result1) != cap(result2) {
 		t.Errorf("\nwrong capacity:\nwant: len(%d)\n got: len(%d)\n",
 			len(result1), cap(result2))
+	}
+
+	if progress != len(result1) {
+		t.Errorf("\nwrong progress value:\nwant: %d\n got: %d\n",
+			len(result1), progress)
 	}
 
 	for i, b := range result1 {
