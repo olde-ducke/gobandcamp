@@ -386,7 +386,7 @@ func readAll(src io.Reader, size int, p *int) ([]byte, error) {
 	}
 	buf := make([]byte, 0, allocSize)
 
-	for err == nil {
+	for {
 		// should not happen
 		if len(buf) == cap(buf) && n == 0 {
 			buf = append(buf, 0)[:len(buf)]
@@ -400,13 +400,17 @@ func readAll(src io.Reader, size int, p *int) ([]byte, error) {
 		n, err = src.Read(buf[len(buf):newPos])
 		buf = buf[:len(buf)+n]
 		*p += n
+
+		if errors.Is(err, io.EOF) {
+			break
+		}
+
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	if errors.Is(err, io.EOF) {
-		err = nil
-	}
-
-	return buf, err
+	return buf, nil
 
 }
 
