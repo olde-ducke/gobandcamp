@@ -9,7 +9,7 @@ import (
 type worker struct {
 	cancelPrev func()
 	cancelCurr func()
-	errr       func(string, ...any)
+	errorf     func(string, ...any)
 	wg         *sync.WaitGroup
 	out        chan<- *message
 	do         chan<- *action
@@ -26,11 +26,11 @@ func (w *worker) cancelPrevJob(cancel func()) {
 	w.cancelCurr = cancel
 }
 
-func newWorker(wg *sync.WaitGroup, errr func(string, ...any), out chan<- *message, do chan<- *action) *worker {
+func newWorker(wg *sync.WaitGroup, errorf func(string, ...any), out chan<- *message, do chan<- *action) *worker {
 	return &worker{
 		cancelPrev: func() {},
 		cancelCurr: func() {},
-		errr:       errr,
+		errorf:     errorf,
 		wg:         wg,
 		out:        out,
 		do:         do,
@@ -52,7 +52,7 @@ func (w *extractorWorker) run(link string) {
 		items, err := processmediapage(ctx, link,
 			newReporter(textMessage, link+" ", w.wg, w.out))
 		if err != nil {
-			w.errr(err.Error())
+			w.errorf(err.Error())
 			return
 		}
 
@@ -61,9 +61,9 @@ func (w *extractorWorker) run(link string) {
 	}()
 }
 
-func newExtractor(wg *sync.WaitGroup, cache *simpleCache, errr func(string, ...any), out chan<- *message, do chan<- *action) *extractorWorker {
+func newExtractor(wg *sync.WaitGroup, cache *simpleCache, errorf func(string, ...any), out chan<- *message, do chan<- *action) *extractorWorker {
 	return &extractorWorker{
-		worker: newWorker(wg, errr, out, do),
+		worker: newWorker(wg, errorf, out, do),
 		cache:  cache,
 	}
 }
@@ -89,13 +89,13 @@ func (w *downloadWorker) run(link string, n int) {
 				infof(err.Error())
 				return
 			}
-			w.errr(prefix + err.Error())
+			w.errorf(prefix + err.Error())
 			return
 		}
 
 		key := getTruncatedURL(link)
 		if key == "" {
-			w.errr("incorrect cache key")
+			w.errorf("incorrect cache key")
 			return
 		}
 
@@ -105,9 +105,9 @@ func (w *downloadWorker) run(link string, n int) {
 	}()
 }
 
-func newDownloader(wg *sync.WaitGroup, cache *FIFO, errr func(string, ...any), out chan<- *message, do chan<- *action) *downloadWorker {
+func newDownloader(wg *sync.WaitGroup, cache *FIFO, errorf func(string, ...any), out chan<- *message, do chan<- *action) *downloadWorker {
 	return &downloadWorker{
-		worker: newWorker(wg, errr, out, do),
+		worker: newWorker(wg, errorf, out, do),
 		cache:  cache,
 	}
 }
