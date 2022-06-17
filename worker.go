@@ -7,7 +7,7 @@ import (
 )
 
 type worker struct {
-	cancelPrev func()
+	sync.Mutex
 	cancelCurr func()
 	errorf     func(string, ...any)
 	wg         *sync.WaitGroup
@@ -16,19 +16,18 @@ type worker struct {
 }
 
 func (w *worker) stop() {
-	w.cancelPrev()
 	w.cancelCurr()
 }
 
 func (w *worker) cancelPrevJob(cancel func()) {
-	w.cancelPrev = w.cancelCurr
-	w.cancelPrev()
+	w.Lock()
+	w.cancelCurr()
 	w.cancelCurr = cancel
+	w.Unlock()
 }
 
 func newWorker(wg *sync.WaitGroup, errorf func(string, ...any), out chan<- *message, do chan<- *action) *worker {
 	return &worker{
-		cancelPrev: func() {},
 		cancelCurr: func() {},
 		errorf:     errorf,
 		wg:         wg,
