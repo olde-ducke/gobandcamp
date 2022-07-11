@@ -224,15 +224,30 @@ func (h *headless) start() {
 		case ":current":
 			h.displayInternal(fmt.Sprintf("%+v", h.playlist.GetCurrentItem()))
 
-		case ":set":
+		case ":playlist":
+			h.displayInternal("playlist:")
+			p, ok := h.playlist.GetPlaylist()
+			if !ok {
+				h.displayInternal("empty playlist")
+				continue
+			}
+			for i, item := range p {
+				var status string
+				if i+1 == h.playlist.GetCurrentTrack() {
+					status = h.player.GetStatus().String()
+				}
+
+				h.displayInternal(fmt.Sprintf("%2s %3d - %s",
+					status,
+					i+1,
+					item.Title))
+			}
+
 			h.displayInternal("enter track number:")
 			scanner.Scan()
 			input := scanner.Text()
 			if n, err := strconv.Atoi(input); err == nil {
-				h.displayInternal(fmt.Sprintf("set player to track %d", n))
 				h.playlist.SetTrack(n - 1)
-			} else {
-				h.displayInternal(err.Error())
 			}
 
 		default:

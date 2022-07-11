@@ -296,6 +296,10 @@ func (p *Playlist) IsEmpty() bool {
 	return len(p.data) == 0
 }
 
+func (p *Playlist) GetPlaylist() ([]PlaylistItem, bool) {
+	return p.data, !p.IsEmpty()
+}
+
 // NewPlaylist returns new playlist which will take control
 // over player on track switching. Overrides players callback
 // with its own Switch method, path to next item is passed to
