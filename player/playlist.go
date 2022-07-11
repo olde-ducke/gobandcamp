@@ -62,7 +62,7 @@ func (m *repeatMode) get() Mode {
 }
 
 func (m *repeatMode) set(track int) {
-	m.pl.SetTrack(track)
+	m.pl.current = track
 	// FIXME: remove error, define method for getting path safely
 	err := m.pl.feed(m.pl.GetCurrentItem().Path)
 	if err != nil {
@@ -239,7 +239,16 @@ func (p *Playlist) GetTotalTracks() int {
 
 // SetTrack sets playlist to play given track number.
 func (p *Playlist) SetTrack(track int) {
-	p.current = track
+	if p.IsEmpty() || track < 0 {
+		return
+	}
+
+	if track > p.current {
+		p.player.SetStatus(skipFWD)
+	} else {
+		p.player.SetStatus(skipBWD)
+	}
+	p.mode.set(track % p.GetTotalTracks())
 }
 
 // Enqueue appends items to the end of playlist.
@@ -270,7 +279,7 @@ func (p *Playlist) New(items []PlaylistItem) error {
 	p.data = items
 	p.Unlock()
 
-	p.SetTrack(0)
+	p.current = 0
 	return nil
 }
 

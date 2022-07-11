@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"strconv"
 	"sync"
 
 	"github.com/olde-ducke/gobandcamp/player"
@@ -222,6 +223,17 @@ func (h *headless) start() {
 
 		case ":current":
 			h.displayInternal(fmt.Sprintf("%+v", h.playlist.GetCurrentItem()))
+
+		case ":set":
+			h.displayInternal("enter track number:")
+			scanner.Scan()
+			input := scanner.Text()
+			if n, err := strconv.Atoi(input); err == nil {
+				h.displayInternal(fmt.Sprintf("set player to track %d", n))
+				h.playlist.SetTrack(n - 1)
+			} else {
+				h.displayInternal(err.Error())
+			}
 
 		default:
 			h.displayInternal(input)
