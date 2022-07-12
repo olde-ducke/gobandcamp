@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 
@@ -49,9 +50,9 @@ func run(cfg config) {
 
 	var quitting bool
 	tempCache := newSimpleCache(3)
-	extractor := newExtractor(&wg, tempCache, errorf, text, do)
+	extractor := newExtractor(&wg, tempCache, errorf, do)
 	musicCache := NewCache(4)
-	musicDownloader := newDownloader(&wg, musicCache, errorf, text, do)
+	musicDownloader := newDownloader(&wg, musicCache, errorf, do)
 	p, err := player.NewPlayer(cfg.snd)
 	checkFatalError(err)
 
@@ -108,7 +109,8 @@ loop:
 				debugf("NOT IMPLEMENTED: actionOpen")
 
 			case actionOpenURL:
-				extractor.run(a.path)
+				extractor.run(a.path,
+					newReporter(infoMessage, a.path+" ", &wg, text))
 
 			case actionAdd:
 				debugf("NOT IMPLEMENTED: actionAdd")
@@ -132,7 +134,12 @@ loop:
 					continue
 				}
 
-				musicDownloader.run(data[0].tracks[0].mp3128, pl.GetCurrentTrack())
+				musicDownloader.run(data[0].tracks[0].mp3128,
+					newReporter(
+						infoMessage,
+						"track "+strconv.Itoa(pl.GetCurrentTrack())+" ",
+						&wg,
+						text))
 
 			case actionPlay:
 				key := getTruncatedURL(a.path)
@@ -156,7 +163,11 @@ loop:
 				}
 
 			case actionDownload:
-				musicDownloader.run(a.path, pl.GetCurrentTrack())
+				musicDownloader.run(a.path, newReporter(
+					infoMessage,
+					"track "+strconv.Itoa(pl.GetCurrentTrack())+" ",
+					&wg,
+					text))
 
 			case actionQuit:
 				ui.Quit()

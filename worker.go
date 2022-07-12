@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"strconv"
 	"sync"
 )
 
@@ -11,7 +10,6 @@ type worker struct {
 	cancelCurr func()
 	errorf     func(string, ...any)
 	wg         *sync.WaitGroup
-	out        chan<- *message
 	do         chan<- *action
 }
 
@@ -26,12 +24,11 @@ func (w *worker) cancelPrevJob(cancel func()) {
 	w.Unlock()
 }
 
-func newWorker(wg *sync.WaitGroup, errorf func(string, ...any), out chan<- *message, do chan<- *action) *worker {
+func newWorker(wg *sync.WaitGroup, errorf func(string, ...any), do chan<- *action) *worker {
 	return &worker{
 		cancelCurr: func() {},
 		errorf:     errorf,
 		wg:         wg,
-		out:        out,
 		do:         do,
 	}
 }
@@ -41,15 +38,14 @@ type extractorWorker struct {
 	cache *simpleCache
 }
 
-func (w *extractorWorker) run(link string) {
+func (w *extractorWorker) run(link string, infof func(string, ...any)) {
 	ctx, cancel := context.WithCancel(context.Background())
 	w.cancelPrevJob(cancel)
 
 	w.wg.Add(1)
 	go func() {
 		defer w.wg.Done()
-		items, err := processmediapage(ctx, link,
-			newReporter(textMessage, link+" ", w.wg, w.out))
+		items, err := processmediapage(ctx, link, infof)
 		if err != nil {
 			w.errorf(err.Error())
 			return
@@ -60,9 +56,9 @@ func (w *extractorWorker) run(link string) {
 	}()
 }
 
-func newExtractor(wg *sync.WaitGroup, cache *simpleCache, errorf func(string, ...any), out chan<- *message, do chan<- *action) *extractorWorker {
+func newExtractor(wg *sync.WaitGroup, cache *simpleCache, errorf func(string, ...any), do chan<- *action) *extractorWorker {
 	return &extractorWorker{
-		worker: newWorker(wg, errorf, out, do),
+		worker: newWorker(wg, errorf, do),
 		cache:  cache,
 	}
 }
@@ -72,12 +68,9 @@ type downloadWorker struct {
 	cache *FIFO
 }
 
-func (w *downloadWorker) run(link string, n int) {
+func (w *downloadWorker) run(link string, infof func(string, ...any)) {
 	ctx, cancel := context.WithCancel(context.Background())
 	w.cancelPrevJob(cancel)
-
-	prefix := "track " + strconv.Itoa(n) + " "
-	infof := newReporter(textMessage, prefix, w.wg, w.out)
 
 	w.wg.Add(1)
 	go func() {
@@ -88,7 +81,7 @@ func (w *downloadWorker) run(link string, n int) {
 				infof(err.Error())
 				return
 			}
-			w.errorf(prefix + err.Error())
+			w.errorf(err.Error())
 			return
 		}
 
@@ -104,9 +97,9 @@ func (w *downloadWorker) run(link string, n int) {
 	}()
 }
 
-func newDownloader(wg *sync.WaitGroup, cache *FIFO, errorf func(string, ...any), out chan<- *message, do chan<- *action) *downloadWorker {
+func newDownloader(wg *sync.WaitGroup, cache *FIFO, errorf func(string, ...any), do chan<- *action) *downloadWorker {
 	return &downloadWorker{
-		worker: newWorker(wg, errorf, out, do),
+		worker: newWorker(wg, errorf, do),
 		cache:  cache,
 	}
 }
