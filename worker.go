@@ -21,7 +21,7 @@ type worker interface {
 
 type blankWorker struct {
 	sync.Mutex
-	cache      *FIFO
+	storage    Storage
 	cancelCurr func()
 	errorf     func(string, ...any)
 	wg         *sync.WaitGroup
@@ -56,7 +56,7 @@ func (w *extractorWorker) run(link string, infof func(string, ...any)) {
 			return
 		}
 
-		w.cache.Set(link, items)
+		w.storage.Set(link, items)
 		w.do <- &action{actionStart, link}
 	}()
 }
@@ -84,24 +84,24 @@ func (w *downloadWorker) run(link string, infof func(string, ...any)) {
 
 		key := getTruncatedURL(link)
 		if key == "" {
-			w.errorf("incorrect cache key")
+			w.errorf("incorrect storage key")
 			return
 		}
 
-		w.cache.Set(key, result)
+		w.storage.Set(key, result)
 		infof("downloaded")
 		w.do <- &action{actionPlay, key}
 	}()
 }
 
 func newWorker(t workerType,
-	cache *FIFO,
+	storage Storage,
 	errorf func(string, ...any),
 	wg *sync.WaitGroup,
 	do chan<- *action) worker {
 
 	w := &blankWorker{
-		cache:      cache,
+		storage:    storage,
 		cancelCurr: func() {},
 		errorf:     errorf,
 		wg:         wg,

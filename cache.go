@@ -8,6 +8,7 @@ import (
 type Storage interface {
 	Set(string, any)
 	Get(string) (any, bool)
+	Dump() []string
 }
 
 // FIFO simple first in first out cache
