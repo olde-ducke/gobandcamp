@@ -49,10 +49,10 @@ func run(cfg config) {
 	}
 
 	var quitting bool
-	tempCache := newSimpleCache(3)
-	extractor := newExtractor(&wg, tempCache, errorf, do)
+	tempCache := NewCache(1024)
+	extractor := newWorker(extractor, tempCache, errorf, &wg, do)
 	musicCache := NewCache(4)
-	musicDownloader := newDownloader(&wg, musicCache, errorf, do)
+	musicDownloader := newWorker(downloader, musicCache, errorf, &wg, do)
 	p, err := player.NewPlayer(cfg.snd)
 	checkFatalError(err)
 
@@ -116,9 +116,15 @@ loop:
 				debugf("NOT IMPLEMENTED: actionAdd")
 
 			case actionStart:
-				data, ok := tempCache.Get(a.path)
+				value, ok := tempCache.Get(a.path)
 				if !ok {
 					errorf("incorrect key")
+					continue
+				}
+
+				data, ok := value.([]item)
+				if !ok {
+					errorf("unexpected type for album data")
 					continue
 				}
 
@@ -151,11 +157,17 @@ loop:
 					continue
 				}
 
-				data, ok := musicCache.Get(key)
+				value, ok := musicCache.Get(key)
 				if !ok {
 					errorf("failed to load data")
 					continue
 				}
+
+				data, ok := value.([]byte)
+				if !ok {
+					errorf("unexpected type for media data")
+				}
+
 				err := p.Load(data)
 				if err != nil {
 					errorf(err.Error())

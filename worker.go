@@ -5,37 +5,42 @@ import (
 	"sync"
 )
 
-type worker struct {
+type workerType int
+
+const (
+	downloader workerType = iota
+	extractor
+	searcher
+)
+
+type worker interface {
+	stop()
+	cancelPrevJob(func())
+	run(string, func(string, ...any))
+}
+
+type blankWorker struct {
 	sync.Mutex
+	cache      *FIFO
 	cancelCurr func()
 	errorf     func(string, ...any)
 	wg         *sync.WaitGroup
 	do         chan<- *action
 }
 
-func (w *worker) stop() {
+func (w *blankWorker) stop() {
 	w.cancelCurr()
 }
 
-func (w *worker) cancelPrevJob(cancel func()) {
+func (w *blankWorker) cancelPrevJob(cancel func()) {
 	w.Lock()
 	w.cancelCurr()
 	w.cancelCurr = cancel
 	w.Unlock()
 }
 
-func newWorker(wg *sync.WaitGroup, errorf func(string, ...any), do chan<- *action) *worker {
-	return &worker{
-		cancelCurr: func() {},
-		errorf:     errorf,
-		wg:         wg,
-		do:         do,
-	}
-}
-
 type extractorWorker struct {
-	*worker
-	cache *simpleCache
+	*blankWorker
 }
 
 func (w *extractorWorker) run(link string, infof func(string, ...any)) {
@@ -56,16 +61,8 @@ func (w *extractorWorker) run(link string, infof func(string, ...any)) {
 	}()
 }
 
-func newExtractor(wg *sync.WaitGroup, cache *simpleCache, errorf func(string, ...any), do chan<- *action) *extractorWorker {
-	return &extractorWorker{
-		worker: newWorker(wg, errorf, do),
-		cache:  cache,
-	}
-}
-
 type downloadWorker struct {
-	*worker
-	cache *FIFO
+	*blankWorker
 }
 
 func (w *downloadWorker) run(link string, infof func(string, ...any)) {
@@ -97,9 +94,27 @@ func (w *downloadWorker) run(link string, infof func(string, ...any)) {
 	}()
 }
 
-func newDownloader(wg *sync.WaitGroup, cache *FIFO, errorf func(string, ...any), do chan<- *action) *downloadWorker {
-	return &downloadWorker{
-		worker: newWorker(wg, errorf, do),
-		cache:  cache,
+func newWorker(t workerType,
+	cache *FIFO,
+	errorf func(string, ...any),
+	wg *sync.WaitGroup,
+	do chan<- *action) worker {
+
+	w := &blankWorker{
+		cache:      cache,
+		cancelCurr: func() {},
+		errorf:     errorf,
+		wg:         wg,
+		do:         do,
+	}
+
+	switch t {
+	case downloader:
+		return &downloadWorker{w}
+	case extractor:
+		return &extractorWorker{w}
+	default:
+		errorf("unexpected worker type, will fail")
+		return nil
 	}
 }

@@ -8,7 +8,7 @@ import (
 // FIFO simple first in first out cache
 type FIFO struct {
 	sync.RWMutex
-	cache map[string][]byte
+	cache map[string]interface{}
 	queue *list.List
 	size  int
 }
@@ -16,14 +16,14 @@ type FIFO struct {
 // NewCache returns simple FIFO cache with given size
 func NewCache(size int) *FIFO {
 	return &FIFO{
-		cache: make(map[string][]byte, size),
+		cache: make(map[string]interface{}, size),
 		queue: list.New(),
 		size:  size,
 	}
 }
 
 // Set stores data to cache.
-func (fifo *FIFO) Set(key string, value []byte) {
+func (fifo *FIFO) Set(key string, value interface{}) {
 	fifo.Lock()
 	defer fifo.Unlock()
 	if _, ok := fifo.cache[key]; ok {
@@ -44,7 +44,7 @@ func (fifo *FIFO) Set(key string, value []byte) {
 }
 
 // Get returns data from cache.
-func (fifo *FIFO) Get(key string) ([]byte, bool) {
+func (fifo *FIFO) Get(key string) (interface{}, bool) {
 	fifo.Lock()
 	value, ok := fifo.cache[key]
 	fifo.Unlock()
@@ -67,6 +67,7 @@ func (fifo *FIFO) Dump() []string {
 	return dump
 }
 
+/*
 // TODO: delete later and replace with SQLite?
 type simpleCache struct {
 	sync.RWMutex
@@ -113,3 +114,4 @@ func (c *simpleCache) Dump() []string {
 
 	return dump
 }
+*/
