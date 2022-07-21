@@ -163,9 +163,10 @@ loop:
 					continue
 				}
 
-				data, ok := value.([]byte)
+				data, ok := value.(*player.Media)
 				if !ok {
 					errorf("unexpected type for media data")
+					continue
 				}
 
 				err := p.Load(data)

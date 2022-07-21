@@ -59,8 +59,12 @@ func (player *dummyPlayer) SeekAbsolute(float64) error {
 	return nil
 }
 
-func (player *dummyPlayer) Load(data []byte) error {
-	Debugf("got data with length: %d", len(data))
+func (player *dummyPlayer) Load(m *Media) error {
+	if m == nil {
+		return ErrEmptyData
+	}
+
+	Debugf("got data with length: %d, content-type: %s", len(m.Data), m.ContentType)
 	player.ClearStream()
 	return player.Reload()
 }

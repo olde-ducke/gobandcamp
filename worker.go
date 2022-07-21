@@ -2,7 +2,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"sync"
+
+	"github.com/olde-ducke/gobandcamp/player"
 )
 
 type workerType int
@@ -72,9 +75,9 @@ func (w *downloadWorker) run(link string, infof func(string, ...any)) {
 	w.wg.Add(1)
 	go func() {
 		defer w.wg.Done()
-		result, err := downloadmedia(ctx, link, infof)
+		data, contentType, err := downloadmedia(ctx, link, infof)
 		if err != nil {
-			if err == context.Canceled {
+			if errors.Is(err, context.Canceled) {
 				infof(err.Error())
 				return
 			}
@@ -88,7 +91,7 @@ func (w *downloadWorker) run(link string, infof func(string, ...any)) {
 			return
 		}
 
-		w.storage.Set(key, result)
+		w.storage.Set(key, &player.Media{data, contentType})
 		infof("downloaded")
 		w.do <- &action{actionPlay, key}
 	}()

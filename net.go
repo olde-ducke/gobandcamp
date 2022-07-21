@@ -309,7 +309,7 @@ func getTextWithAttr(node *html.Node, attr *html.Attribute, tag string) (string,
 }
 
 // TODO: return data format
-func downloadmedia(ctx context.Context, link string, infof func(string, ...any)) ([]byte, error) {
+func downloadmedia(ctx context.Context, link string, infof func(string, ...any)) ([]byte, string, error) {
 	Debugf(link)
 	infof("fetching")
 	ops := options{
@@ -317,7 +317,10 @@ func downloadmedia(ctx context.Context, link string, infof func(string, ...any))
 		url:    link,
 		method: "GET",
 	}
-	var data []byte
+	var (
+		data        []byte
+		contentType string
+	)
 	// var dataType string
 	err := makeRequest(&ops, func(response *http.Response, err error) error {
 		if err != nil {
@@ -336,7 +339,7 @@ func downloadmedia(ctx context.Context, link string, infof func(string, ...any))
 			Debugf(err.Error())
 		}
 
-		// dataType = response.Header.Get("content-type")
+		contentType = response.Header.Get("Content-Type")
 
 		progress := 0
 		done := make(chan struct{})
@@ -355,7 +358,8 @@ func downloadmedia(ctx context.Context, link string, infof func(string, ...any))
 		}()
 		defer close(done)
 
-		data, err = readAll(response.Body, length, &progress)
+		data, err = readAll(
+			response.Body, length, &progress)
 		if err != nil {
 			return err
 		}
@@ -363,9 +367,10 @@ func downloadmedia(ctx context.Context, link string, infof func(string, ...any))
 		if length > 0 && len(data) != cap(data) {
 			Debugf("wrong Content-Length value")
 		}
+
 		return nil
 	})
-	return data, err
+	return data, contentType, err
 }
 
 // same as io.ReadAll, but won't allocate new memory if size

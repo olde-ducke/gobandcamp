@@ -132,8 +132,12 @@ func (player *beepPlayer) setPosition(pos int) error {
 	return player.stream.streamer.Seek(pos)
 }
 
-func (player *beepPlayer) Load(data []byte) error {
-	reader := bytes.NewReader(data)
+func (player *beepPlayer) Load(m *Media) error {
+	if m == nil {
+		return ErrEmptyData
+	}
+
+	reader := bytes.NewReader(m.Data)
 	streamer, format, err := mp3.Decode(NopSeekCloser(reader))
 	if err != nil {
 		return err
@@ -143,7 +147,7 @@ func (player *beepPlayer) Load(data []byte) error {
 	player.format = format
 	player.stream = newStream(format.SampleRate, streamer, player.volume, player.muted)
 	speaker.Unlock()
-	Debugf("stream loaded: %+v", player.format)
+	Debugf("stream loaded: %+v, Content-Type: %s", player.format, m.ContentType)
 	// deadlocks if anything speaker related is done inside callback
 	// since it's locking device itself
 	speaker.Play(beep.Seq(player.stream.volume, beep.Callback(

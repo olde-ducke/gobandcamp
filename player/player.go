@@ -1,6 +1,7 @@
 package player
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -24,7 +25,14 @@ var Statuses = [7]string{"[]", " >", "||", "<<", ">>", "|<", ">|"}
 // by default does nothing.
 var Debugf = func(string, ...any) {}
 
+var ErrEmptyData = errors.New("can't load empty data")
+
 var backends = make(map[string]Player, 3)
+
+type Media struct {
+	Data        []byte
+	ContentType string
+}
 
 // PlaybackStatus player current state
 type PlaybackStatus int
@@ -55,7 +63,7 @@ type Player interface {
 	Mute()
 	SeekRelative(int) error
 	SeekAbsolute(float64) error
-	Load([]byte) error
+	Load(*Media) error
 	Reload() error
 	Pause()
 	Play()
