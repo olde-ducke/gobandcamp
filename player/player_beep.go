@@ -11,6 +11,8 @@ import (
 	"github.com/faiface/beep/speaker"
 )
 
+var ErrUnsupportedFormat = errors.New("unsupported format")
+
 type beepPlayer struct {
 	name string
 
@@ -137,11 +139,25 @@ func (player *beepPlayer) Load(m *Media) error {
 		return ErrEmptyData
 	}
 
+	var (
+		err      error
+		streamer beep.StreamSeekCloser
+		format   beep.Format
+	)
 	reader := bytes.NewReader(m.Data)
-	streamer, format, err := mp3.Decode(NopSeekCloser(reader))
+
+	Debugf(m.ContentType)
+	switch m.ContentType {
+	case "audio/mpeg":
+		streamer, format, err = mp3.Decode(NopSeekCloser(reader))
+	default:
+		return ErrUnsupportedFormat
+	}
+
 	if err != nil {
 		return err
 	}
+
 	player.ClearStream()
 	speaker.Lock()
 	player.format = format

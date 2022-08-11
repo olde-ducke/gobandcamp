@@ -86,11 +86,6 @@ func (w *downloadWorker) run(link string, infof func(string, ...any)) {
 		}
 
 		key := getTruncatedURL(link)
-		if key == "" {
-			w.errorf("incorrect storage key")
-			return
-		}
-
 		w.storage.Set(key, &player.Media{data, contentType})
 		infof("downloaded")
 		w.do <- &action{actionPlay, key}
@@ -117,7 +112,6 @@ func newWorker(t workerType,
 	case extractor:
 		return &extractorWorker{w}
 	default:
-		errorf("unexpected worker type, will fail")
-		return nil
+		panic("unexpected worker type, will fail")
 	}
 }
