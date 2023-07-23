@@ -86,7 +86,7 @@ func (w *downloadWorker) run(link string, infof func(string, ...any)) {
 		}
 
 		key := getTruncatedURL(link)
-		w.storage.Set(key, &player.Media{data, contentType})
+		w.storage.Set(key, &player.Media{Data: data, ContentType: contentType})
 		infof("downloaded")
 		w.do <- &action{actionPlay, key}
 	}()
