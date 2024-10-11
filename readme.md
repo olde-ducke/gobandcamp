@@ -23,17 +23,17 @@ or
 
 Sorting methods (optional):
 
-    ""           - popular
-    "random"     - random
-    "date"       - sort by date
-    "highlights" - search in highlights tab of first tag/genre
+    "top"        - popular (default)
+    "date"       - sort by release date (descending)
+    "rand"       - random
 
 Formats (optional):
 
-    ""           - any
-    "cassette"
-    "cd"
+    "all"
+    "digital"
     "vinyl"
+    "cd"
+    "cassette"
 
 ## Dependencies:
 Same as [oto](https://github.com/hajimehoshi/oto).

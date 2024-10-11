@@ -118,7 +118,7 @@ type arguments struct {
 	tags     []string
 	location []string
 	sort     string
-	format   string
+	format   Format
 	flag     int
 }
 
@@ -136,7 +136,10 @@ func parseInput(input string) {
 		return
 	}
 
-	var args arguments
+	args := arguments{
+		sort: "top",
+		tags: []string{},
+	}
 
 	for i := 0; i < len(commands); i++ {
 		if i <= len(commands)-2 && strings.HasPrefix(commands[i], "-") {
@@ -162,23 +165,31 @@ func parseInput(input string) {
 			case 2:
 				args.location = append(args.location, commands[i])
 			case 3:
-				if commands[i] == "random" || commands[i] == "date" || commands[i] == "highlights" {
+				switch commands[i] {
+				case "top", "new", "rand":
 					args.sort = commands[i]
+				case "random":
+					args.sort = "rand"
+				case "date":
+					args.sort = "date"
+				case "popular", "pop":
+					args.sort = "top"
+				default:
+					args.sort = "top"
 				}
 			case 4:
-				if commands[i] == "cd" || commands[i] == "cassette" || commands[i] == "vinyl" {
-					args.format = commands[i]
+				// NOTE: ignore error
+				args.format, _ = FormatFromString(commands[i])
+				// do not include t-shirts
+				if args.format == TShirts {
+					args.format = All
 				}
 			}
 		}
 	}
 
-	if len(args.tags) > 0 {
-		wg.Add(1)
-		go processTagPage(args)
-	} else {
-		window.sendEvent(newMessage("no tags to search"))
-	}
+	wg.Add(1)
+	go processTagPage(args)
 }
 
 // initialize widget

@@ -3,6 +3,9 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"compress/flate"
+	"compress/gzip"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"image"
@@ -10,7 +13,6 @@ import (
 	"image/png"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -201,73 +203,31 @@ func downloadCover(link string) {
 
 func processTagPage(args arguments) {
 	defer wg.Done()
-	window.sendEvent(newMessage("fetching tag search page..."))
+	window.sendEvent(newMessage("fetching data..."))
 
-	sbuilder := strings.Builder{}
-	defer sbuilder.Reset()
-	fmt.Fprint(&sbuilder, "https://bandcamp.com/tag/", args.tags[0], "?tab=all_releases")
-
-	if len(args.tags) > 1 {
-		fmt.Fprint(&sbuilder, "&t=")
-		for i := 1; i < len(args.tags); i++ {
-			if i == 1 {
-				fmt.Fprint(&sbuilder, args.tags[i])
-				continue
-			}
-			fmt.Fprint(&sbuilder, "%2C", args.tags[i])
-		}
-	}
-
-	var inHighlights bool
-	if args.sort != "" && args.sort != "highlights" {
-		fmt.Fprint(&sbuilder, "&s=", args.sort)
-	} else if args.sort == "highlights" {
-		inHighlights = true
-	}
-
-	if args.format != "" {
-		fmt.Fprint(&sbuilder, "&f=", args.format)
-	}
-
-	reader, _ := download(sbuilder.String(), false, true)
-	if reader == nil {
-		return
-	}
-	defer reader.Close()
-	window.sendEvent(newMessage("parsing..."))
-
-	scanner := bufio.NewScanner(reader)
-	var dataBlobJSON string
-	// NOTE: might fail here
-	// 64k is not enough for these pages
-	// buffer with size 1048576 reads json with 178 items
-	var buffer []byte
-	var err error
-	scanner.Buffer(buffer, 1048576)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if prefix := `data-blob="`; strings.Contains(line, prefix) {
-			dataBlobJSON, err = extractJSON(prefix, line, `"`)
-			break
-		}
-	}
-	if err != nil {
-		window.sendEvent(newErrorMessage(err))
-		return
-	}
-	window.sendEvent(newMessage("found data"))
-
-	results, err := parseTagSearchJSON(dataBlobJSON, inHighlights)
+	result, err := makeDiscoverRequest(&DiscoverRequest{
+		CategoryID:         args.format,
+		Cursor:             "*",
+		GeonameID:          0,
+		IncludeResultTypes: []string{"a"},
+		Size:               60,
+		Slice:              args.sort,
+		TagNormNames:       args.tags,
+	})
 	if err != nil {
 		window.sendEvent(newErrorMessage(err))
 		return
 	}
 
-	if results == nil || len(results.Items) == 0 {
+	// FIXME: not sure if either can be trusted
+	if result.BatchResultCount == 0 || result.ResultCount == 0 ||
+		len(result.Results) == 0 {
 		window.sendEvent(newMessage("nothing was found"))
 		return
 	}
-	window.sendEvent(newTagSearch(results))
+
+	window.sendEvent(newMessage("found data"))
+	window.sendEvent(newTagSearch(result))
 }
 
 func extractJSON(prefix, line, suffix string) (string, error) {
@@ -292,42 +252,107 @@ func getTruncatedURL(link string) string {
 	}
 }
 
-func getAdditionalResults(result *Result) {
+func getAdditionalResults(req *DiscoverRequest) {
 	defer wg.Done()
 	window.sendEvent(newMessage("pulling additional results..."))
-	jsonString := "{\"filters\":" + result.filters + ",\"page\":" +
-		strconv.Itoa(result.page) + "}"
-	buffer := bytes.NewBuffer([]byte(jsonString))
+
+	result, err := makeDiscoverRequest(req)
+	if err != nil {
+		window.sendEvent(newAdditionalTagSearch(nil))
+		window.sendEvent(newErrorMessage(err))
+		return
+	}
+
+	if result.BatchResultCount == 0 || result.ResultCount == 0 ||
+		len(result.Results) == 0 {
+		window.sendEvent(newAdditionalTagSearch(nil))
+		window.sendEvent(newMessage("nothing was found"))
+		return
+	}
+
+	window.sendEvent(newAdditionalTagSearch(result))
+}
+
+func makeDiscoverRequest(req *DiscoverRequest) (*DiscoverResult, error) {
+	buf := bytes.Buffer{}
+	defer buf.Reset()
+
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+
+	if err := enc.Encode(&req); err != nil {
+		return nil, fmt.Errorf("failed to encode request: %w", err)
+	}
+
+	window.sendEvent(newDebugMessage(req.String()))
 
 	request, err := http.NewRequest("POST",
-		"https://bandcamp.com/api/hub/2/dig_deeper", buffer)
+		"https://bandcamp.com/api/discover/1/discover_web", &buf)
 	if err != nil {
-		window.sendEvent(newAdditionalTagSearch(nil))
-		window.sendEvent(newErrorMessage(err))
-		return
+		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
-	// pretend that we are Chrome on Win10
+
+	request.Header.Set("Accept", "*/*")
+	request.Header.Set("Accept-Encoding", "gzip, deflate")
+	request.Header.Set("Content-Type", "application/json; charset=UTF-8")
 	request.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 12_0_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/95.0.4638.69 Safari/537.36")
 
-	response, err := client.Do(request)
+	resp, err := client.Do(request)
 	if err != nil {
-		window.sendEvent(newAdditionalTagSearch(nil))
-		window.sendEvent(newErrorMessage(err))
-		return
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		data, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("got unexpected response: %s\n%w", resp.Status, err)
+		}
+
+		return nil, fmt.Errorf("got unexpected response: %s\n%s", resp.Status, data)
 	}
 
-	body, err := io.ReadAll(response.Body)
-	if err != nil {
-		window.sendEvent(newAdditionalTagSearch(nil))
-		window.sendEvent(newErrorMessage(err))
-		return
+	result := &DiscoverResult{
+		Request: req,
 	}
 
-	additionalResult, err := extractResults(body)
-	if err != nil {
-		window.sendEvent(newAdditionalTagSearch(nil))
-		window.sendEvent(newErrorMessage(err))
-		return
+	var (
+		dec      *json.Decoder
+		encoding string
+	)
+
+	if len(resp.Header.Values("Content-Encoding")) > 0 {
+		encoding = resp.Header.Values("Content-Encoding")[0]
 	}
-	window.sendEvent(newAdditionalTagSearch(additionalResult))
+
+	switch encoding {
+	case "gzip":
+		gr, err := gzip.NewReader(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode gzip body: %w", err)
+		}
+		defer gr.Close()
+		dec = json.NewDecoder(gr)
+
+	case "deflate":
+		dr := flate.NewReader(resp.Body)
+		defer dr.Close()
+		dec = json.NewDecoder(dr)
+
+	default:
+		dec = json.NewDecoder(resp.Body)
+	}
+
+	// dec.DisallowUnknownFields()
+
+	if err := dec.Decode(result); err != nil {
+		return nil, fmt.Errorf("failed to read response: %w\n%+v", err, resp.Header)
+	}
+
+	if result.ErrorType != "" {
+		return nil, fmt.Errorf("got api error: %s request: %s",
+			result.ErrorType, req)
+	}
+
+	return result, nil
 }

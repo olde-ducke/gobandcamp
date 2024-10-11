@@ -48,16 +48,16 @@
  "--tag sometag --sort date --tag another three tags --format vinyl"
 
  sorting methods (optional):
-  ""           - popular
-  "random"     - random
-  "date"       - sort by date
-  "highlights" - search in highlights tab of first tag/genre
+  "top"        - popular (default)
+  "new"        - sort by release date (descending)
+  "rand"       - random
 
  formats (optional):
-  ""           - any
-  "cassette"
-  "cd"
+  "all"
+  "digital"
   "vinyl"
+  "cd"
+  "cassette"
 
 -- dependencies --
  same as [oto] https://github.com/hajimehoshi/oto

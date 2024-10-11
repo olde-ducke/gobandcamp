@@ -1,11 +1,11 @@
 module github.com/olde-ducke/gobandcamp
 
-go 1.17
+go 1.22.3
 
 require (
 	github.com/faiface/beep v1.1.0
 	github.com/gdamore/tcell/v2 v2.4.0
-	github.com/json-iterator/go v1.1.12
+	github.com/nfnt/resize v0.0.0-20180221191011-83c6a9932646
 	github.com/olde-ducke/image2ascii v1.0.2-0.20211121074350-7020fab00c5f
 	github.com/pkg/errors v0.9.1
 )
@@ -18,9 +18,6 @@ require (
 	github.com/lucasb-eyer/go-colorful v1.0.3 // indirect
 	github.com/mattn/go-isatty v0.0.14 // indirect
 	github.com/mattn/go-runewidth v0.0.10 // indirect
-	github.com/modern-go/concurrent v0.0.0-20180228061459-e0a39a4cb421 // indirect
-	github.com/modern-go/reflect2 v1.0.2 // indirect
-	github.com/nfnt/resize v0.0.0-20180221191011-83c6a9932646 // indirect
 	github.com/rivo/uniseg v0.1.0 // indirect
 	github.com/stretchr/testify v1.7.0 // indirect
 	github.com/wayneashleyberry/terminal-dimensions v1.1.0 // indirect

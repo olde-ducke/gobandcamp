@@ -3,6 +3,7 @@ package main
 import (
 	_ "embed"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 )
 
 // TODO: replace with raw string
+//
 //go:embed assets/help
 var helpText []byte
 
@@ -535,8 +537,10 @@ func (model *searchResultsModel) create() {
 	var activeFound bool
 
 	url := window.getItemURL()
-	for i, item := range window.searchResults.Items {
-		if url != "" && item.URL == url {
+	for i, item := range window.searchResults.Results {
+		// FIXME: condition was changed to work with newer api,
+		// which returns url with url parameter
+		if url != "" && item.ItemURL == url+"?from=discover_page" {
 			model.activeItem = i
 			activeFound = true
 			break
@@ -553,16 +557,17 @@ func (model *searchResultsModel) create() {
 func (model *searchResultsModel) update() {
 	// ▹  active title
 	//     by %artist%
-	//    %genre%
+	//    %track_count%, track(s) %duration%
 	//    title
 	//     by %artist%
-	//    %genre%
-	for i, item := range window.searchResults.Items {
+	//    %track_count%, track(s) %duration%
+	for i, item := range window.searchResults.Results {
 
-		var by, styleStart, styleEnd, playerStatus string
-		if item.Type == "a" || item.Type == "t" {
+		var by, artist, styleStart, styleEnd, playerStatus string
+		if item.ResultType == "a" || item.ResultType == "t" {
 			by = "by"
 		}
+
 		if i != model.item && i != model.activeItem {
 			styleStart, styleEnd = "\ue000", "\ue001"
 		}
@@ -570,10 +575,30 @@ func (model *searchResultsModel) update() {
 			playerStatus = window.getPlayerStatus()
 		}
 
-		fmt.Fprintf(&model.sbuilder, "%2s  %s\n     %s %s%s%s\n    %s%s%s\n",
+		if item.AlbumArtist != nil {
+			artist = *item.AlbumArtist
+		} else {
+			artist = item.BandName
+		}
+
+		fmt.Fprintf(&model.sbuilder, "%2s  %s\n     %s %s%s%s\n",
 			playerStatus, item.Title,
-			by, styleStart, item.Artist, styleEnd,
-			styleStart, item.Genre, styleEnd)
+			by, styleStart, artist, styleEnd)
+
+		if item.TrackCount > 0 {
+			var tracks string
+			if item.TrackCount == 1 {
+				tracks = "track"
+			} else {
+				tracks = "tracks"
+			}
+
+			fmt.Fprintf(&model.sbuilder, "    %s%d%s %s, %s%0.f%s minutes",
+				styleStart, item.TrackCount, styleEnd, tracks,
+				styleStart, math.Round(item.ItemDuration/60.0), styleEnd)
+		}
+
+		model.sbuilder.WriteByte('\n')
 
 		model.totalItems = i + 1
 	}
@@ -606,21 +631,22 @@ func (model *searchResultsModel) SetCursor(x, y int) {
 
 func (model *searchResultsModel) triggerNewDownload(currPos, offy int) {
 
-	if len(window.searchResults.Items) == 0 {
+	if len(window.searchResults.Results) == 0 {
 		return
 	}
 
 	if model.item >= model.totalItems-1 && offy > 0 {
-		if !window.searchResults.MoreAvailable {
+		if window.searchResults.Cursor == nil {
 			window.sendEvent(newMessage("nothing else to show"))
-		} else if !window.searchResults.waiting {
-			window.searchResults.waiting = true
+		} else if !window.waiting {
+			window.waiting = true
 			wg.Add(1)
-			go getAdditionalResults(window.searchResults)
+			window.searchResults.Request.Cursor = *window.searchResults.Cursor
+			go getAdditionalResults(window.searchResults.Request)
 		}
 	}
 
-	artID := window.searchResults.Items[currPos].ArtId
+	artID := window.searchResults.Results[currPos].ItemImageID
 	url := window.getImageURL(artID)
 	if url == "" {
 		window.sendEvent(newCoverDownloaded(nil, ""))

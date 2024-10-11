@@ -377,9 +377,11 @@ func (content *contentArea) HandleEvent(event tcell.Event) bool {
 				// maybe could be deleted, check for valid data
 				// is right before sending
 				if window.searchResults != nil {
-					if item < len(window.searchResults.Items) {
-						if url := window.searchResults.Items[item].URL; url != "" {
-							if currentURL := window.getItemURL(); url != currentURL {
+					if item < len(window.searchResults.Results) {
+						if url := window.searchResults.Results[item].ItemURL; url != "" {
+							// FIXME: condition was changed to work with newer api,
+							// which returns url with url parameter
+							if currentURL := window.getItemURL(); url != currentURL+"?from=discover_page" {
 								wg.Add(1)
 								go processMediaPage(url)
 							} else {
@@ -447,15 +449,14 @@ func (content *contentArea) HandleEvent(event tcell.Event) bool {
 
 	case *eventAdditionalTagSearch:
 		if value := event.value(); value != nil {
-			window.searchResults.MoreAvailable = value.MoreAvailable
-			//window.searchResults.MoreAvailable = value.waiting
-			window.searchResults.page += 1
-			window.searchResults.Items = append(window.searchResults.Items,
-				value.Items...)
+			window.searchResults.Cursor = value.Cursor
+			window.searchResults.Results = append(window.searchResults.Results,
+				value.Results...)
+			window.searchResults.BatchResultCount += value.BatchResultCount
 			content.switchModel(resultsModel)
 			window.sendEvent(newMessage("new items added"))
 		}
-		window.searchResults.waiting = false
+		window.waiting = false
 		return true
 
 	case *eventNewItem:

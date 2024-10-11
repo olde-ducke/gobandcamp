@@ -85,7 +85,8 @@ type windowLayout struct {
 	asciionly   bool
 	imageSize   int
 
-	searchResults *Result
+	searchResults *DiscoverResult
+	waiting       bool
 	// TODO: image cache
 	coverKey    string
 	coverBG     tcell.Color
@@ -175,7 +176,7 @@ func (window *windowLayout) sendEvent(event tcell.Event) {
 // _4      - 300x300
 // _2      - 350x350
 // _1, _0  - original (?)
-func (window *windowLayout) getImageURL(artID int) string {
+func (window *windowLayout) getImageURL(artID uint64) string {
 	if artID == 0 {
 		return ""
 	}
@@ -198,7 +199,7 @@ func (window *windowLayout) getImageURL(artID int) string {
 	}
 
 	return "https://f4.bcbits.com/img/a" +
-		strconv.Itoa(artID) + s
+		strconv.FormatUint(artID, 10) + s
 }
 
 func (window *windowLayout) getItemURL() string {
@@ -221,7 +222,7 @@ func (window *windowLayout) getTrackURL(track int) (string, bool) {
 	}
 }
 
-func (window *windowLayout) getArtID() int {
+func (window *windowLayout) getArtID() uint64 {
 	if window.playlist == nil {
 		return 0
 	}

@@ -1,15 +1,11 @@
 package main
 
 import (
-	//"encoding/json"
-
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
-
-	json "github.com/json-iterator/go"
-	//"encoding/json"
 )
 
 // output types
@@ -17,7 +13,7 @@ type album struct {
 	// imageSrc    string
 	album       bool
 	single      bool
-	artID       int
+	artID       uint64
 	title       string
 	artist      string
 	date        string
@@ -81,7 +77,7 @@ type Album struct {
 
 type media struct {
 	//AlbumIsPreorder bool   `json:"album_is_preorder"` // unused, useless
-	ArtId     int    `json:"art_id"`
+	ArtId     uint64 `json:"art_id"`
 	URL       string `json:"url"` // either album or track URL
 	Trackinfo []struct {
 		Duration float64 `json:"duration"` // duration in seconds
@@ -183,7 +179,7 @@ func parseDate(input string) (strDate string) {
 		strDate = "---"
 	} else {
 		y, m, d := date.Date()
-		strDate = fmt.Sprintf("%02d %s %4d", d, strings.ToLower(m.String()[:3]), y)
+		strDate = fmt.Sprintf("%s %d, %4d", m, d, y)
 	}
 	return strDate
 }
@@ -216,80 +212,122 @@ type Results struct {
 	Result          map[string]Result `json:"results"`
 }
 
+type Format uint8
+
+const (
+	All Format = iota
+	Digital
+	Vinyl
+	CompactDisks
+	Cassettes
+	TShirts
+)
+
+func FormatFromString(input string) (Format, error) {
+	switch input {
+	case "all":
+		return All, nil
+	case "digital":
+		return Digital, nil
+	case "vinyl":
+		return Vinyl, nil
+	case "cd":
+		return CompactDisks, nil
+	case "cassette":
+		return Cassettes, nil
+	case "t-shirt":
+		return TShirts, nil
+	default:
+		return All, errors.New("unknown format: \"" + input + "\"")
+	}
+}
+
+type DiscoverRequest struct {
+	CategoryID         Format   `json:"category_id"`
+	Cursor             string   `json:"cursor"`
+	GeonameID          int64    `json:"geoname_id"`
+	IncludeResultTypes []string `json:"include_result_types"`
+	Size               int64    `json:"size"`
+	Slice              string   `json:"slice"`
+	TagNormNames       []string `json:"tag_norm_names"`
+}
+
+func (req DiscoverRequest) String() string {
+	var sb strings.Builder
+	defer sb.Reset()
+
+	enc := json.NewEncoder(&sb)
+	enc.SetEscapeHTML(false)
+
+	if err := enc.Encode(&req); err != nil {
+		return err.Error()
+	}
+
+	return sb.String()
+}
+
+type DiscoverResult struct {
+	Request          *DiscoverRequest `json:"-"`
+	Results          []Result         `json:"results"`
+	ResultCount      uint64           `json:"result_count"`
+	BatchResultCount uint64           `json:"batch_result_count"`
+	Cursor           *string          `json:"cursor"`
+	DiscoverSpecID   int64            `json:"discover_spec_id"`
+	APISpecial       string           `json:"__api_special__,omitempty"`
+	ErrorType        string           `json:"error_type,omitempty"`
+}
+
+// TODO: added only bare minimum
 type Result struct {
-	page          int
-	filters       string
-	waiting       bool
-	MoreAvailable bool         `json:"more_available"`
-	Items         []SearchItem `json:"items"`
+	ItemURL      string  `json:"item_url"`
+	ResultType   string  `json:"result_type"`
+	ItemImageID  uint64  `json:"item_image_id"`
+	AlbumArtist  *string `json:"album_artist"`
+	BandName     string  `json:"band_name"`
+	ReleaseDate  string  `json:"release_date"`
+	ItemDuration float64 `json:"item_duration"`
+	Title        string  `json:"title"`
+	TrackCount   uint64  `json:"track_count"`
 }
 
-type SearchItem struct {
-	Type   string `json:"tralbum_type"`
-	Title  string `json:"title"`       // title
-	Artist string `json:"artist"`      // artist
-	Genre  string `json:"genre"`       // genre
-	URL    string `json:"tralbum_url"` // tralbum_url
-	ArtId  int    `json:"art_id"`      // art_id
-}
+/*
+func formatResult(result map[string]any) {
+	var by any
+	if result["album_artist"] != nil {
+		by = result["album_artist"]
+	} else {
+		by = result["band_name"]
+	}
 
-func parseTagSearchJSON(dataBlobJSON string, highlights bool) (*Result, error) {
-	var dataBlob tagSearchJSON
-	var searchResults Result
-	err := json.Unmarshal([]byte(dataBlobJSON), &dataBlob)
+	t, err := time.Parse("2006-01-02 15:04:05 MST", result["release_date"].(string))
 	if err != nil {
-		return &searchResults, err
+		e.Println(err)
+		return
 	}
 
-	if highlights {
-		// first tab is highlights, second one has actual search results
-		// highlights tab has several sections with albums/tracks
-		// for highlights query go through all sections and collect all data
-		// we shouldn't be here if tag is simple
-		if dataBlob.Hubs.IsSimple || len(dataBlob.Hubs.Tabs) == 0 {
-			return nil, errors.New("nothing was found")
-		}
-		for _, collection := range dataBlob.Hubs.Tabs[0].Collections {
-			searchResults.Items = append(searchResults.Items, collection.Items...)
-		}
-		return &searchResults, nil
-	}
+	d := math.Round(result["item_duration"].(float64) / 60.0)
 
-	// FIXME: will absolutely fail at some point
-	var index int
-	// simple = tag is not "genre" and doesn't have tabs on tag search page
-	// for not simple tags there are two tabs: highlights and all releases
-	if !dataBlob.Hubs.IsSimple {
-		index = 1
-	}
-
-	if index > len(dataBlob.Hubs.Tabs)-1 {
-		window.sendEvent(newDebugMessage(fmt.Sprint(dataBlob.Hubs.Tabs)))
-		return nil, errors.New("tag page JSON parser: index out of range")
-	}
-
-	key := dataBlob.Hubs.Tabs[index].DigDeeper.InitialSettings
-	if value, ok := dataBlob.Hubs.Tabs[index].DigDeeper.Result[key]; ok {
-		value.page = 2
-		value.filters = dataBlob.Hubs.Tabs[index].DigDeeper.InitialSettings
-		return &value, nil
-	}
-
-	return nil, errors.New("nothing was found")
+	l.Printf("\x1b[1m%v\x1b[0m\nby \x1b[1m%v\x1b[0m\n%v tracks, %.0f minutes\nreleased %s\n%v",
+		result["title"],
+		by,
+		result["track_count"],
+		d,
+		t.Format("January 02, 2006"),
+		result["item_url"],
+	)
 }
+*/
 
-func extractResults(results []byte) (*Result, error) {
+func (res DiscoverResult) String() string {
+	var sb strings.Builder
+	defer sb.Reset()
 
-	var result Result
-	/*if !json.Valid(results) {
-		window.sendEvent(newDebugMessage(string(results)))
-		return &result, errors.New("extractResults: got invalid JSON")
-	}*/
+	enc := json.NewEncoder(&sb)
+	enc.SetEscapeHTML(false)
 
-	err := json.Unmarshal(results, &result)
-	if err != nil {
-		return nil, err
+	if err := enc.Encode(&res); err != nil {
+		return err.Error()
 	}
 
-	return &result, nil
+	return sb.String()
 }

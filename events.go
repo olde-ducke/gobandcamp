@@ -42,27 +42,27 @@ func (event *eventNewItem) value() *album {
 
 type eventNewTagSearch struct {
 	tcell.EventTime
-	result *Result
+	result *DiscoverResult
 }
 
-func newTagSearch(result *Result) *eventNewTagSearch {
+func newTagSearch(result *DiscoverResult) *eventNewTagSearch {
 	return &eventNewTagSearch{result: result}
 }
 
-func (event *eventNewTagSearch) value() *Result {
+func (event *eventNewTagSearch) value() *DiscoverResult {
 	return event.result
 }
 
 type eventAdditionalTagSearch struct {
 	tcell.EventTime
-	result *Result
+	result *DiscoverResult
 }
 
-func newAdditionalTagSearch(result *Result) *eventAdditionalTagSearch {
+func newAdditionalTagSearch(result *DiscoverResult) *eventAdditionalTagSearch {
 	return &eventAdditionalTagSearch{result: result}
 }
 
-func (event *eventAdditionalTagSearch) value() *Result {
+func (event *eventAdditionalTagSearch) value() *DiscoverResult {
 	return event.result
 }
 
