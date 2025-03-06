@@ -1,8 +1,8 @@
 package main
 
 import (
-	"flag"
-	"fmt"
+	"io"
+	"log"
 	"os"
 	"runtime"
 	"runtime/pprof"
@@ -10,65 +10,46 @@ import (
 	"time"
 )
 
-// TODO: finish return of exit code
-var exitCode = 0
-
 var cache *FIFO
 var player *beepPlayer
-var logFile *os.File
 var wg sync.WaitGroup
-
-func checkFatalError(err error) {
-	if err != nil {
-		writeToLogFile("[err]:" + err.Error())
-		fmt.Fprintln(os.Stderr, err)
-		exitCode = 1
-	}
-}
 
 func init() {
 	cache = newCache(4)
 }
 
-func run(quit chan struct{}) {
-	err := app.Run()
-	checkFatalError(err)
-	quit <- struct{}{}
+func run(quit chan int) {
+	if err := app.Run(); err != nil {
+		log.Printf("[err]: %v", err)
+		quit <- 1
+	}
+	quit <- 0
 	wg.Done()
 }
 
-// TODO: combine with input args
-var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to `file`")
-var memprofile = flag.String("memprofile", "", "write memory profile to `file`")
-var debug = flag.Bool("debug", false, "write debug output to 'dump.log'")
-
-func writeToLogFile(str string) {
-	if *debug {
-		logFile.WriteString(time.Now().Format(time.ANSIC) + str + "\n")
-	}
-}
-
 func main() {
+	code, opt := readOptions()
+	if code >= 0 {
+		os.Exit(code)
+	}
+
 	ticker := time.NewTicker(time.Second)
-	quit := make(chan struct{})
+	quit := make(chan int)
 	update := ticker.C
 	next := make(chan struct{})
 	text := make(chan interface{})
 
-	flag.Parse()
-
-	if *debug {
-		var err error
-		logFile, err = os.Create("dump.log")
-		checkFatalError(err)
-	}
-
-	if *cpuprofile != "" {
-		file, err := os.Create(*cpuprofile)
-		checkFatalError(err)
+	if opt.cpuProfile != "" {
+		file, err := os.Create(opt.cpuProfile)
+		if err != nil {
+			log.Printf("[err]: %v", err)
+			os.Exit(1)
+		}
 		defer file.Close()
-		err = pprof.StartCPUProfile(file)
-		checkFatalError(err)
+		if err := pprof.StartCPUProfile(file); err != nil {
+			log.Printf("[err]: %v", err)
+			os.Exit(1)
+		}
 	}
 
 	player = newBeepPlayer(text, next)
@@ -80,12 +61,20 @@ func main() {
 	wg.Add(1)
 	go run(quit)
 
+	// NOTE: this will prevent logging to os.Stderr, while app is running
+	// FIXME: this should be reworked completely
+	if opt.logFile != nil {
+		log.Default().SetOutput(opt.logFile)
+	} else {
+		log.Default().SetOutput(io.Discard)
+	}
+
 loop:
 	for {
 		select {
 
-		case <-quit:
-			writeToLogFile("[ext]:main loop exit")
+		case code = <-quit:
+			log.Println("[ext]: main loop exit")
 			break loop
 
 		case <-update:
@@ -94,9 +83,9 @@ loop:
 		case text := <-text:
 			switch text := text.(type) {
 			case string:
-				writeToLogFile("[dbg]: " + text)
+				log.Printf("[dbg]: %s", text)
 			case error:
-				writeToLogFile("[err]: " + text.Error())
+				log.Printf("[err]: %v", text)
 				window.sendEvent(newErrorMessage(text))
 			}
 
@@ -111,26 +100,40 @@ loop:
 	ticker.Stop()
 	wg.Wait()
 
-	if *debug {
-		writeToLogFile("[ext]: closing debug file")
-		err := logFile.Close()
-		if err != nil {
-			exitCode = 1
-		}
+	// FIXME: this should be reworked
+	if opt.logFile != nil {
+		log.Default().SetOutput(io.MultiWriter(os.Stderr, opt.logFile))
+	} else {
+		log.Default().SetOutput(os.Stderr)
 	}
 
-	if *cpuprofile != "" {
+	if opt.cpuProfile != "" {
 		pprof.StopCPUProfile()
 	}
 
-	if *memprofile != "" {
-		file, err := os.Create(*memprofile)
-		checkFatalError(err)
-		defer file.Close()
-		runtime.GC()
-		err = pprof.WriteHeapProfile(file)
-		checkFatalError(err)
+	if opt.memProfile != "" {
+		file, err := os.Create(opt.memProfile)
+		if err != nil {
+			log.Printf("[err]: %v", err)
+			code = 1
+		} else {
+			defer file.Close()
+			runtime.GC()
+			err = pprof.WriteHeapProfile(file)
+			if err != nil {
+				log.Printf("[err]: %v", err)
+				code = 1
+			}
+		}
 	}
 
-	os.Exit(exitCode)
+	if opt.logFile != nil {
+		log.Println("[ext]: closing debug file")
+		log.Default().SetOutput(os.Stderr)
+		if err := opt.logFile.Close(); err != nil {
+			code = 1
+		}
+	}
+
+	os.Exit(code)
 }

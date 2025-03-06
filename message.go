@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"time"
 
 	"github.com/gdamore/tcell/v2"
@@ -13,22 +14,15 @@ type messageBox struct {
 
 func (message *messageBox) HandleEvent(event tcell.Event) bool {
 
-	if *debug {
-		switch event := event.(type) {
+	switch event := event.(type) {
 
-		case *eventMessage:
-			logFile.WriteString(event.When().Format(time.ANSIC) + "[msg]:" + event.String() + "\n")
-			message.SetText(event.String())
-			return true
+	case *eventMessage:
+		log.Printf("[msg]: %s %s", event.When().Format(time.ANSIC), event)
+		message.SetText(event.String())
+		return true
 
-		case *eventErrorMessage:
-
-			logFile.WriteString(event.When().Format(time.ANSIC) + "[err]:" + event.String() + "\n")
-			message.SetText(event.String())
-			return true
-		}
-
-	} else if event, ok := event.(textEvents); ok {
+	case *eventErrorMessage:
+		log.Printf("[err]: %s %s", event.When().Format(time.ANSIC), event)
 		message.SetText(event.String())
 		return true
 	}

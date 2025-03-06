@@ -2,7 +2,9 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"math/rand"
+	"os"
 	"strconv"
 	"time"
 
@@ -69,7 +71,7 @@ type windowLayout struct {
 
 	width       int
 	height      int
-	orientation int
+	orientation views.Orientation
 	hMargin     int
 	vMargin     int
 
@@ -106,13 +108,10 @@ func (window *windowLayout) sendEvent(event tcell.Event) {
 	switch event := event.(type) {
 
 	// FIXME: may cause issues actually
+	// there was if before, and second branch did not return?
 	case *eventDebugMessage:
-		if *debug {
-			logFile.WriteString(event.When().Format(time.ANSIC) + "[dbg]:" +
-				event.String() + "\n")
-		} else {
-			return
-		}
+		log.Printf("[dbg]: %s %s", event.When().Format(time.ANSIC), event)
+		return
 
 	case *eventUpdate:
 		if window.screen != nil {
@@ -320,25 +319,27 @@ func (window *windowLayout) HandleEvent(event tcell.Event) bool {
 			window.sendEvent(newDebugMessage(fmt.Sprint(window.searchResults)))
 			return true
 
-		// forcefully clear all playlist data, even if playback already started
-		case tcell.KeyCtrlS:
-			if *debug {
-				window.playlist = nil
-			}
+			// FIXME: remove? global variable debug was removed
+			//	// forcefully clear all playlist data, even if playback already started
+			//	case tcell.KeyCtrlS:
+			//		if *debug {
+			//			window.playlist = nil
+			//		}
 
 		// recolor everything in random colors
 		// if debug flag is not set color everything in one random style
 		case tcell.KeyCtrlT:
 			window.accentColor = getRandomColor()
-			if *debug {
-				for _, widget := range window.widgets {
-					widget.SetStyle(getRandomStyle())
-				}
-				window.style = getRandomStyle()
-				window.accentColor = getRandomColor()
-			} else {
-				window.setTheme(5)
-			}
+			// FIXME: same as above
+			// if *debug {
+			// 	for _, widget := range window.widgets {
+			// 		widget.SetStyle(getRandomStyle())
+			// 	}
+			// 	window.style = getRandomStyle()
+			// 	window.accentColor = getRandomColor()
+			// } else {
+			window.setTheme(5)
+			// }
 			return true
 
 		case tcell.KeyRune:
@@ -620,8 +621,11 @@ func init() {
 	// create new screen to gain access to actual terminal dimensions
 	// works on unix and windows, unlike ascii2image dependency
 	s, err := tcell.NewScreen()
+	if err != nil {
+		log.Println(err)
+		os.Exit(1)
+	}
 	window.screen = &screen{s}
-	checkFatalError(err)
 	app.SetScreen(window.screen)
 	app.SetRootWidget(window)
 }

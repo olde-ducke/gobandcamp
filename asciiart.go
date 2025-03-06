@@ -230,7 +230,8 @@ func (model *artModel) refitArt() {
 func getPlaceholderImage() image.Image {
 	cover, err := png.Decode(bytes.NewReader(gopherPNG))
 	if err != nil {
-		checkFatalError(err)
+		// TODO: use sync.Once to decode first time only?
+		panic(err)
 	}
 	return cover
 }
