@@ -595,7 +595,7 @@ func (model *searchResultsModel) update() {
 
 			fmt.Fprintf(&model.sbuilder, "    %s%d%s %s, %s%0.f%s minutes",
 				styleStart, item.TrackCount, styleEnd, tracks,
-				styleStart, math.Round(item.ItemDuration/60.0), styleEnd)
+				styleStart, math.Round(item.Duration/60.0), styleEnd)
 		}
 
 		model.sbuilder.WriteByte('\n')
@@ -646,7 +646,7 @@ func (model *searchResultsModel) triggerNewDownload(currPos, offy int) {
 		}
 	}
 
-	artID := window.searchResults.Results[currPos].ItemImageID
+	artID := window.searchResults.Results[currPos].PrimaryImage.ImageId
 	url := window.getImageURL(artID)
 	if url == "" {
 		window.sendEvent(newCoverDownloaded(nil, ""))

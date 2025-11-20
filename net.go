@@ -203,6 +203,13 @@ func downloadCover(link string) {
 
 func processTagPage(args arguments) {
 	defer wg.Done()
+
+	slice, err := SliceFromString(args.sort)
+	if err != nil {
+		window.sendEvent(newErrorMessage(err))
+		return
+	}
+
 	window.sendEvent(newMessage("fetching data..."))
 
 	result, err := makeDiscoverRequest(&DiscoverRequest{
@@ -211,7 +218,7 @@ func processTagPage(args arguments) {
 		GeonameID:          0,
 		IncludeResultTypes: []string{"a"},
 		Size:               60,
-		Slice:              args.sort,
+		Slice:              slice,
 		TagNormNames:       args.tags,
 	})
 	if err != nil {
@@ -280,24 +287,25 @@ func makeDiscoverRequest(req *DiscoverRequest) (*DiscoverResult, error) {
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)
 
-	if err := enc.Encode(&req); err != nil {
+	if err := enc.Encode(req); err != nil {
 		return nil, fmt.Errorf("failed to encode request: %w", err)
 	}
 
-	window.sendEvent(newDebugMessage(req.String()))
-
-	request, err := http.NewRequest("POST",
-		"https://bandcamp.com/api/discover/1/discover_web", &buf)
+	r, err := http.NewRequest(
+		http.MethodPost,
+		"https://bandcamp.com/api/discover/1/discover_web",
+		&buf,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	request.Header.Set("Accept", "*/*")
-	request.Header.Set("Accept-Encoding", "gzip, deflate")
-	request.Header.Set("Content-Type", "application/json; charset=UTF-8")
-	request.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 12_0_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/95.0.4638.69 Safari/537.36")
+	r.Header.Set("Accept", "*/*")
+	r.Header.Set("Accept-Encoding", "gzip, deflate")
+	r.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64; rv:120.0) Gecko/20100101 Firefox/120.0")
+	r.Header.Set("Content-Type", "application/json; charset=UTF-8")
 
-	resp, err := client.Do(request)
+	resp, err := client.Do(r)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
@@ -308,7 +316,6 @@ func makeDiscoverRequest(req *DiscoverRequest) (*DiscoverResult, error) {
 		if err != nil {
 			return nil, fmt.Errorf("got unexpected response: %s\n%w", resp.Status, err)
 		}
-
 		return nil, fmt.Errorf("got unexpected response: %s\n%s", resp.Status, data)
 	}
 
@@ -343,16 +350,19 @@ func makeDiscoverRequest(req *DiscoverRequest) (*DiscoverResult, error) {
 		dec = json.NewDecoder(resp.Body)
 	}
 
-	// dec.DisallowUnknownFields()
+	if !RelaxedDecode {
+		dec.DisallowUnknownFields()
+	}
 
 	if err := dec.Decode(result); err != nil {
-		return nil, fmt.Errorf("failed to read response: %w\n%+v", err, resp.Header)
+		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
 	if result.ErrorType != "" {
-		return nil, fmt.Errorf("got api error: %s request: %s",
+		return result, fmt.Errorf("got api error: %s request: %s",
 			result.ErrorType, req)
 	}
 
 	return result, nil
+
 }

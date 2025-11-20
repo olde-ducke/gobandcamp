@@ -242,92 +242,124 @@ func FormatFromString(input string) (Format, error) {
 	}
 }
 
+type Slice string
+
+const (
+	BestSelling Slice = "top"
+	NewArrivals Slice = "new"
+	SurpriseMe  Slice = "rand"
+)
+
+func SliceFromString(input string) (Slice, error) {
+	out := Slice(input)
+	switch out {
+	case BestSelling, NewArrivals, SurpriseMe:
+		return out, nil
+	default:
+		return "", errors.New("unknown slice: \"" + input + "\"")
+	}
+}
+
+var (
+	PrettyJSON    bool
+	RelaxedDecode bool
+)
+
+func marshalToString(in any) string {
+	var sb strings.Builder
+	defer sb.Reset()
+
+	enc := json.NewEncoder(&sb)
+	enc.SetEscapeHTML(false)
+
+	if PrettyJSON {
+		enc.SetIndent("", "    ")
+	}
+
+	if err := enc.Encode(&in); err != nil {
+		return err.Error()
+	}
+
+	return sb.String()
+
+}
+
 type DiscoverRequest struct {
 	CategoryID         Format   `json:"category_id"`
 	Cursor             string   `json:"cursor"`
 	GeonameID          int64    `json:"geoname_id"`
 	IncludeResultTypes []string `json:"include_result_types"`
 	Size               int64    `json:"size"`
-	Slice              string   `json:"slice"`
+	Slice              Slice    `json:"slice"`
 	TagNormNames       []string `json:"tag_norm_names"`
 }
 
 func (req DiscoverRequest) String() string {
-	var sb strings.Builder
-	defer sb.Reset()
+	return marshalToString(&req)
+}
 
-	enc := json.NewEncoder(&sb)
-	enc.SetEscapeHTML(false)
+type Image struct {
+	ImageId uint64 `json:"image_id"`
+	IsArt   bool   `json:"is_art"`
+}
 
-	if err := enc.Encode(&req); err != nil {
-		return err.Error()
-	}
+type Price struct {
+	Amount   int64  `json:"amount"`
+	Currency string `json:"currency"`
+	IsMoney  bool   `json:"is_money"`
+}
 
-	return sb.String()
+type FeaturedTrack struct {
+	ID        uint64  `json:"id"`
+	Title     string  `json:"title"`
+	BandName  string  `json:"band_name"`
+	BandID    uint64  `json:"band_id"`
+	StreamURL string  `json:"stream_url"`
+	Duration  float64 `json:"duration"`
+}
+
+// TODO: added only bare minimum, did I?
+type Result struct {
+	ItemID          uint64           `json:"item_id"`
+	ItemType        string           `json:"item_type"`
+	ResultType      string           `json:"result_type"`
+	Title           string           `json:"title"`
+	ItemURL         string           `json:"item_url"`
+	PrimaryImage    Image            `json:"primary_image"`
+	AddlImages      any              `json:"addl_images"`
+	BandID          uint64           `json:"band_id"`
+	AlbumArtist     *string          `json:"album_artist"`
+	BandName        string           `json:"band_name"`
+	BandURL         string           `json:"band_url"`
+	IsFreeDownload  bool             `json:"is_free_download"`
+	IsSetPrice      bool             `json:"is_set_price"`
+	Price           Price            `json:"price"`
+	BandGenreID     uint64           `json:"band_genre_id"`
+	BandLocation    string           `json:"band_location"`
+	FeaturedTrack   FeaturedTrack    `json:"featured_track"`
+	IsAlbumPreorder bool             `json:"is_album_preorder"`
+	ReleaseDate     string           `json:"release_date"`
+	TrackCount      uint64           `json:"track_count"`
+	Duration        float64          `json:"duration"`
+	IsWishlisted    bool             `json:"is_wishlisted"`
+	IsOwned         bool             `json:"is_owned"`
+	PackageInfo     []map[string]any `json:"package_info"`
+	BandImage       Image            `json:"band_image"`
+	IsFollowingBand bool             `json:"is_following_band"`
 }
 
 type DiscoverResult struct {
-	Request          *DiscoverRequest `json:"-"`
-	Results          []Result         `json:"results"`
-	ResultCount      uint64           `json:"result_count"`
-	BatchResultCount uint64           `json:"batch_result_count"`
-	Cursor           *string          `json:"cursor"`
-	DiscoverSpecID   int64            `json:"discover_spec_id"`
-	APISpecial       string           `json:"__api_special__,omitempty"`
-	ErrorType        string           `json:"error_type,omitempty"`
+	Request                 *DiscoverRequest `json:"-"`
+	Results                 []Result         `json:"results"`
+	BatchResultCount        uint64           `json:"batch_result_count"`
+	ResultCount             uint64           `json:"result_count"`
+	DiscoverSpecID          int64            `json:"discover_spec_id"`
+	IsFollowingDiscoverSpec any              `json:"is_following_discover_spec"`
+	Cursor                  *string          `json:"cursor"`
+	APISpecial              string           `json:"__api_special__,omitempty"`
+	ErrorType               string           `json:"error_type,omitempty"`
 }
-
-// TODO: added only bare minimum
-type Result struct {
-	ItemURL      string  `json:"item_url"`
-	ResultType   string  `json:"result_type"`
-	ItemImageID  uint64  `json:"item_image_id"`
-	AlbumArtist  *string `json:"album_artist"`
-	BandName     string  `json:"band_name"`
-	ReleaseDate  string  `json:"release_date"`
-	ItemDuration float64 `json:"item_duration"`
-	Title        string  `json:"title"`
-	TrackCount   uint64  `json:"track_count"`
-}
-
-/*
-func formatResult(result map[string]any) {
-	var by any
-	if result["album_artist"] != nil {
-		by = result["album_artist"]
-	} else {
-		by = result["band_name"]
-	}
-
-	t, err := time.Parse("2006-01-02 15:04:05 MST", result["release_date"].(string))
-	if err != nil {
-		e.Println(err)
-		return
-	}
-
-	d := math.Round(result["item_duration"].(float64) / 60.0)
-
-	l.Printf("\x1b[1m%v\x1b[0m\nby \x1b[1m%v\x1b[0m\n%v tracks, %.0f minutes\nreleased %s\n%v",
-		result["title"],
-		by,
-		result["track_count"],
-		d,
-		t.Format("January 02, 2006"),
-		result["item_url"],
-	)
-}
-*/
 
 func (res DiscoverResult) String() string {
-	var sb strings.Builder
-	defer sb.Reset()
-
-	enc := json.NewEncoder(&sb)
-	enc.SetEscapeHTML(false)
-
-	if err := enc.Encode(&res); err != nil {
-		return err.Error()
-	}
-
-	return sb.String()
+	return marshalToString(&res)
 }
