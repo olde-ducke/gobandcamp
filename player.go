@@ -1,16 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
+	"math"
 	"math/rand"
 	"time"
 
-	"github.com/faiface/beep"
-	"github.com/faiface/beep/mp3"
-	"github.com/faiface/beep/speaker"
+	"github.com/hajimehoshi/ebiten/v2/audio"
+	"github.com/hajimehoshi/ebiten/v2/audio/mp3"
 )
-
-const defaultSampleRate beep.SampleRate = 48000
 
 type playbackMode int
 
@@ -37,6 +36,7 @@ const (
 	skipFWD
 )
 
+// FIXME: this does not belong here
 // □ ▹ ▯▯ ◃◃ ▹▹ ▯◃ ▹▯
 // fancy stuff, but doesn't work everywhere
 func (status playbackStatus) String() string {
@@ -45,12 +45,14 @@ func (status playbackStatus) String() string {
 		"\u25b9\u25af"}[status]
 }
 
-type beepPlayer struct {
+type streamPlayer struct {
 	currentTrack int
 	totalTracks  int
-	stream       *mediaStream
-	format       beep.Format
+	p            *audio.Player
+	ctx          *audio.Context
 	timeStep     time.Duration
+	duration     time.Duration
+	sampleRate   int
 
 	status         playbackStatus
 	bufferedStatus playbackStatus
@@ -62,363 +64,357 @@ type beepPlayer struct {
 	next chan<- struct{}
 }
 
-func newBeepPlayer(text chan<- interface{}, next chan<- struct{}) *beepPlayer {
-	initializeDevice()
-	return &beepPlayer{timeStep: 2, text: text, next: next}
-}
-
-// device initialization
-func initializeDevice() {
-	// TODO: add setting sample rate
-	sr := beep.SampleRate(defaultSampleRate)
-	speaker.Init(sr, sr.N(time.Second/10))
-}
-
-func (player *beepPlayer) raiseVolume() {
-	player.volume += 0.5
-
-	if player.volume > 0.0 {
-		player.volume = 0.0
-	}
-
-	player.muted = false
-
-	player.setVolume()
-}
-
-func (player *beepPlayer) lowerVolume() {
-	player.volume -= 0.5
-	if player.volume < -10.0 {
-		player.volume = -10.0
-	}
-
-	if player.volume < -9.6 {
-		player.muted = true
-	}
-
-	player.setVolume()
-}
-
-func (player *beepPlayer) setVolume() {
-	if player.isReady() {
-		speaker.Lock()
-		player.stream.volume.Silent = player.muted
-		player.stream.volume.Volume = player.volume
-		speaker.Unlock()
+func newPlayer(sampleRate int, text chan<- interface{}, next chan<- struct{}) *streamPlayer {
+	ctx := audio.NewContext(sampleRate)
+	return &streamPlayer{
+		ctx:        ctx,
+		timeStep:   2 * time.Second,
+		sampleRate: sampleRate,
+		volume:     1.0,
+		text:       text,
+		next:       next,
 	}
 }
 
-func (player *beepPlayer) mute() {
-	player.muted = !player.muted
-	if player.isReady() {
-		speaker.Lock()
-		player.stream.volume.Silent = player.muted
-		speaker.Unlock()
+func (p *streamPlayer) raiseVolume() {
+	p.volume += 0.05
+
+	if p.volume > 1.0 {
+		p.volume = 1.0
+	}
+
+	p.muted = false
+
+	p.setVolume()
+}
+
+func (p *streamPlayer) lowerVolume() {
+	p.volume -= 0.05
+	if p.volume < 0.0 {
+		p.volume = 0.0
+	}
+
+	if p.volume < 0.01 {
+		p.muted = true
+	}
+
+	p.setVolume()
+}
+
+func (p *streamPlayer) setVolume() {
+	if p.p != nil {
+		p.p.SetVolume(p.adjustedVolume())
 	}
 }
 
-func (player *beepPlayer) getVolume() string {
-	if player.muted {
+func (p *streamPlayer) mute() {
+	p.muted = !p.muted
+	if p.p != nil {
+		if p.muted {
+			p.p.SetVolume(0.0)
+			return
+		}
+
+		p.p.SetVolume(p.adjustedVolume())
+	}
+}
+
+func (p *streamPlayer) getVolume() string {
+	if p.muted {
 		return "mute"
-	} else {
-		return fmt.Sprintf("%4.0f", (100 + player.volume*10))
 	}
+	return fmt.Sprintf("%4.0f", p.volume*100)
 }
 
-func (player *beepPlayer) getCurrentTrack() int {
-	return player.currentTrack
+func (p *streamPlayer) getCurrentTrack() int {
+	return p.currentTrack
 }
 
-func (player *beepPlayer) getPlaybackMode() string {
-	return player.playbackMode.String()
+func (p *streamPlayer) getPlaybackMode() string {
+	return p.playbackMode.String()
 }
 
-func (player *beepPlayer) getStatus() playbackStatus {
-	if player.bufferedStatus < 0 {
-		return player.status
+func (p *streamPlayer) getStatus() playbackStatus {
+	if p.bufferedStatus < 0 {
+		return p.status
 	}
-	status := player.bufferedStatus
-	player.bufferedStatus = -1
+	status := p.bufferedStatus
+	p.bufferedStatus = -1
 	return status
 }
 
-func (player *beepPlayer) seek(forward bool) bool {
-	if !player.isPlaying() || !player.isPlaying() {
+func (p *streamPlayer) seek(forward bool) bool {
+	if !p.isPlaying() {
 		return false
 	}
 
-	var pos = player.format.SampleRate.N(time.Second * player.timeStep)
+	if p.p == nil {
+		return false
+	}
 
+	pos := p.p.Position()
+
+	offset := p.timeStep
 	if forward {
-		player.bufferedStatus = seekFWD
+		p.bufferedStatus = seekFWD
 	} else {
-		player.bufferedStatus = seekBWD
-		pos *= -1
+		p.bufferedStatus = seekBWD
+		offset *= -1
 	}
 
-	speaker.Lock()
-	newPos := player.stream.streamer.Position()
-	newPos += pos
-
-	if newPos < 0 {
-		newPos = 0
+	pos += offset
+	if pos < 0 {
+		pos = 0
+	} else if pos > p.duration {
+		pos = p.duration
 	}
 
-	if newPos >= player.stream.streamer.Len() {
-		// FIXME: crashes when seeking past ending of the last track
-		// if offset from end to -5, it doesn't crash
-		// crashes only on len -1, -2, -3, -4
-		// -5 - or less fine, 0 - fine, but errors with EOF
-		// crashes with index out of range in beep sources
-		newPos = player.stream.streamer.Len()
-	}
-
-	if err := player.stream.streamer.Seek(newPos); err != nil {
-		// FIXME:
-		// sometimes reports errors, for example this one:
-		// https://github.com/faiface/beep/issues/116
-		// causes track to skip, again, only sometimes
-		// NOTE: ignore EOF entirely, jumping straight to the end
-		// doesn't seem to break anything and fixes crashes described
-		// above, all other errors just reported on screen, nothing
-		// could be done about them (?)
-		if err.Error() != "mp3: EOF" {
-			player.text <- err
+	if err := p.p.SetPosition(pos); err != nil {
+		if err != nil {
+			p.text <- err
 		}
 	}
-	speaker.Unlock()
 
 	return true
 }
 
-func (player *beepPlayer) resetPosition() {
-	if player.isReady() {
-		player.text <- "reset position"
-		speaker.Lock()
-		if err := player.stream.streamer.Seek(0); err != nil {
-			player.text <- err
-		}
-		speaker.Unlock()
+func (p *streamPlayer) resetPosition() {
+	p.text <- "reset position"
+	if err := p.p.Rewind(); err != nil {
+		p.text <- err
 	}
 }
 
-func (player *beepPlayer) getCurrentTrackPosition() time.Duration {
-	if player.isReady() {
-		speaker.Lock()
-		position := player.format.SampleRate.D(player.stream.
-			streamer.Position()).Round(time.Second)
-		speaker.Unlock()
-		return position
+func (p *streamPlayer) getCurrentTrackPosition() time.Duration {
+	if p.p != nil {
+		return p.p.Position().Truncate(time.Second)
 	}
 	return 0
 }
 
 // play/pause/seekFWD/seekBWD count as active state
-func (player *beepPlayer) isPlaying() bool {
-	return player.status == playing || player.status == paused
+func (p *streamPlayer) isPlaying() bool {
+	return p.status == playing || p.status == paused
 }
 
-func (player *beepPlayer) isReady() bool {
-	return player.stream != nil
-}
-
-func (player *beepPlayer) skip(forward bool) bool {
-	if player.totalTracks == 0 {
+func (p *streamPlayer) skip(direction int) bool {
+	if p.totalTracks == 0 {
 		return false
 	}
 
-	if player.playbackMode == random {
-		player.nextTrack()
+	if p.playbackMode == random {
+		p.nextTrack()
 		return true
 	}
 
-	player.text <- "skip track"
-	player.stop()
-	player.clearStream()
+	p.text <- "skip track"
+	p.stop()
+	p.clearStream()
 
-	if forward {
-		player.currentTrack = (player.currentTrack + 1) %
-			player.totalTracks
-		player.status = skipFWD
-	} else {
-		player.currentTrack = (player.totalTracks +
-			player.currentTrack - 1) %
-			player.totalTracks
-		player.status = skipBWD
+	switch {
+	case direction > 0:
+		p.currentTrack = (p.currentTrack + 1) %
+			p.totalTracks
+		fallthrough
+	case direction == 0:
+		p.status = skipFWD
+	case direction < 0:
+		p.currentTrack = (p.totalTracks +
+			p.currentTrack - 1) %
+			p.totalTracks
+		p.status = skipBWD
 	}
 
 	// TODO: remove after response reading cancellation is implemented
-	go player.delaySwitching()
+	go p.delaySwitching()
 	return true
 }
 
-func (player *beepPlayer) nextMode() {
-	player.playbackMode = (player.playbackMode + 1) % 4
+func (p *streamPlayer) nextMode() {
+	p.playbackMode = (p.playbackMode + 1) % 4
 }
 
-func (player *beepPlayer) nextTrack() {
-	player.text <- "next track"
-	switch player.playbackMode {
+func (p *streamPlayer) nextTrack() {
+	p.text <- "next track"
+	switch p.playbackMode {
 
 	case random:
 		var previousTrack int
 
-		if player.totalTracks > 1 {
-			rand.Seed(time.Now().UnixNano())
-			previousTrack = player.currentTrack
+		if p.totalTracks > 1 {
+			previousTrack = p.currentTrack
 			// never play same track again if random
-			for player.currentTrack == previousTrack {
-				player.currentTrack = rand.Intn(player.totalTracks)
+			for p.currentTrack == previousTrack {
+				p.currentTrack = rand.Intn(p.totalTracks)
 			}
 		}
-		player.stop()
+		p.stop()
 
-		if player.currentTrack >= previousTrack {
-			player.status = skipFWD
+		if p.currentTrack >= previousTrack {
+			p.status = skipFWD
 		} else {
-			player.status = skipBWD
+			p.status = skipBWD
 		}
 
-		player.clearStream()
-		go player.delaySwitching()
+		p.clearStream()
+		go p.delaySwitching()
 
-	// beep does have loop one, but stream should be set
-	// up to loop from the very start to play indefinetly,
-	// which is not ideal
 	case repeatOne:
-		// doesn't work without position reset?
-		player.resetPosition()
-		player.restart()
+		p.skip(0)
 
 	case repeat:
-		player.skip(true)
+		p.skip(1)
 
 	case normal:
-		if player.currentTrack == player.totalTracks-1 {
-			// prepare new stream for playback again
-			// and immediately stop it
-			player.restart()
-			player.stop()
+		if p.currentTrack == p.totalTracks-1 {
+			p.stop()
 			return
 		}
-		player.skip(true)
+		p.skip(1)
 	}
 }
 
 // to prevent downloading every item on fast track switching
 // probably dumb idea
-func (player *beepPlayer) delaySwitching() {
-	track := player.currentTrack
+func (p *streamPlayer) delaySwitching() {
+	track := p.currentTrack
+
 	time.Sleep(time.Second / 2)
-	if track == player.currentTrack {
-		window.sendEvent(newTrack(player.currentTrack))
+
+	if track == p.currentTrack {
+		window.sendEvent(newTrack(p.currentTrack))
 	}
 }
 
-func (player *beepPlayer) setTrack(track int) {
-	player.stop()
-	player.clearStream()
-	if track >= player.currentTrack {
-		player.status = skipFWD
+func (p *streamPlayer) setTrack(track int) {
+	p.stop()
+	p.clearStream()
+	if track >= p.currentTrack {
+		p.status = skipFWD
 	} else {
-		player.status = skipBWD
+		p.status = skipBWD
 	}
-	player.currentTrack = track
-	go player.delaySwitching()
+	p.currentTrack = track
+	go p.delaySwitching()
 }
 
-func (player *beepPlayer) play(key string) {
-	//player.clear()
-	//player.currentTrack = track
-	streamer, format, err := mp3.Decode(wrapInRSC(key))
-	if err != nil {
-		player.text <- err
+func (p *streamPlayer) play(key string) {
+	// FIXME: this code does not belong here
+	value, ok := cache.get(key)
+	if !ok {
+		p.text <- "missing cache entry"
 		return
 	}
-	speaker.Lock()
-	player.format = format
-	player.stream = newStream(format.SampleRate, streamer, player.volume, player.muted)
-	player.status = playing
-	speaker.Unlock()
-	player.text <- "playback started"
-	// deadlocks if anything speaker related is done inside callback
-	// since it's locking device itself
-	speaker.Play(beep.Seq(player.stream.volume, beep.Callback(
-		func() {
-			player.next <- struct{}{}
-		})))
+
+	// FIXME: there are a lot of mental acrobatics below just
+	//        to get real duration out of the stream and not
+	//        from server response, this is needed to not get
+	//        out of bounds when setting postition, which is
+	//        for some reason is not done automagically
+	s, err := mp3.DecodeF32(bytes.NewReader(value))
+	if err != nil {
+		p.text <- err
+		return
+	}
+
+	// this function returns interface, which does not
+	// implement Length() int64, why?
+	r := audio.ResampleReaderF32(s, s.Length(), s.SampleRate(), p.sampleRate)
+
+	stream := newCallback(r, func() { p.next <- struct{}{} })
+
+	if p.p != nil {
+		p.p.Close()
+	}
+
+	size := r.(length).Length()
+
+	p.duration = time.Duration(size/(2*int64(p.sampleRate)*4)) * time.Second
+
+	p.p, err = p.ctx.NewPlayerF32(stream)
+	if err != nil {
+		p.text <- err
+		return
+	}
+
+	p.status = playing
+
+	if p.muted {
+		p.p.SetVolume(0.0)
+	} else {
+		p.p.SetVolume(p.adjustedVolume())
+	}
+
+	p.text <- "playback started"
+	p.p.Play()
 }
 
-func (player *beepPlayer) restart() {
-	player.text <- "restart playback"
-	speaker.Clear()
-	speaker.Play(beep.Seq(player.stream.volume, beep.Callback(
-		func() {
-			player.next <- struct{}{}
-		})))
-	player.status = playing
+func (p *streamPlayer) restart() {
+	p.text <- "restart playback"
+	if p.p != nil {
+		p.resetPosition()
+		p.p.Play()
+		p.status = playing
+	}
 }
 
 // stop is actually pause with position reset
-func (player *beepPlayer) stop() {
-	player.text <- "playback stopped"
-	player.status = stopped
-	if player.isReady() {
-		player.resetPosition()
-		speaker.Lock()
-		player.stream.ctrl.Paused = true
-		speaker.Unlock()
+func (p *streamPlayer) stop() {
+	p.text <- "playback stopped"
+	if p.p != nil {
+		p.resetPosition()
+		p.p.Pause()
+		p.status = stopped
 	}
 }
 
-func (player *beepPlayer) clearStream() {
-	player.text <- "clearing buffer"
-	speaker.Clear()
-	if player.isReady() {
-		speaker.Lock()
-		err := player.stream.streamer.Close()
-		player.stream = nil
-		speaker.Unlock()
+func (p *streamPlayer) clearStream() {
+	p.text <- "clearing buffer"
+	if p.p != nil {
+		err := p.p.Close()
+		p.p = nil
+		p.duration = 0
 		if err != nil {
-			player.text <- err
+			p.text <- err
 		}
 	}
 }
 
-/*
-func (player *beepPlayer) bufferStatus(newStatus playbackStatus) {
-	if player.status != seekBWD && player.status != seekFWD {
-		player.bufferedStatus = player.status
-		player.status = newStatus
-	}
-}
-*/
-
-func (player *beepPlayer) playPause() bool {
-	if !player.isReady() {
+func (p *streamPlayer) playPause() bool {
+	if p.p == nil {
 		return false
 	}
 
-	if player.status == seekBWD || player.status == seekFWD {
-		player.status = player.bufferedStatus
+	if p.status == seekBWD || p.status == seekFWD {
+		p.status = p.bufferedStatus
 	}
 
-	switch player.status {
+	switch p.status {
 
 	case paused, stopped:
-		player.status = playing
+		p.status = playing
+		p.p.Play()
 
 	case playing:
-		player.status = paused
+		p.status = paused
+		p.p.Pause()
 
 	default:
 		return false
-
 	}
 
-	speaker.Lock()
-	player.stream.ctrl.Paused = !player.stream.ctrl.Paused
-	speaker.Unlock()
-
 	return true
+}
+
+func (p *streamPlayer) Close() error {
+	if p.p != nil {
+		return p.p.Close()
+	}
+
+	return nil
+}
+
+func (p *streamPlayer) adjustedVolume() float64 {
+	// https://forum.gamemaker.io/index.php?threads/master-sound-volume-conversion-logarithmic-linear.85575/
+	return math.Pow(10, p.volume*3-1) / 100
 }

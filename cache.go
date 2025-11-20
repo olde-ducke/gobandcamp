@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"container/list"
 	"sync"
 )
@@ -64,27 +63,3 @@ func (fifo *FIFO) dump() {
 	}
 }
 */
-
-// response.Body doesn't implement Seek() method
-// beep isn't bothered by this, but trying to
-// call Seek() will fail since Len() will always return 0
-// by using bytes.Reader and implementing empty Close() method
-// we get io.ReadSeekCloser, which satisfies requirements of beep streamers
-// (need ReadCloser) and implements Seek() method
-// TODO: remove later
-
-type bytesReadSeekCloser struct {
-	*bytes.Reader
-}
-
-func (c bytesReadSeekCloser) Close() error {
-	return nil
-}
-
-func wrapInRSC(key string) *bytesReadSeekCloser {
-	value, ok := cache.get(key)
-	if !ok {
-		return &bytesReadSeekCloser{bytes.NewReader([]byte{0})}
-	}
-	return &bytesReadSeekCloser{bytes.NewReader(value)}
-}

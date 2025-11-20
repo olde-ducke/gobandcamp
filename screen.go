@@ -110,7 +110,7 @@ func (window *windowLayout) sendEvent(event tcell.Event) {
 	// FIXME: may cause issues actually
 	// there was if before, and second branch did not return?
 	case *eventDebugMessage:
-		log.Printf("[dbg]: %s %s", event.When().Format(time.ANSIC), event)
+		log.Println("[dbg]:", event)
 		return
 
 	case *eventUpdate:
@@ -406,17 +406,22 @@ func (window *windowLayout) handlePlayerControls(key rune) bool {
 		return true
 
 	case 'b', 'B':
+		// FIXME: this code should not be here
 		// jump to start instead of previous track if current position
 		// after 3 second mark
 		if player.getCurrentTrackPosition() > time.Second*3 {
-			player.resetPosition()
+			if player.isPlaying() {
+				player.restart()
+			} else {
+				player.stop()
+			}
 			return true
 		} else {
-			return player.skip(false)
+			return player.skip(-1)
 		}
 
 	case 'f', 'F':
-		return player.skip(true)
+		return player.skip(1)
 
 	case 'p', 'P':
 		if player.isPlaying() {
@@ -568,25 +573,6 @@ func (s *spacer) Size() (int, int) {
 	}
 	return window.hMargin, window.vMargin
 }
-
-/* func getDummyData() *album {
-	return &album{
-		single:      false,
-		album:       true,
-		imageSrc:    "",
-		title:       "---",
-		artist:      "---",
-		date:        "---",
-		url:         "https://golang.org",
-		tags:        "gopher music png",
-		totalTracks: 1,
-		tracks: []track{{
-			trackNumber: 1,
-			title:       "---",
-			duration:    0.0,
-		}},
-	}
-} */
 
 func init() {
 	var err error

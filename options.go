@@ -125,12 +125,15 @@ type options struct {
 	httpsProxy             string
 	noProxy                string
 	promptProxyCredentials bool
+	sampleRate             int
 
 	logFile *os.File
 }
 
 func readOptions() (int, *options) {
-	opt := options{}
+	opt := options{
+		sampleRate: 44100,
+	}
 
 	var help, version bool
 
@@ -157,14 +160,20 @@ func readOptions() (int, *options) {
 	f.BoolVar(&version, "v", version, "show version and exit")
 	f.BoolVar(&opt.promptProxyCredentials, "w", opt.promptProxyCredentials,
 		"prompt proxy username and password")
+	f.IntVar(&opt.sampleRate, "sample-rate", opt.sampleRate,
+		"sample rate of player")
 
 	err := f.Parse(os.Args[1:])
 	if err != nil {
 		return 2, nil
-	} else if help {
+	}
+
+	if help {
 		f.Usage()
 		return 0, nil
-	} else if version {
+	}
+
+	if version {
 		info, ok := debug.ReadBuildInfo()
 		if ok {
 			fmt.Println(info)
@@ -176,18 +185,13 @@ func readOptions() (int, *options) {
 		return 1, nil
 	}
 
-	cfg := httpproxy.FromEnvironment()
-
-	if opt.debug {
-		f, err := os.Create("dump.log")
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			return 1, nil
-		}
-
-		opt.logFile = f
-		log.Default().SetOutput(io.MultiWriter(os.Stderr, f))
+	if args := f.Args(); len(args) > 0 {
+		fmt.Fprintf(os.Stderr,
+			"unexpected arguments, first one: %q\n", args[0])
+		return 2, nil
 	}
+
+	cfg := httpproxy.FromEnvironment()
 
 	var parseErr *url.Error
 
@@ -229,6 +233,24 @@ func readOptions() (int, *options) {
 		func(req *http.Request) (*url.URL, error) {
 			return proxyFunc(req.URL)
 		}
+
+	if opt.sampleRate <= 0 {
+		// FIXME: limit upper bound?
+		fmt.Fprintln(os.Stderr, "invalid sample rate value:", opt.sampleRate)
+		return 2, nil
+	}
+
+	// NOTE: open file as a last step, so it could be properly closed in main
+	if opt.debug {
+		f, err := os.Create("dump.log")
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1, nil
+		}
+
+		opt.logFile = f
+		log.Default().SetOutput(io.MultiWriter(os.Stderr, f))
+	}
 
 	return -1, &opt
 }

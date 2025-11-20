@@ -11,7 +11,7 @@ import (
 )
 
 var cache *FIFO
-var player *beepPlayer
+var player *streamPlayer
 var wg sync.WaitGroup
 
 func init() {
@@ -19,12 +19,13 @@ func init() {
 }
 
 func run(quit chan int) {
+	defer wg.Done()
+
 	if err := app.Run(); err != nil {
 		log.Printf("[err]: %v", err)
 		quit <- 1
 	}
 	quit <- 0
-	wg.Done()
 }
 
 func main() {
@@ -32,6 +33,7 @@ func main() {
 	if code >= 0 {
 		os.Exit(code)
 	}
+	defer opt.logFile.Close()
 
 	ticker := time.NewTicker(time.Second)
 	quit := make(chan int)
@@ -52,7 +54,7 @@ func main() {
 		}
 	}
 
-	player = newBeepPlayer(text, next)
+	player = newPlayer(opt.sampleRate, text, next)
 
 	// TODO: test if needed anymore
 	// window.recalculateBounds()
@@ -109,6 +111,11 @@ loop:
 
 	if opt.cpuProfile != "" {
 		pprof.StopCPUProfile()
+	}
+
+	if err := player.Close(); err != nil {
+		log.Printf("[err]: %v", err)
+		code = 1
 	}
 
 	if opt.memProfile != "" {
